@@ -1,39 +1,39 @@
 // ===============================
-// Mango Portfolio Tracker JS Core
+// Mango Mango 2.0 – Matching HTML
 // ===============================
 
-// Sidebar toggle
 document.addEventListener("DOMContentLoaded", () => {
-    const sidebar = document.querySelector(".sidebar");
-    const toggleBtn = document.querySelector(".toggle-btn");
 
-    if (toggleBtn) {
-        toggleBtn.addEventListener("click", () => {
+    // ---------------------------
+    // SIDEBAR COLLAPSE
+    // ---------------------------
+    const collapseBtn = document.getElementById("toggleSidebar");
+    const sidebar = document.getElementById("sidebar");
+
+    if (collapseBtn && sidebar) {
+        collapseBtn.addEventListener("click", () => {
             sidebar.classList.toggle("collapsed");
         });
     }
 
-    // Navigation handling
-    const navLinks = document.querySelectorAll(".nav-link");
-    const pages = document.querySelectorAll(".page");
+    // ---------------------------
+    // MOBILE MENU
+    // ---------------------------
+    const mobileMenu = document.getElementById("mobileMenu");
 
-    navLinks.forEach(link => {
-        link.addEventListener("click", () => {
-            const target = link.getAttribute("data-target");
-
-            pages.forEach(page => page.classList.add("hidden"));
-            document.getElementById(target).classList.remove("hidden");
-
-            navLinks.forEach(n => n.classList.remove("active"));
-            link.classList.add("active");
+    if (mobileMenu && sidebar) {
+        mobileMenu.addEventListener("click", () => {
+            sidebar.classList.toggle("open");
         });
-    });
+    }
 
-    // Dark mode toggle
-    const themeToggle = document.getElementById("theme-toggle");
+    // ---------------------------
+    // DARK MODE
+    // ---------------------------
+    const darkToggle = document.getElementById("darkModeToggle");
 
-    if (themeToggle) {
-        themeToggle.addEventListener("click", () => {
+    if (darkToggle) {
+        darkToggle.addEventListener("click", () => {
             document.body.classList.toggle("dark-mode");
 
             const mode = document.body.classList.contains("dark-mode")
@@ -44,35 +44,37 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         // Load saved theme
-        const savedTheme = localStorage.getItem("theme");
-        if (savedTheme === "dark") {
+        const saved = localStorage.getItem("theme");
+        if (saved === "dark") {
             document.body.classList.add("dark-mode");
         }
     }
 
-    // Dashboard animation
-    const counters = document.querySelectorAll(".counter");
+    // ---------------------------
+    // PAGE NAVIGATION
+    // ---------------------------
+    const links = document.querySelectorAll(".sidebar-nav a");
+    const sections = document.querySelectorAll(".page-section");
 
-    const animateCounters = () => {
-        counters.forEach(counter => {
-            const target = +counter.getAttribute("data-target");
-            const speed = 20;
+    links.forEach(link => {
+        link.addEventListener("click", () => {
+            const target = link.getAttribute("href").replace("#", "");
 
-            const update = () => {
-                const value = +counter.innerText;
-                const increment = Math.ceil(target / speed);
+            // Hide all sections
+            sections.forEach(sec => sec.classList.add("hidden"));
 
-                if (value < target) {
-                    counter.innerText = value + increment;
-                    setTimeout(update, 20);
-                } else {
-                    counter.innerText = target;
-                }
-            };
+            // Show target section
+            const page = document.getElementById(target);
+            if (page) page.classList.remove("hidden");
 
-            update();
+            // Update active link
+            links.forEach(l => l.classList.remove("active"));
+            link.classList.add("active");
+
+            // Update topbar title
+            const title = document.getElementById("pageTitle");
+            if (title) title.textContent = link.textContent.replace(/[^A-Za-z ]/g, "").trim();
         });
-    };
+    });
 
-    animateCounters();
 });
