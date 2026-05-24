@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mango Mango 2.0 – Portfolio Tracker</title>
+
+    <link rel="stylesheet" href="css/mango-sidebar.css">
+</head>
+
+<body>
+
+    <!-- SIDEBAR -->
+    <aside id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">🥭 Mango Mango</div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a href="#dashboard" class="active">📊 Dashboard</a>
+            <a href="#holdingsSection">📁 Holdings</a>
+            <a href="#tradesSection">🔁 Trades</a>
+            <a href="#dividendsSection">💰 Dividends</a>
+            <a href="#propertySection">🏠 Property</a>
+            <a href="#superSection">🦘 Super</a>
+            <a href="#taxSection">🧾 Tax</a>
+            <a href="#settingsSection">⚙️ Settings</a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <button id="toggleSidebar">⇤ Collapse</button>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main id="main">
+
+        <!-- TOP BAR -->
+        <header id="topbar">
+            <div class="left">
+                <button id="mobileMenu">☰</button>
+                <h1 id="pageTitle">Dashboard</h1>
+            </div>
+
+            <div class="right">
+                <select id="portfolioSelector"></select>
+                <button id="darkModeToggle">🌓</button>
+                <button id="exportJson">⬇ Export</button>
+            </div>
+        </header>
+
+        <!-- DASHBOARD -->
+        <section id="dashboard" class="page-section">
+            <h2>Portfolio Overview</h2>
+
+            <div class="card-grid">
+                <div class="card">
+                    <div class="card-title">Total Value</div>
+                    <div class="card-value" id="totalValue">$0</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Daily Change</div>
+                    <div class="card-value" id="dailyChange">$0</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">YTD Return</div>
+                    <div class="card-value" id="ytdReturn">0%</div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">Income (FY)</div>
+                    <div class="card-value" id="incomeFY">$0</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- HOLDINGS -->
+        <section id="holdingsSection" class="page-section">
+            <h2>Holdings</h2>
+            <table id="holdingsTable" class="table"></table>
+        </section>
+
+        <!-- TRADES -->
+        <section id="tradesSection" class="page-section">
+            <h2>Trades</h2>
+            <table id="tradesTable" class="table"></table>
+        </section>
+
+        <!-- DIVIDENDS -->
+        <section id="dividendsSection" class="page-section">
+            <h2>Dividends</h2>
+            <table id="dividendsTable" class="table"></table>
+        </section>
+
+        <!-- PROPERTY -->
+        <section id="propertySection" class="page-section">
+            <h2>Property</h2>
+            <div id="propertyContent">Property tracking coming soon.</div>
+        </section>
+
+        <!-- SUPER -->
+        <section id="superSection" class="page-section">
+            <h2>Super</h2>
+            <div id="superContent">Super tracking coming soon.</div>
+        </section>
+
+        <!-- TAX -->
+        <section id="taxSection" class="page-section">
+            <h2>Tax</h2>
+            <div id="taxContent">Tax tools coming soon.</div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="settingsSection" class="page-section">
+            <h2>Settings</h2>
+
+            <div class="settings-group">
+                <label>Cloud Sync Gist ID</label>
+                <input id="gistId">
+            </div>
+
+            <div class="settings-group">
+                <label>GitHub Token</label>
+                <input id="gistToken">
+            </div>
+
+            <div class="settings-group">
+                <label>Worker URL</label>
+                <input id="workerUrl">
+                <button id="testWorkerBtn">Test Worker</button>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- APP SCRIPT -->
+    <script src="js/mango-app.js"></script>
+
+</body>
+</html>
