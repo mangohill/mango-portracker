@@ -22,7 +22,7 @@ document.addEventListener("DOMContentLoaded", () => {
         workerUrl: ""
     };
 
-    // Default demo data (you can replace this with your real data later)
+    // Default demo data
     const demoData = {
         portfolios: [
             {
@@ -87,25 +87,15 @@ document.addEventListener("DOMContentLoaded", () => {
     function loadState() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY_DATA);
-            if (raw) {
-                appState = JSON.parse(raw);
-            } else {
-                appState = demoData;
-                saveState();
-            }
-        } catch (e) {
-            console.error("Failed to load app state, using demo:", e);
+            appState = raw ? JSON.parse(raw) : demoData;
+        } catch {
             appState = demoData;
         }
 
         try {
             const rawSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
-            if (rawSettings) {
-                settingsState = JSON.parse(rawSettings);
-            }
-        } catch (e) {
-            console.error("Failed to load settings:", e);
-        }
+            settingsState = rawSettings ? JSON.parse(rawSettings) : settingsState;
+        } catch {}
     }
 
     function saveState() {
@@ -121,12 +111,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // =========================
 
     function calcPortfolioSummary(portfolio) {
-        if (!portfolio) return {
-            totalValue: 0,
-            dailyChange: 0,
-            ytdReturnPct: 0,
-            incomeFY: 0
-        };
+        if (!portfolio) return { totalValue: 0, dailyChange: 0, ytdReturnPct: 0, incomeFY: 0 };
 
         let totalValue = 0;
         let dailyChange = 0;
@@ -139,317 +124,5 @@ document.addEventListener("DOMContentLoaded", () => {
             costBaseTotal += h.costBase || 0;
         });
 
-        // Simple YTD return approximation
         const ytdReturnPct = costBaseTotal > 0
-            ? ((totalValue - costBaseTotal) / costBaseTotal) * 100
-            : 0;
-
-        // Income FY = sum of dividends in current FY
-        const now = new Date();
-        const fyStart = new Date(now.getFullYear(), 6, 1); // 1 July
-        let incomeFY = 0;
-
-        portfolio.dividends.forEach(d => {
-            const dDate = new Date(d.date);
-            if (dDate >= fyStart && dDate <= now) {
-                incomeFY += d.amount;
-            }
-        });
-
-        return {
-            totalValue,
-            dailyChange,
-            ytdReturnPct,
-            incomeFY
-        };
-    }
-
-    // =========================
-    // 5. RENDER HELPERS
-    // =========================
-
-    function formatCurrency(value) {
-        return value.toLocaleString("en-AU", {
-            style: "currency",
-            currency: "AUD",
-            maximumFractionDigits: 0
-        });
-    }
-
-    function formatCurrency2(value) {
-        return value.toLocaleString("en-AU", {
-            style: "currency",
-            currency: "AUD",
-            maximumFractionDigits: 2
-        });
-    }
-
-    function formatPercent(value) {
-        return `${value.toFixed(2)}%`;
-    }
-
-    function renderDashboard() {
-        const portfolio = appState.portfolios.find(p => p.id === appState.activePortfolioId);
-        const summary = calcPortfolioSummary(portfolio);
-
-        if (totalValueEl) totalValueEl.textContent = formatCurrency(summary.totalValue);
-        if (dailyChangeEl) dailyChangeEl.textContent = formatCurrency2(summary.dailyChange);
-        if (ytdReturnEl) ytdReturnEl.textContent = formatPercent(summary.ytdReturnPct);
-        if (incomeFYEl) incomeFYEl.textContent = formatCurrency2(summary.incomeFY);
-    }
-
-    function renderHoldings() {
-        const portfolio = appState.portfolios.find(p => p.id === appState.activePortfolioId);
-        if (!portfolio || !holdingsTable) return;
-
-        const rows = portfolio.holdings.map(h => {
-            const value = h.units * h.price;
-            const gain = value - (h.costBase || 0);
-            const gainPct = (h.costBase || 0) > 0 ? (gain / h.costBase) * 100 : 0;
-
-            return `
-                <tr>
-                    <td>${h.ticker}</td>
-                    <td>${h.name}</td>
-                    <td>${h.units}</td>
-                    <td>${formatCurrency2(h.price)}</td>
-                    <td>${formatCurrency2(value)}</td>
-                    <td>${h.dayChange.toFixed(2)}%</td>
-                    <td>${formatCurrency2(h.costBase || 0)}</td>
-                    <td>${formatCurrency2(gain)} (${gainPct.toFixed(2)}%)</td>
-                    <td>${h.sector || ""}</td>
-                </tr>
-            `;
-        }).join("");
-
-        holdingsTable.innerHTML = `
-            <thead>
-                <tr>
-                    <th>Ticker</th>
-                    <th>Name</th>
-                    <th>Units</th>
-                    <th>Price</th>
-                    <th>Value</th>
-                    <th>Day %</th>
-                    <th>Cost Base</th>
-                    <th>Gain</th>
-                    <th>Sector</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rows || "<tr><td colspan='9'>No holdings</td></tr>"}
-            </tbody>
-        `;
-    }
-
-    function renderTrades() {
-        const portfolio = appState.portfolios.find(p => p.id === appState.activePortfolioId);
-        if (!portfolio || !tradesTable) return;
-
-        const rows = portfolio.trades.map(t => `
-            <tr>
-                <td>${t.date}</td>
-                <td>${t.ticker}</td>
-                <td>${t.type}</td>
-                <td>${t.units}</td>
-                <td>${formatCurrency2(t.price)}</td>
-                <td>${formatCurrency2(t.fees || 0)}</td>
-            </tr>
-        `).join("");
-
-        tradesTable.innerHTML = `
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Ticker</th>
-                    <th>Type</th>
-                    <th>Units</th>
-                    <th>Price</th>
-                    <th>Fees</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rows || "<tr><td colspan='6'>No trades</td></tr>"}
-            </tbody>
-        `;
-    }
-
-    function renderDividends() {
-        const portfolio = appState.portfolios.find(p => p.id === appState.activePortfolioId);
-        if (!portfolio || !dividendsTable) return;
-
-        const rows = portfolio.dividends.map(d => `
-            <tr>
-                <td>${d.date}</td>
-                <td>${d.ticker}</td>
-                <td>${formatCurrency2(d.amount)}</td>
-                <td>${(d.franking * 100).toFixed(0)}%</td>
-            </tr>
-        `).join("");
-
-        dividendsTable.innerHTML = `
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Ticker</th>
-                    <th>Amount</th>
-                    <th>Franking</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rows || "<tr><td colspan='4'>No dividends</td></tr>"}
-            </tbody>
-        `;
-    }
-
-    function renderPortfolioSelector() {
-        if (!portfolioSelector) return;
-
-        portfolioSelector.innerHTML = appState.portfolios.map(p => `
-            <option value="${p.id}" ${p.id === appState.activePortfolioId ? "selected" : ""}>
-                ${p.name}
-            </option>
-        `).join("");
-    }
-
-    function renderSettings() {
-        if (gistIdInput) gistIdInput.value = settingsState.gistId || "";
-        if (gistTokenInput) gistTokenInput.value = settingsState.gistToken || "";
-        if (workerUrlInput) workerUrlInput.value = settingsState.workerUrl || "";
-    }
-
-    function renderAll() {
-        renderPortfolioSelector();
-        renderDashboard();
-        renderHoldings();
-        renderTrades();
-        renderDividends();
-        renderSettings();
-    }
-
-    // =========================
-    // 6. UI BEHAVIOUR
-    // =========================
-
-    // Sidebar collapse
-    if (collapseBtn && sidebar) {
-        collapseBtn.addEventListener("click", () => {
-            sidebar.classList.toggle("collapsed");
-        });
-    }
-
-    // Mobile menu
-    if (mobileMenu && sidebar) {
-        mobileMenu.addEventListener("click", () => {
-            sidebar.classList.toggle("open");
-        });
-    }
-
-    // Dark mode
-    if (darkToggle) {
-        darkToggle.addEventListener("click", () => {
-            document.body.classList.toggle("dark-mode");
-            const mode = document.body.classList.contains("dark-mode") ? "dark" : "light";
-            localStorage.setItem("theme", mode);
-        });
-
-        const savedTheme = localStorage.getItem("theme");
-        if (savedTheme === "dark") {
-            document.body.classList.add("dark-mode");
-        }
-    }
-
-    // Navigation
-    links.forEach(link => {
-        link.addEventListener("click", (e) => {
-            e.preventDefault();
-            const target = link.getAttribute("href").replace("#", "");
-
-            sections.forEach(sec => sec.classList.add("hidden"));
-            const page = document.getElementById(target);
-            if (page) page.classList.remove("hidden");
-
-            links.forEach(l => l.classList.remove("active"));
-            link.classList.add("active");
-
-            if (pageTitle) {
-                pageTitle.textContent = link.textContent.replace(/[^A-Za-z ]/g, "").trim();
-            }
-        });
-    });
-
-    // Portfolio selector change
-    if (portfolioSelector) {
-        portfolioSelector.addEventListener("change", () => {
-            appState.activePortfolioId = portfolioSelector.value;
-            saveState();
-            renderAll();
-        });
-    }
-
-    // Export JSON
-    if (exportJsonBtn) {
-        exportJsonBtn.addEventListener("click", () => {
-            const dataStr = JSON.stringify(appState, null, 2);
-            const blob = new Blob([dataStr], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "mango-mango-export.json";
-            a.click();
-
-            URL.revokeObjectURL(url);
-        });
-    }
-
-    // Settings inputs
-    if (gistIdInput) {
-        gistIdInput.addEventListener("change", () => {
-            settingsState.gistId = gistIdInput.value.trim();
-            saveSettings();
-        });
-    }
-
-    if (gistTokenInput) {
-        gistTokenInput.addEventListener("change", () => {
-            settingsState.gistToken = gistTokenInput.value.trim();
-            saveSettings();
-        });
-    }
-
-    if (workerUrlInput) {
-        workerUrlInput.addEventListener("change", () => {
-            settingsState.workerUrl = workerUrlInput.value.trim();
-            saveSettings();
-        });
-    }
-
-    // Test Worker button (simple ping)
-    if (testWorkerBtn) {
-        testWorkerBtn.addEventListener("click", async () => {
-            const url = (workerUrlInput && workerUrlInput.value.trim()) || settingsState.workerUrl;
-            if (!url) {
-                alert("Please enter a Worker URL first.");
-                return;
-            }
-
-            try {
-                const res = await fetch(url, { method: "GET" });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const text = await res.text();
-                alert("Worker responded:\n" + text.slice(0, 200));
-            } catch (e) {
-                console.error("Worker test failed:", e);
-                alert("Worker test failed: " + e.message);
-            }
-        });
-    }
-
-    // =========================
-    // 7. INIT
-    // =========================
-
-    loadState();
-    renderAll();
-});
+            ? ((totalValue -
