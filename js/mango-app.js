@@ -1,5 +1,6 @@
 // =======================================
 // Mango Mango 2.0 – Full Logic + UI Core
+// (Defensive DOM checks – won't crash)
 // =======================================
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -22,7 +23,6 @@ document.addEventListener("DOMContentLoaded", () => {
         workerUrl: ""
     };
 
-    // Default demo data
     const demoData = {
         portfolios: [
             {
@@ -95,15 +95,30 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
             const rawSettings = localStorage.getItem(STORAGE_KEY_SETTINGS);
             settingsState = rawSettings ? JSON.parse(rawSettings) : settingsState;
-        } catch {}
+        } catch {
+            // keep defaults
+        }
+
+        // Ensure we always have an active portfolio
+        if (!appState.activePortfolioId && appState.portfolios.length > 0) {
+            appState.activePortfolioId = appState.portfolios[0].id;
+        }
     }
 
     function saveState() {
-        localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(appState));
+        try {
+            localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(appState));
+        } catch (e) {
+            console.warn("Failed to save app state:", e);
+        }
     }
 
     function saveSettings() {
-        localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settingsState));
+        try {
+            localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settingsState));
+        } catch (e) {
+            console.warn("Failed to save settings:", e);
+        }
     }
 
     // =========================
@@ -117,12 +132,150 @@ document.addEventListener("DOMContentLoaded", () => {
         let dailyChange = 0;
         let costBaseTotal = 0;
 
-        portfolio.holdings.forEach(h => {
-            const value = h.units * h.price;
+        (portfolio.holdings || []).forEach(h => {
+            const value = (h.units || 0) * (h.price || 0);
             totalValue += value;
-            dailyChange += value * (h.dayChange / 100);
+            dailyChange += value * ((h.dayChange || 0) / 100);
             costBaseTotal += h.costBase || 0;
         });
 
         const ytdReturnPct = costBaseTotal > 0
-            ? ((totalValue -
+            ? ((totalValue - costBaseTotal) / costBaseTotal) * 100
+            : 0;
+
+        const now = new Date();
+        const fyStart = new Date(now.getFullYear(), 6, 1);
+        let incomeFY = 0;
+
+        (portfolio.dividends || []).forEach(d => {
+            const dDate = new Date(d.date);
+            if (!isNaN(dDate) && dDate >= fyStart && dDate <= now) {
+                incomeFY += d.amount || 0;
+            }
+        });
+
+        return { totalValue, dailyChange, ytdReturnPct, incomeFY };
+    }
+
+    // =========================
+    // 5. RENDER HELPERS
+    // =========================
+
+    const formatCurrency = v =>
+        (v || 0).toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
+
+    const formatCurrency2 = v =>
+        (v || 0).toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 2 });
+
+    const formatPercent = v => `${(v || 0).toFixed(2)}%`;
+
+    function getActivePortfolio() {
+        return appState.portfolios.find(p => p.id === appState.activePortfolioId) || appState.portfolios[0];
+    }
+
+    function renderDashboard() {
+        if (!totalValueEl || !dailyChangeEl || !ytdReturnEl || !incomeFYEl) return;
+
+        const p = getActivePortfolio();
+        const s = calcPortfolioSummary(p);
+
+        totalValueEl.textContent = formatCurrency(s.totalValue);
+        dailyChangeEl.textContent = formatCurrency2(s.dailyChange);
+        ytdReturnEl.textContent = formatPercent(s.ytdReturnPct);
+        incomeFYEl.textContent = formatCurrency2(s.incomeFY);
+    }
+
+    function renderHoldings() {
+        if (!holdingsTable) return;
+        const p = getActivePortfolio();
+        const holdings = p?.holdings || [];
+
+        const rows = holdings.map(h => {
+            const value = (h.units || 0) * (h.price || 0);
+            const gain = value - (h.costBase || 0);
+            const gainPct = (h.costBase || 0) > 0 ? (gain / h.costBase) * 100 : 0;
+
+            return `
+                <tr>
+                    <td>${h.ticker || ""}</td>
+                    <td>${h.name || ""}</td>
+                    <td>${h.units || 0}</td>
+                    <td>${formatCurrency2(h.price || 0)}</td>
+                    <td>${formatCurrency2(value)}</td>
+                    <td>${(h.dayChange || 0).toFixed(2)}%</td>
+                    <td>${formatCurrency2(h.costBase || 0)}</td>
+                    <td>${formatCurrency2(gain)} (${gainPct.toFixed(2)}%)</td>
+                    <td>${h.sector || ""}</td>
+                </tr>
+            `;
+        }).join("");
+
+        holdingsTable.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Ticker</th><th>Name</th><th>Units</th><th>Price</th>
+                    <th>Value</th><th>Day %</th><th>Cost Base</th><th>Gain</th><th>Sector</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows || "<tr><td colspan='9'>No holdings</td></tr>"}
+            </tbody>
+        `;
+    }
+
+    function renderTrades() {
+        if (!tradesTable) return;
+        const p = getActivePortfolio();
+        const trades = p?.trades || [];
+
+        const rows = trades.map(t => `
+            <tr>
+                <td>${t.date || ""}</td>
+                <td>${t.ticker || ""}</td>
+                <td>${t.type || ""}</td>
+                <td>${t.units || 0}</td>
+                <td>${formatCurrency2(t.price || 0)}</td>
+                <td>${formatCurrency2(t.fees || 0)}</td>
+            </tr>
+        `).join("");
+
+        tradesTable.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Date</th><th>Ticker</th><th>Type</th><th>Units</th><th>Price</th><th>Fees</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows || "<tr><td colspan='6'>No trades</td></tr>"}
+            </tbody>
+        `;
+    }
+
+    function renderDividends() {
+        if (!dividendsTable) return;
+        const p = getActivePortfolio();
+        const dividends = p?.dividends || [];
+
+        const rows = dividends.map(d => `
+            <tr>
+                <td>${d.date || ""}</td>
+                <td>${d.ticker || ""}</td>
+                <td>${formatCurrency2(d.amount || 0)}</td>
+                <td>${((d.franking || 0) * 100).toFixed(0)}%</td>
+            </tr>
+        `).join("");
+
+        dividendsTable.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Date</th><th>Ticker</th><th>Amount</th><th>Franking</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows || "<tr><td colspan='4'>No dividends</td></tr>"}
+            </tbody>
+        `;
+    }
+
+    function renderPortfolioSelector() {
+        if (!portfolioSelector) return;
