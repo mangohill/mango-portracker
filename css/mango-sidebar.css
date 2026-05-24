@@ -1,216 +1,191 @@
-/* MANGO MANGO 2.0 — SIDEBAR DASHBOARD UI + ANIMATIONS */
-
-:root {
-    --bg: #f5f5f5;
-    --fg: #222;
-    --card-bg: #ffffff;
-    --border: #ddd;
-    --accent: #007bff;
-
-    transition: background .35s ease, color .35s ease;
-}
-
-:root[data-theme="dark"] {
-    --bg: #111;
-    --fg: #eee;
-    --card-bg: #1b1b1b;
-    --border: #333;
-}
+/* ============================
+   LAYOUT
+============================ */
 
 body {
     margin: 0;
-    font-family: system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--fg);
-    overflow-x: hidden;
+    font-family: Arial, sans-serif;
+    background: #f5f5f5;
+    color: #222;
+    transition: background 0.3s, color 0.3s;
 }
 
-h1, h2, h3 {
-    margin: 0 0 12px 0;
+.dark-mode {
+    background: #1a1a1a;
+    color: #eee;
 }
 
-/* SIDEBAR */
+/* ============================
+   SIDEBAR
+============================ */
 
 #sidebar {
-    width: 240px;
-    background: var(--card-bg);
-    border-right: 1px solid var(--border);
+    width: 260px;
     height: 100vh;
+    background: #222;
+    color: white;
     position: fixed;
     left: 0;
     top: 0;
-    display: flex;
-    flex-direction: column;
-    transition: width .25s ease, transform .25s ease;
-    z-index: 200;
+    padding: 20px 0;
+    transition: width 0.3s, transform 0.3s;
 }
 
 #sidebar.collapsed {
-    width: 60px;
+    width: 70px;
+}
+
+#sidebar.open {
+    transform: translateX(0);
 }
 
 .sidebar-header {
-    padding: 20px;
+    text-align: center;
     font-size: 20px;
-    font-weight: bold;
-    white-space: nowrap;
+    margin-bottom: 20px;
 }
 
 .sidebar-nav a {
     display: block;
     padding: 12px 20px;
+    color: #ddd;
     text-decoration: none;
-    color: var(--fg);
-    transition: background .2s ease, padding-left .2s ease;
+    transition: background 0.2s;
 }
 
 .sidebar-nav a:hover {
-    background: rgba(0, 123, 255, .12);
-    padding-left: 26px;
-}
-
-#sidebar.collapsed .sidebar-nav a:hover {
-    padding-left: 20px;
+    background: #444;
 }
 
 .sidebar-nav a.active {
-    background: var(--accent);
-    color: white;
+    background: #ffb300;
+    color: #000;
 }
 
 .sidebar-footer {
-    margin-top: auto;
-    padding: 10px;
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
+    text-align: center;
 }
 
-/* MAIN + TOPBAR */
+#toggleSidebar {
+    padding: 8px 12px;
+    background: #444;
+    color: white;
+    border: none;
+    cursor: pointer;
+}
+
+/* ============================
+   MAIN CONTENT
+============================ */
 
 #main {
-    margin-left: 240px;
+    margin-left: 260px;
     padding: 20px;
-    transition: margin-left .25s ease;
+    transition: margin-left 0.3s;
 }
 
-#sidebar.collapsed + #main {
-    margin-left: 60px;
+#sidebar.collapsed ~ #main {
+    margin-left: 70px;
 }
+
+/* ============================
+   TOP BAR
+============================ */
 
 #topbar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: var(--card-bg);
-    padding: 10px 20px;
-    border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-    z-index: 150;
-    transition: background .35s ease, color .35s ease;
+    background: #fff;
+    padding: 12px 20px;
+    border-bottom: 1px solid #ddd;
 }
 
-#topbar button,
-#topbar select {
-    margin-left: 10px;
+.dark-mode #topbar {
+    background: #333;
+    border-color: #555;
 }
 
-/* PAGE TRANSITIONS */
+#topbar .left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
 
-.page-section {
-    opacity: 0;
-    transform: translateY(10px);
-    transition: opacity .35s ease, transform .35s ease;
+#mobileMenu {
     display: none;
 }
 
-.page-section.active {
-    display: block;
-    opacity: 1;
-    transform: translateY(0);
+/* ============================
+   PAGE SECTIONS
+============================ */
+
+.page-section {
+    display: none;
 }
 
-/* DASHBOARD CARDS */
+.page-section:first-of-type {
+    display: block;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* ============================
+   CARDS
+============================ */
 
 .card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 20px;
 }
 
 .card {
-    background: var(--card-bg);
+    background: white;
     padding: 20px;
     border-radius: 8px;
-    border: 1px solid var(--border);
-    opacity: 1;
-    transform: none;
-    transition: transform .25s ease, box-shadow .25s ease;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
-.card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 6px 18px rgba(0,0,0,.15);
+.dark-mode .card {
+    background: #333;
 }
 
-.card-title {
-    font-size: 14px;
-    opacity: 0.7;
-}
-
-.card-value {
-    font-size: 28px;
-    margin-top: 8px;
-}
-
-/* Card animation keyframes */
-@keyframes cardIn {
-    from {
-        opacity: 0;
-        transform: translateY(12px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* TABLES */
+/* ============================
+   TABLES
+============================ */
 
 .table {
     width: 100%;
     border-collapse: collapse;
-    opacity: 1;
 }
 
 .table th, .table td {
     padding: 10px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid #ccc;
 }
 
-.table tr {
-    transition: background .2s ease;
+.dark-mode .table th,
+.dark-mode .table td {
+    border-color: #555;
 }
 
-.table tr:hover {
-    background: rgba(0, 123, 255, .08);
-}
-
-/* SETTINGS */
-
-.settings-group {
-    margin-bottom: 12px;
-}
-
-.settings-group label {
-    display: block;
-    margin-bottom: 4px;
-}
-
-/* MOBILE */
+/* ============================
+   MOBILE
+============================ */
 
 @media (max-width: 900px) {
+    #mobileMenu {
+        display: inline-block;
+    }
+
     #sidebar {
-        transform: translateX(-240px);
-        position: fixed;
+        transform: translateX(-260px);
     }
 
     #sidebar.open {
@@ -219,25 +194,5 @@ h1, h2, h3 {
 
     #main {
         margin-left: 0;
-    }
-
-    #mobileMenu {
-        display: inline-block;
-    }
-
-    .card-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media (max-width: 350px) {
-    .card-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-@media (min-width: 901px) {
-    #mobileMenu {
-        display: none;
     }
 }
