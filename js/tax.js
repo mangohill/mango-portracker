@@ -937,21 +937,21 @@ ${(()=>{
           window.__div293 = window.__div293 || {};
           window.__div293['lumia']  = {...lumTax,  personLabel: getPersonLabel('lumia')};
           window.__div293['chilli'] = {...chiTax, personLabel: getPersonLabel('chilli')};
+          const lumD293Cell = lumTax.div293>0
+            ? `<td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted"
+                 data-div293="lumia" title="Click to see calculation">${n2(lumTax.div293)}</td>`
+            : `<td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px">—</td>`;
+          const chiD293Cell = chiTax.div293>0
+            ? `<td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted"
+                 data-div293="chilli" title="Click to see calculation">${n2(chiTax.div293)}</td>`
+            : `<td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px">—</td>`;
           return `<tr class='neg'>
           <td style='color:var(--text3);font-size:12px;padding:5px 8px'>
             Division 293 Tax
             <span style='color:var(--text3);font-size:10px'> extra 15% on super · income &gt;$250k</span>
           </td>
-          <td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;${lumTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}"
-            onclick="${lumTax.div293>0?'showDiv293Breakdown(\"lumia\")':''}"
-            title="${lumTax.div293>0?'Click to see calculation':''}">
-            ${lumTax.div293>0?n2(lumTax.div293):'—'}
-          </td>
-          <td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;${chiTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}"
-            onclick="${chiTax.div293>0?'showDiv293Breakdown(\"chilli\")':''}"
-            title="${chiTax.div293>0?'Click to see calculation':''}">
-            ${chiTax.div293>0?n2(chiTax.div293):'—'}
-          </td>
+          ${lumD293Cell}
+          ${chiD293Cell}
         </tr>`;
         })()}
       ${(lumTax.hecsRep>0||chiTax.hecsRep>0)?row('HECS-HELP Repayment',
@@ -980,6 +980,13 @@ ${(()=>{
       ⚠ Estimates only. CGT split 50/50 between persons. Dividends split 50/50. FY2025/26 Stage 3 rates + 2% Medicare levy. MLS applies if family income &gt; $186,000 and no private hospital cover. HECS uses ATO FY2025/26 repayment rates. Consult your accountant.
     </div>
   </div>`;
+
+  // Delegated click handler for Div293 breakdown cells (data-div293 attribute)
+  panel.addEventListener('click', function d293Handler(e){
+    const cell = e.target.closest('[data-div293]');
+    if(!cell) return;
+    showDiv293Breakdown(cell.dataset.div293);
+  });
 }
 
 function taxFamilyUpdate(field, val, fy){
