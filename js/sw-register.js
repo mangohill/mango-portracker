@@ -1,5 +1,3 @@
-
-
 // ── Service Worker Registration ───────────────────────────────────────────────
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
@@ -918,13 +916,21 @@ function showDiv293Breakdown(personKey){
       Div293 = 15% × min(total concessional contributions, income over $250k threshold)
     </div>`;
 
-  // Dismiss on outside click
+  // Dismiss on outside click — deferred so the opening click doesn't immediately dismiss
   popup.addEventListener('click', e => e.stopPropagation());
-  document.addEventListener('click', function dismiss(){
-    popup.remove();
-    document.removeEventListener('click', dismiss);
-  });
+  setTimeout(() => {
+    document.addEventListener('click', function dismiss(){
+      popup.remove();
+      document.removeEventListener('click', dismiss);
+    });
+  }, 0);
 
   document.body.appendChild(popup);
 }
 
+// ── Division 293 click handler — registered once at page load ────────────────
+document.addEventListener('click', function(e){
+  const cell = e.target.closest('[data-div293]');
+  if(!cell) return;
+  showDiv293Breakdown(cell.dataset.div293);
+});
