@@ -981,12 +981,6 @@ ${(()=>{
     </div>
   </div>`;
 
-  // Delegated click handler for Div293 breakdown cells (data-div293 attribute)
-  panel.addEventListener('click', function d293Handler(e){
-    const cell = e.target.closest('[data-div293]');
-    if(!cell) return;
-    showDiv293Breakdown(cell.dataset.div293);
-  });
 }
 
 function taxFamilyUpdate(field, val, fy){
