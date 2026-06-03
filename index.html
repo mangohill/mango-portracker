@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.github.com https://raw.githubusercontent.com https://api.coingecko.com https://*.workers.dev https://*.cloudflare.com https://query1.finance.yahoo.com https://www.monashinvestors.com; img-src 'self' data:;">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Tracker v3</title>
+<!-- Google Fonts removed for offline support; IBM Plex fallbacks to system fonts -->
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<div class="header">
+  <div class="logo"><div class="logo-dot" id="logo-dot"></div>PORTFOLIO TRACKER</div>
+  <div class="hdr-r">
+    <button class="btn" onclick="refreshPrices()">↻ PRICES</button><span id="price-refresh-status" style="font-size:11px;font-family:var(--mono);color:var(--text3);white-space:nowrap"></span>
+    <button class="btn" onclick="syncPush()" id="hdr-sync-push" title="Push data to GitHub Gist">☁ PUSH</button>
+    <button class="btn" onclick="syncPull()" id="hdr-sync-pull" title="Pull data from GitHub Gist">⬇ PULL</button>
+    <span id="hdr-sync-status" style="font-family:var(--mono);font-size:10px;color:var(--text3);white-space:nowrap"></span>
+    <button class="btn btn-r" onclick="clearAll()">✕ CLEAR ALL</button>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('portfolio',this)">PORTFOLIO</div>
+  <div class="tab" onclick="switchTab('trades',this)">TRADES</div>
+  <div class="tab" onclick="switchTab('analytics',this)">📈 ANALYTICS</div>
+  <div class="tab" onclick="switchTab('holdings2',this)">🏦 HOLDINGS</div>
+  <div class="tab" onclick="switchTab('dividends',this)">💰 DIVIDENDS</div>
+  <div class="tab" onclick="switchTab('property',this)">🏠 PROPERTY</div>
+  <div class="tab" onclick="switchTab('super',this)">🏦 SUPER</div>
+  <div class="tab" onclick="switchTab('spending',this)">💳 SPENDING</div>
+  <div class="tab" onclick="switchTab('tax',this)">🧾 TAX</div>
+  <div class="tab" onclick="switchTab('settings',this)">⚙ SETTINGS</div>
+</div>
+
+<div class="main">
+
+<!-- PORTFOLIO -->
+<div class="panel active" id="panel-portfolio">
+  <div class="cards" id="portfolio-cards" onclick="cyclePortfolioView()" style="cursor:pointer" title="Click to cycle: All → Stocks → Crypto">
+    <div class="card"><div class="card-label" id="cl-mv">Market Value</div><div class="card-value neu" id="cv">$0.00</div><div class="card-sub" id="cs-mv">AUD · all assets</div></div>
+    <div class="card"><div class="card-label" id="cl-cb">Cost Basis</div><div class="card-value neu" id="cc">$0.00</div><div class="card-sub">Total invested</div></div>
+    <div class="card"><div class="card-label">Unrealised P&amp;L</div><div class="card-value neu" id="cp">$0.00</div><div class="card-sub" id="cpp">0.00%</div></div>
+    <div class="card"><div class="card-label">Positions</div><div class="card-value neu" id="cpos">0</div><div class="card-sub" id="cs-pos">Open</div></div>
+    <div class="card"><div class="card-label">Total Trades</div><div class="card-value neu" id="ctrd">0</div><div class="card-sub" id="cpt">Prices not loaded</div></div>
+  </div>
+  <div class="tw">
+    <div class="th">
+      <span class="tt">HOLDINGS</span>
+      <div class="fr">
+        <input class="fsm" placeholder="Search…" id="hs" oninput="renderH()">
+        <select class="fsm" id="ht" onchange="renderH()">
+          <option value="">All types</option><option value="crypto">Crypto</option>
+          <option value="stock">Stock</option><option value="etf">ETF</option><option value="lic">LIC</option><option value="reit">REIT</option><option value="bond">Bond</option><option value="commodity">Commodity</option><option value="managed">Managed Fund</option><option value="super">Super/Pension</option>
+        </select>
+        <select class="fsm" id="ht-own" onchange="renderH()"><option value="">All Owners</option></select>
+      </div>
+    </div>
+    <div class="ovx">
+      <table><thead><tr>
+        <th>Symbol</th><th>Owner</th><th>Type</th><th>Units</th><th>Avg Cost</th>
+        <th>Cur Price</th><th>Mkt Value</th><th>Cost Basis</th><th>P&amp;L $</th><th>P&amp;L %</th><th>Source</th>
+      </tr></thead><tbody id="hb"></tbody></table>
+    </div>
+    <div class="empty" id="he"><div class="empty-icon">📊</div>No holdings yet — add trades or import a CSV.</div>
+  </div>
+</div>
+
+<!-- TRADES -->
+<div class="panel" id="panel-trades">
+
+  <div class="fs" style="margin-bottom:12px">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('import')">
+      <span>📥 Import Trades CSV</span>
+      <span id="sec-toggle-import" style="font-size:18px;color:var(--blue);font-family:var(--mono);line-height:1">−</span>
+    </div>
+    <div id="sec-body-import" style="margin-top:14px">
+
+
+  <div class="fmt-pills">
+    <div class="fmt-pill"><b>CommSec</b> — Cash ledger · Details: "B/S QTY SYM @ PRICE"</div>
+  <div class="fmt-pill"><b>CMC Markets</b> — AsxCode · Order Type · Trade Date · Quantity · Price · Brokerage</div>
+    <div class="fmt-pill"><b>Selfwealth</b> — Cash ledger · Comment: "Order N: Buy/Sell QTY SYM @ $PRICE"</div>
+    <div class="fmt-pill"><b>BTCMarkets</b> — Ledger pairs · Trading Fee rows · description parsing</div>
+    <div class="fmt-pill"><b>Betashares</b> — Auto-detected via column headers</div>
+    <div class="fmt-pill"><b>Binance</b> — Orders export · Pair/Executed/Average Price · auto-detected</div>
+  </div>
+  <div class="dz" id="dz" onclick="document.getElementById('cf').click()"
+    ondragover="dzO(event)" ondragleave="dzL()" ondrop="dzD(event)">
+    <div class="dz-icon">📂</div>
+    <div class="dz-txt">DROP CSV HERE or click to browse</div>
+    <div class="dz-sub">Auto-detects format from filename and column headers</div>
+    <input type="file" id="cf" accept=".csv" style="display:none" onchange="onSel(event)">
+  </div>
+  <div class="fs" id="ipv" style="display:none">
+    <div class="fst" id="ipt">PREVIEW</div>
+    <div class="ovx"><table><thead><tr>
+      <th>Date</th><th>Side</th><th>Symbol</th><th>Type</th><th>Units</th><th>Price</th><th>Fees</th><th>Source</th><th>Notes</th>
+    </tr></thead><tbody id="ipb"></tbody></table></div>
+    <div style="display:flex;gap:12px;margin-top:14px">
+      <button class="btn btn-g" onclick="confirmImp()">✓ IMPORT ALL</button>
+      <button class="btn btn-r" onclick="cancelImp()">✕ CANCEL</button>
+    </div>
+  </div>
+
+  
+    </div>
+  </div>
+  <div class="fs" style="margin-bottom:12px">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('manual')">
+      <span>✏️ Manual Trade Entry</span>
+      <span id="sec-toggle-manual" style="font-size:18px;color:var(--text3);font-family:var(--mono);line-height:1">+</span>
+    </div>
+    <div id="sec-body-manual" style="margin-top:14px;display:none">
+
+    <div class="fg">
+      <div class="fgi"><label class="fl">Date</label><input class="fi" type="date" id="fd"></div>
+      <div class="fgi"><label class="fl">Side</label><select class="fi" id="fsi"><option value="buy">BUY</option><option value="sell">SELL</option></select></div>
+      <div class="fgi"><label class="fl">Symbol</label><input class="fi" type="text" id="fsy" placeholder="e.g. BTC, DHHF, CBA" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="fgi"><label class="fl">Asset Type</label><select class="fi" id="fat"><option value="crypto">Crypto</option><option value="stock">Stock</option><option value="etf">ETF</option><option value="lic">LIC</option><option value="reit">REIT</option><option value="bond">Bond / Fixed Income</option><option value="commodity">Commodity</option><option value="managed">Managed Fund</option><option value="super">Super / Pension</option></select></div>
+      <div class="fgi"><label class="fl">Units</label><input class="fi" type="number" id="fun" placeholder="0" step="any" min="0" oninput="prevw()"></div>
+      <div class="fgi"><label class="fl">Price per Unit (AUD)</label><input class="fi" type="number" id="fpr" placeholder="0.00" step="any" min="0" oninput="prevw()"></div>
+      <div class="fgi"><label class="fl">Fees / Brokerage (AUD)</label><input class="fi" type="number" id="ffe" placeholder="0.00" step="any" min="0" value="0" oninput="prevw()"></div>
+      <div class="fgi"><label class="fl">Source / Broker</label>
+        <div style="display:flex;gap:6px">
+          <select class="fi" id="fso" style="flex:1"></select>
+          <button class="btn" onclick="promptAddBroker('fso')" title="Add custom broker" style="padding:4px 10px;flex-shrink:0">+</button>
+        </div></div>
+      <div class="fgi" style="grid-column:1/-1"><label class="fl">Notes</label><input class="fi" type="text" id="fno" placeholder="Optional"></div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-g" onclick="addTrade()">ADD TRADE</button>
+      <button class="btn" onclick="clearForm()">CLEAR</button>
+      <span style="font-family:var(--mono);font-size:12px;color:var(--text2)" id="fpv"></span>
+    </div>
+  
+    </div>
+  </div>
+
+
+  <div class="fs" style="margin-bottom:12px">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('ca')">
+      <span>🔀 Corporate Action</span>
+      <span id="sec-toggle-ca" style="font-size:18px;color:var(--text3);font-family:var(--mono);line-height:1">+</span>
+    </div>
+    <div id="sec-body-ca" style="display:none;margin-top:14px">
+
+    <p style="color:var(--text3);font-size:12px;margin:0 0 14px">
+      Record mergers, splits, renames and spin-offs. Cost basis transfers automatically — no CGT event is recorded.
+    </p>
+
+    <!-- Action type selector -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px" id="ca-type-pills">
+      <button class="ca-pill active" onclick="setCaType('merger')">🔀 Merger / Conversion</button>
+      <button class="ca-pill" onclick="setCaType('split')">✂️ Stock Split</button>
+      <button class="ca-pill" onclick="setCaType('rename')">🏷️ Ticker Rename</button>
+      <button class="ca-pill" onclick="setCaType('spinoff')">🌱 Spin-off</button>
+      <button class="ca-pill" onclick="setCaType('worthless')">💀 Write-off (Worthless)</button>
+    </div>
+
+    <div class="fg" id="ca-form">
+      <div class="fgi"><label class="fl">Date</label>
+        <input class="fi" type="date" id="ca-date"></div>
+
+      <div class="fgi"><label class="fl" id="ca-from-label">From Symbol</label>
+        <input class="fi" type="text" id="ca-from-sym" placeholder="e.g. MAAT" oninput="this.value=this.value.toUpperCase();caAutoFillUnits();caPreview()"></div>
+
+      <div class="fgi" id="ca-from-units-wrap"><label class="fl">From Units (held)</label>
+        <input class="fi" type="number" id="ca-from-units" placeholder="auto-filled from holdings" step="any" oninput="caPreview()"></div>
+
+      <div class="fgi"><label class="fl" id="ca-to-label">To Symbol</label>
+        <input class="fi" type="text" id="ca-to-sym" placeholder="e.g. MAIF" oninput="this.value=this.value.toUpperCase();caPreview()"></div>
+
+      <div class="fgi" id="ca-ratio-wrap"><label class="fl" id="ca-ratio-label">Conversion Ratio (new per old)</label>
+        <input class="fi" type="number" id="ca-ratio" placeholder="e.g. 1.0 for 1:1" step="any" min="0" oninput="caPreview()"></div>
+
+      <div class="fgi" id="ca-to-units-wrap" style="display:none"><label class="fl">To Units (result)</label>
+        <input class="fi" type="number" id="ca-to-units" placeholder="calculated" step="any" oninput="caPreview()"></div>
+
+      <div class="fgi" id="ca-alloc-wrap" style="display:none"><label class="fl">Cost Basis % to New Ticker</label>
+        <input class="fi" type="number" id="ca-alloc" placeholder="e.g. 30" step="any" min="0" max="100" oninput="caPreview()"></div>
+
+      <div class="fgi" id="ca-override-wrap" style="display:none">
+        <label class="fl">Override Cost Basis (AUD) <span style="color:var(--text3);font-weight:400;font-size:11px">— leave blank to auto-transfer</span></label>
+        <input class="fi" type="number" id="ca-override" placeholder="e.g. 13384.86" step="any" min="0" oninput="caPreview()">
+      </div>
+
+      <div class="fgi"><label class="fl">Asset Type (new)</label>
+        <select class="fi" id="ca-at">
+          <option value="etf">ETF</option><option value="lic">LIC</option>
+          <option value="stock">Stock</option><option value="managed">Managed Fund</option>
+          <option value="reit">REIT</option><option value="crypto">Crypto</option>
+          <option value="bond">Bond</option><option value="commodity">Commodity</option>
+          <option value="super">Super / Pension</option>
+        </select></div>
+
+      <div class="fgi" style="grid-column:1/-1"><label class="fl">Notes</label>
+        <input class="fi" type="text" id="ca-notes" placeholder="Optional"></div>
+    </div>
+
+    <!-- Preview -->
+    <div id="ca-preview" style="background:var(--bg2);border:1px solid var(--bo);border-radius:8px;padding:12px 16px;margin:12px 0;font-size:12px;display:none">
+      <div style="font-weight:700;color:var(--text1);margin-bottom:6px">📋 Preview</div>
+      <div id="ca-preview-text" style="color:var(--text2);line-height:1.8"></div>
+    </div>
+
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-g" onclick="addCorporateAction()">RECORD ACTION</button>
+      <button class="btn" onclick="clearCaForm()">CLEAR</button>
+    </div>
+  
+    </div>
+  </div>
+  <div class="fs" style="margin-bottom:12px">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('recent')">
+      <span>🕐 Recent Manual Entries</span>
+      <span id="sec-toggle-recent" style="font-size:18px;color:var(--text3);font-family:var(--mono);line-height:1">+</span>
+    </div>
+    <div id="sec-body-recent" style="display:none;margin-top:14px">
+
+    <div class="ovx"><table><thead><tr>
+      <th>Date</th><th>Side</th><th>Symbol</th><th>Units</th><th>Price</th><th>Net Total</th><th></th>
+    </tr></thead><tbody id="rb"></tbody></table></div>
+    <div class="empty" id="re"><div class="empty-icon">✏️</div>No manual entries yet.</div>
+  
+    </div>
+  </div>
+
+  <!-- Trades table -->
+  <div class="fs">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('tradetbl')">
+      <span>📋 All Trades (<span id="tc">0</span>)</span>
+      <span id="sec-toggle-tradetbl" style="font-size:18px;color:var(--blue);font-family:var(--mono);line-height:1">−</span>
+    </div>
+    <div id="sec-body-tradetbl" style="margin-top:14px">
+
+  <div class="tw">
+    <div class="th">
+      <span class="tt">ALL TRADES (<span id="tc">0</span>)</span>
+      <div class="fr">
+        <button class="btn" onclick="retypeSymbolPrompt()" title="Bulk retype all trades for a symbol" style="font-size:11px;padding:4px 10px">⟳ Retype Symbol</button>
+        <input class="fsm" placeholder="Symbol…" id="ts" oninput="renderT()" onchange="renderT()">
+        <select class="fsm" id="tsi" onchange="renderT()"><option value="">All Types</option><option value="buy">Buy</option><option value="sell">Sell</option><option value="drp">DRP</option><option value="corporate_action">Corp Action</option></select>
+        <select class="fsm" id="tso" onchange="renderT()"></select>
+      </div>
+    </div>
+    <div class="ovx">
+      <table><thead><tr>
+        <th>Date</th><th>Side</th><th>Symbol</th><th>Type</th>
+        <th>Units</th><th>Price</th><th>Gross</th><th>Fees</th><th>Net</th><th>Source</th><th>Notes</th><th></th>
+      </tr></thead><tbody id="tb"></tbody><tfoot id="t-foot"></tfoot></table>
+    </div>
+    <div class="empty" id="te"><div class="empty-icon">📋</div>No trades yet.</div>
+  </div>
+
+    </div>
+  </div>
+
+</div>
+
+
+
+<!-- ANALYTICS -->
+<div class="panel" id="panel-analytics">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px">
+    <select class="fsm" id="an-period" onchange="renderAnalytics()">
+      <option value="all">All Time</option>
+      <option value="1y">Last 12 Months</option>
+      <option value="cfy">Current Financial Year</option>
+      <option value="pfy">Previous Financial Year</option>
+      <option value="ytd">Year to Date</option>
+      <option value="6m">Last 6 Months</option>
+      <option value="3m">Last 3 Months</option>
+      <option value="custom">Custom Range…</option>
+    </select>
+    <div id="an-custom-range" style="display:none;align-items:center;gap:6px">
+      <input type="date" id="an-from" class="fsm" style="padding:4px 8px" onchange="renderAnalytics()">
+      <span style="color:var(--text3);font-size:12px">to</span>
+      <input type="date" id="an-to" class="fsm" style="padding:4px 8px" onchange="renderAnalytics()">
+    </div>
+    <select class="fsm" id="an-group" onchange="anHiddenGroups=new Set();renderAnalytics()">
+      <option value="combined">Combined</option>
+      <option value="bytype">By Asset Type</option>
+      <option value="bysymbol">By Symbol</option>
+    </select>
+    <select class="fsm" id="an-chart" onchange="anHiddenGroups=new Set();renderAnalytics()">
+      <option value="cost">Cost Basis Over Time</option>
+      <option value="value">Portfolio Value Over Time</option>
+      <option value="pnl">Cumulative P&L</option>
+      <option value="trades">Trade Activity</option>
+      <option value="alloc">Current Allocation</option>
+    </select>
+  </div>
+
+  <!-- Summary stat cards row -->
+  <div class="cards" id="an-cards" style="margin-bottom:18px"></div>
+
+  <!-- Main chart -->
+  <div class="tw" style="margin-bottom:18px">
+    <div class="th"><span class="tt" id="an-chart-title">PORTFOLIO VALUE OVER TIME</span></div>
+    <div id="an-legend-pills" style="display:none;flex-wrap:wrap;gap:6px;padding:10px 20px 0"></div>
+    <div style="padding:20px;position:relative;height:340px">
+      <canvas id="an-main-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- Secondary row: allocation pie + yearly bar -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px" id="an-secondary-grid">
+    <div class="tw">
+      <div class="th"><span class="tt">ALLOCATION BY TYPE</span></div>
+      <div style="padding:16px;position:relative;height:240px">
+        <canvas id="an-alloc-chart"></canvas>
+      </div>
+    </div>
+    <div class="tw">
+      <div class="th"><span class="tt">ANNUAL INVESTED vs VALUE</span></div>
+      <div style="padding:16px;position:relative;height:240px">
+        <canvas id="an-annual-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Best/worst performers -->
+  <div id="an-perf-filter" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="tw">
+      <div class="th"><span class="tt">TOP PERFORMERS</span></div>
+      <div class="ovx"><table><thead><tr><th>Symbol</th><th>Type</th><th>P&L $</th><th>P&L %</th></tr></thead>
+      <tbody id="an-top-body"></tbody></table></div>
+    </div>
+    <div class="tw">
+      <div class="th"><span class="tt">WORST PERFORMERS</span></div>
+      <div class="ovx"><table><thead><tr><th>Symbol</th><th>Type</th><th>P&L $</th><th>P&L %</th></tr></thead>
+      <tbody id="an-bot-body"></tbody></table></div>
+    </div>
+  </div>
+</div>
+
+<!-- HOLDINGS DETAIL -->
+<div class="panel" id="panel-holdings2">
+  <div class="tw">
+    <div class="th">
+      <span class="tt">HOLDINGS DETAIL</span>
+      <div class="fr" style="flex-wrap:wrap;gap:8px">
+        <input class="fsm" placeholder="Search…" id="hd-search" oninput="renderHD()">
+        <select class="fsm" id="hd-type" onchange="renderHD()">
+          <option value="">All Types</option>
+          <option value="crypto">Crypto</option>
+          <option value="stock">Stock</option>
+          <option value="etf">ETF</option><option value="lic">LIC</option><option value="reit">REIT</option><option value="bond">Bond</option><option value="commodity">Commodity</option><option value="managed">Managed Fund</option><option value="super">Super/Pension</option>
+        </select>
+        <select class="fsm" id="hd-sort" onchange="renderHD()">
+          <option value="symbol">Name A→Z</option>
+          <option value="symbol_desc">Name Z→A</option>
+          <option value="value_desc">Value ↓</option>
+          <option value="value_asc">Value ↑</option>
+          <option value="pnl_desc">P&L $ ↓</option>
+          <option value="pnl_asc">P&L $ ↑</option>
+          <option value="pnlpct_desc">P&L % ↓</option>
+          <option value="pnlpct_asc">P&L % ↑</option>
+          <option value="cost_desc">Cost Basis ↓</option>
+          <option value="cost_asc">Cost Basis ↑</option>
+          <option value="units_desc">Units ↓</option>
+          <option value="alloc_desc">Allocation % ↓</option>
+        </select>
+        <select class="fsm" id="hd-show" onchange="renderHD()">
+          <option value="all">Show All</option>
+          <option value="profit">Profitable Only</option>
+          <option value="loss">In Loss Only</option>
+          <option value="noPrice">No Price Set</option>
+        </select>
+        <select class="fsm" id="hd-own" onchange="renderHD()"><option value="">All Owners</option></select>
+      </div>
+    </div>
+    <div class="ovx">
+      <table id="hd-table">
+        <thead><tr>
+          <th onclick="hdSort('symbol')" style="cursor:pointer">Symbol ⇅</th>
+          <th>Owner</th>
+          <th>Type</th>
+          <th onclick="hdSort('units_desc')" style="cursor:pointer">Units ⇅</th>
+          <th onclick="hdSort('cost_desc')" style="cursor:pointer">Avg Cost ⇅</th>
+          <th>Cur Price</th>
+          <th onclick="hdSort('value_desc')" style="cursor:pointer">Mkt Value ⇅</th>
+          <th onclick="hdSort('cost_desc')" style="cursor:pointer">Cost Basis ⇅</th>
+          <th onclick="hdSort('pnl_desc')" style="cursor:pointer">P&L $ ⇅</th>
+          <th onclick="hdSort('pnlpct_desc')" style="cursor:pointer">P&L % ⇅</th>
+          <th onclick="hdSort('alloc_desc')" style="cursor:pointer">Alloc % ⇅</th>
+          <th># Trades</th>
+          <th>Source</th>
+        </tr></thead>
+        <tbody id="hd-body"></tbody>
+        <tfoot id="hd-foot"></tfoot>
+      </table>
+    </div>
+    <div class="empty" id="hd-empty"><div class="empty-icon">🏦</div>No holdings yet.</div>
+  </div>
+</div>
+
+<!-- DIVIDENDS -->
+<div class="panel" id="panel-dividends">
+  <!-- Summary cards -->
+  <div class="cards" id="div-cards" style="margin-bottom:18px"></div>
+
+  <!-- Add dividend / DRP + import merged -->
+  <div class="fs" style="margin-bottom:18px">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Record Dividend / Distribution &amp; DRP Entry</span>
+      <label class="btn btn-g" style="cursor:pointer;font-size:11px;padding:5px 12px;margin:0" title="Import CommSec EOFY PDF, registry DRP/dividend statement, or CSV (date, symbol, amount, type, notes)">
+        📄 Upload PDF / CSV
+        <input type="file" id="div-import-file" accept=".csv,.pdf" multiple style="display:none" onchange="importDividendFile(this)">
+      </label>
+    </div>
+    <span style="font-family:var(--mono);font-size:11px;color:var(--text3);display:block;margin-bottom:10px" id="div-import-status"></span>
+    <!-- Preview before confirming -->
+    <div id="div-import-preview" style="display:none;margin-bottom:12px">
+      <div class="tw" style="margin-bottom:10px">
+        <div class="th"><span class="tt" id="div-import-preview-title">PREVIEW</span></div>
+        <div class="ovx">
+          <table><thead><tr><th>Date</th><th>Symbol</th><th>Type</th><th>Amount</th><th>Notes</th><th>Status</th></tr></thead>
+          <tbody id="div-import-tbody"></tbody></table>
+        </div>
+      </div>
+      <button class="btn btn-g" onclick="confirmDividendImport()">✓ IMPORT ALL NEW</button>
+      <button class="btn" style="margin-left:8px" onclick="cancelDividendImport()">✕ CANCEL</button>
+    </div>
+    <div class="fg">
+      <div class="fgi"><label class="fl">Date</label><input class="fi" type="date" id="dv-date"></div>
+      <div class="fgi"><label class="fl">Symbol</label><input class="fi" type="text" id="dv-sym" placeholder="e.g. DHHF" oninput="this.value=this.value.toUpperCase();dvTypeChange()"></div>
+      <div class="fgi"><label class="fl">Amount (AUD)</label><input class="fi" type="number" id="dv-amt" placeholder="0.00" step="any" min="0" oninput="dvDrpCalc()"></div>
+      <div class="fgi"><label class="fl">Type</label>
+        <select class="fi" id="dv-type" onchange="dvTypeChange()">
+          <option value="dividend">Dividend</option>
+          <option value="distribution">Distribution</option>
+          <option value="interest">Interest</option>
+          <option value="staking">Staking Reward</option>
+          <option value="airdrop">Airdrop</option>
+          <option value="drp">DRP</option>
+        </select>
+      </div>
+      <div class="fgi" style="grid-column:1/-1"><label class="fl">Notes</label><input class="fi" type="text" id="dv-notes" placeholder="Optional"></div>
+      <div class="fgi"><label class="fl">Franking % <span style="color:var(--text3);font-size:10px">(leave blank if unfranked)</span></label><input class="fi" type="number" id="dv-franking" placeholder="e.g. 100" min="0" max="100" step="any"></div>
+    </div>
+
+    <!-- DRP extra fields — shown only when type=DRP -->
+    <div id="dv-drp-fields" style="display:none;margin-top:10px">
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono);letter-spacing:.08em;margin-bottom:8px">DRP DETAILS — auto-creates buy trade</div>
+      <div class="fg">
+        <div class="fgi"><label class="fl">Asset Type</label>
+          <select class="fi" id="dv-drp-at">
+            <option value="asx_stock">ASX Stock</option>
+            <option value="etf">ETF</option>
+            <option value="lic">LIC</option>
+            <option value="reit">REIT</option>
+            <option value="managed">Managed Fund</option>
+          </select></div>
+        <div class="fgi"><label class="fl">Previous Carry-Forward <span style="color:var(--text3);font-size:11px;font-weight:400">auto-filled</span></label>
+          <input class="fi" type="number" id="dv-drp-carry-in" placeholder="0.00" step="any" min="0" oninput="dvDrpCalc()" style="color:var(--gold)"></div>
+        <div class="fgi"><label class="fl">Units Issued</label>
+          <input class="fi" type="number" id="dv-drp-units" placeholder="e.g. 16" step="any" min="0" oninput="dvDrpCalc()"></div>
+        <div class="fgi"><label class="fl">DRP Price Per Unit</label>
+          <input class="fi" type="number" id="dv-drp-price" placeholder="e.g. 12.00" step="any" min="0" oninput="dvDrpCalc()"></div>
+        <div class="fgi"><label class="fl">Broker / Source</label>
+          <div style="display:flex;gap:6px">
+            <select class="fi" id="dv-drp-source" style="flex:1"></select>
+            <button class="btn" onclick="promptAddBroker('dv-drp-source')" title="Add custom broker" style="padding:4px 10px;flex-shrink:0">+</button>
+          </div></div>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin:10px 0;font-size:12px;color:var(--text2);line-height:2">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:.08em;margin-bottom:2px">PREVIEW</div>
+        <div id="dv-drp-prev-trade"></div>
+        <div id="dv-drp-prev-div"></div>
+        <div id="dv-drp-prev-carry"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
+      <button class="btn btn-g" id="dv-save-btn" onclick="addDividend()">ADD DIVIDEND</button>
+      <button class="btn" onclick="dvClear()">CLEAR</button>
+      <button class="btn" onclick="checkAndProcessDividends()" title="Check expected dividends from Yahoo Finance + process DRP for enabled symbols" style="background:var(--blue-dim,rgba(59,130,246,0.15));color:var(--blue,#3b82f6);border-color:var(--blue,#3b82f6)">🔍 Check &amp; Process Dividends</button>
+
+    </div>
+
+  <!-- Div checker results panel -->
+  <div id="div-check-panel" style="display:none;margin-bottom:16px"></div>
+  <!-- DRP processing panel -->
+  <div id="drp-tab-panel" style="display:none;margin-bottom:16px"></div>
+  </div>
+
+  <!-- Chart + table -->
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:18px">
+    <div class="tw">
+      <div class="th"><span class="tt">DIVIDEND INCOME BY YEAR</span></div>
+      <div style="padding:16px;position:relative;height:220px">
+        <canvas id="div-chart"></canvas>
+      </div>
+    </div>
+    <div class="tw">
+      <div class="th"><span class="tt">INCOME BY SYMBOL</span></div>
+      <div style="padding:16px;position:relative;height:220px">
+        <canvas id="div-pie-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="tw">
+    <div class="th">
+      <span class="tt">DIVIDEND HISTORY</span>
+      <div class="fr">
+        <input class="fsm" placeholder="Symbol…" id="dv-search" oninput="renderDividends()">
+        <select class="fsm" id="dv-owner-filter" onchange="renderDividends()"><option value="">All Owners</option></select>
+        <select class="fsm" id="dv-sym-filter" onchange="renderDividends()"><option value="">All Symbols</option></select>
+        <select class="fsm" id="dv-filter" onchange="renderDividends()">
+          <option value="">All Types</option>
+          <option value="drp">DRP</option>
+          <option value="dividend">Dividend</option>
+          <option value="distribution">Distribution</option>
+          <option value="interest">Interest</option>
+          <option value="staking">Staking</option>
+          <option value="airdrop">Airdrop</option>
+        </select>
+      </div>
+    </div>
+    <!-- FY filter pills -->
+    <div style="padding:8px 16px 4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center" id="dv-fy-bar">
+      <!-- populated by renderFYBar() -->
+    </div>
+    <div class="ovx">
+      <table><thead><tr>
+        <th>Date</th><th>Symbol</th><th>Type</th><th>Amount (AUD)</th><th>Notes</th><th></th>
+      </tr></thead><tbody id="dv-body"></tbody><tfoot id="dv-foot"></tfoot></table>
+    </div>
+    <div class="empty" id="dv-empty"><div class="empty-icon">💰</div>No dividends recorded yet.</div>
+  </div>
+</div>
+
+<!-- PROPERTY -->
+<div class="panel" id="panel-property">
+
+  <!-- Net Worth Summary bar -->
+  <div class="cards" id="pw-cards" style="margin-bottom:18px"></div>
+
+  <!-- Add / Edit property form -->
+  <div class="fs" id="prop-form-wrap">
+    <div class="fst" id="prop-form-title" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="togglePropForm()">
+      <span id="prop-form-title-text">Add Property</span>
+      <span id="prop-form-toggle" style="font-size:20px;color:var(--text3);font-family:var(--mono);line-height:1">+</span>
+    </div>
+    <div id="prop-form-body" style="display:none;margin-top:16px">
+    <div class="fg">
+      <div class="fgi"><label class="fl">Nickname / Address</label><input class="fi" type="text" id="pf-name" placeholder="e.g. PPOR – 12 Smith St"></div>
+      <div class="fgi"><label class="fl">Property Type</label>
+        <select class="fi" id="pf-type">
+          <option value="ppor">PPOR (Primary Residence)</option>
+          <option value="investment">Investment Property</option>
+          <option value="commercial">Commercial</option>
+          <option value="land">Vacant Land</option>
+        </select>
+      </div>
+      <div class="fgi"><label class="fl">Purchase Date</label><input class="fi" type="date" id="pf-pdate"></div>
+      <div class="fgi"><label class="fl">Purchase Price (AUD)</label><input class="fi" type="number" id="pf-pprice" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
+      <div class="fgi"><label class="fl">Purchase Costs (stamp duty, legal…)</label><input class="fi" type="number" id="pf-pcosts" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
+      <div class="fgi"><label class="fl">Current Estimated Value (AUD)</label><input class="fi" type="number" id="pf-cval" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
+      <!-- LOAN SPLITS -->
+      <div class="fgi" style="grid-column:1/-1">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <label class="fl" style="margin-bottom:0">Loan Splits</label>
+          <button type="button" class="btn" style="padding:3px 10px;font-size:11px" onclick="addLoanSplit()">+ ADD SPLIT</button>
+        </div>
+        <div id="pf-splits-wrap" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div class="fgi"><label class="fl">Weekly Rent Income (AUD)</label><input class="fi" type="number" id="pf-rent" placeholder="0 if PPOR" step="any" min="0" oninput="calcPropPreview()"></div>
+      <div class="fgi"><label class="fl">Annual Property Expenses (AUD)
+        <span style="font-size:10px;color:var(--text3)"> — auto-filled from Tax tab</span>
+      </label><input class="fi" type="text" inputmode="text" id="pf-expenses" placeholder="rates, insurance, mgmt… or +/-" onfocus="mathInpInit(this)" oninput="mathInpInput(this)" onkeydown="if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();mathInpCommit(this,v=>{this.value=v;calcPropPreview();});}" onkeyup="if(event.key==='Escape'){this.value=this.dataset.prior||'';;mathInpHint(this);}" onblur="mathInpHint(this);calcPropPreview();"></div>
+      <div class="fgi"><label class="fl">Property Manager?</label>
+        <select class="fi" id="pf-mgr"><option value="no">Self-managed</option><option value="yes">Property Manager</option></select>
+      </div>
+      <div class="fgi"><label class="fl">Owner</label>
+        <select class="fi" id="pf-owner"><option value="lumia">Lumia</option><option value="chilli">Chilli</option><option value="joint">Joint (50/50)</option></select></div>
+      <div class="fgi"><label class="fl">Notes</label><input class="fi" type="text" id="pf-notes" placeholder="Optional"></div>
+    </div>
+    <!-- Live preview -->
+    <div id="prop-preview" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-bottom:16px;font-family:var(--mono);font-size:12px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px" id="prop-preview-grid"></div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-g" onclick="saveProperty()">SAVE PROPERTY</button>
+      <button class="btn" onclick="clearPropForm()">CLEAR</button>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--text3)" id="pf-edit-id"></span>
+    </div>
+    </div><!-- /prop-form-body -->
+  </div>
+
+  <!-- Properties list -->
+  <div id="prop-cards-wrap"></div>
+
+</div>
+<!-- SUPER -->
+<div class="panel" id="panel-super">
+
+  <!-- Summary cards -->
+  <div class="cards" id="su-cards" style="margin-bottom:18px"></div>
+
+  <!-- Chart -->
+  <div class="fs" style="margin-bottom:18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:.08em;text-transform:uppercase">BALANCE HISTORY</div>
+      <button id="su-chart-toggle-btn" class="btn" style="padding:3px 10px;font-size:11px" onclick="toggleSuperChartRange()">Show all history</button>
+    </div>
+    <div style="position:relative;height:260px">
+      <canvas id="su-chart"></canvas>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+      <label style="font-family:var(--mono);font-size:11px;color:var(--text3)">Combined line colour</label>
+      <input type="color" id="su-combined-color" value="#ffffff" style="width:36px;height:26px;padding:1px;border:1px solid var(--border);border-radius:4px;background:var(--bg);cursor:pointer" oninput="setSuperCombinedColor(this.value)">
+    </div>
+  </div>
+
+  <!-- Add / Edit form -->
+  <div class="fs" id="su-form-wrap">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSuperForm()">
+      <span id="su-form-title-text">Add Super Account</span>
+      <span id="su-form-toggle" style="font-size:20px;color:var(--text3);font-family:var(--mono);line-height:1">+</span>
+    </div>
+    <div id="su-form-body" style="display:none;margin-top:16px">
+      <div class="fg">
+        <div class="fgi"><label class="fl">Account Name / Owner</label>
+          <input class="fi" type="text" id="su-name" placeholder="e.g. My Super — Australian Super"></div>
+        <div class="fgi"><label class="fl">Current Balance (AUD)</label>
+          <input class="fi" type="number" id="su-balance" placeholder="0" step="any" min="0" oninput="renderSuperChart()"></div>
+        <div class="fgi"><label class="fl">Line Colour on Chart</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="color" id="su-color" value="#3b82f6" style="width:44px;height:32px;padding:2px;border:1px solid var(--border);border-radius:4px;background:var(--bg);cursor:pointer" oninput="renderSuperChart();if($('su-color-label'))$('su-color-label').textContent=this.value">
+            <span style="font-family:var(--mono);font-size:11px;color:var(--text3)" id="su-color-label">#3b82f6</span>
+          </div></div>
+      </div>
+      <!-- Contributions -->
+      <div style="margin-top:14px;margin-bottom:14px">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">CONTRIBUTIONS THIS YEAR (FY2026)</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 24px">
+          <div><label class="fl" style="font-size:10px">Employer CC (AUD/yr)</label>
+            <input class="fi su-contrib" data-contrib="empCC_cur" type="number" placeholder="0" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">Personal Concessional (AUD/yr)</label>
+            <input class="fi su-contrib" data-contrib="perCC_cur" type="number" placeholder="0" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">Non-Concessional (AUD/yr)</label>
+            <input class="fi su-contrib" data-contrib="ncc_cur" type="number" placeholder="0" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+        </div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;margin-top:14px">CONTRIBUTIONS PREVIOUS YEAR (FY2025)</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 24px">
+          <div><label class="fl" style="font-size:10px">Employer CC (AUD/yr)</label>
+            <input class="fi su-contrib" data-contrib="empCC_prev" type="number" placeholder="0" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">Personal Concessional (AUD/yr)</label>
+            <input class="fi su-contrib" data-contrib="perCC_prev" type="number" placeholder="0" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">Non-Concessional (AUD/yr)</label>
+            <input class="fi su-contrib" data-contrib="ncc_prev" type="number" placeholder="0" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+        </div>
+      </div>
+      <!-- Carry-forward CC inputs -->
+      <div style="margin-top:16px;padding:12px;background:rgba(99,102,241,0.06);border-radius:8px;border:1px solid rgba(99,102,241,0.2)">
+        <div style="font-family:var(--mono);font-size:11px;color:#818cf8;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">⟳ Carry-Forward — Unused Concessional Contributions</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5">Enter the <b style="color:var(--text2)">unused concessional contributions cap</b> for each year exactly as shown on your ATO online services (MyGov → Tax → Super → Carry-forward).<br>Leave blank = $0 carry-forward for that year.</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">
+          <div><label class="fl" style="font-size:10px">Super Balance at 30 Jun FY2025
+            <span style="color:var(--text3)">(must be &lt;$500k to be eligible)</span></label>
+            <input class="fi su-contrib" data-contrib="bal_prevyr" type="number" placeholder="e.g. 180000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">FY2021 — Unused cap (from ATO)</label>
+            <input class="fi su-contrib" data-contrib="cf_unused_fy2021" type="number" placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">FY2022 — Unused cap (from ATO)</label>
+            <input class="fi su-contrib" data-contrib="cf_unused_fy2022" type="number" placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">FY2023 — Unused cap (from ATO)</label>
+            <input class="fi su-contrib" data-contrib="cf_unused_fy2023" type="number" placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">FY2024 — Unused cap (from ATO)</label>
+            <input class="fi su-contrib" data-contrib="cf_unused_fy2024" type="number" placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">FY2025 — Unused cap (from ATO)</label>
+            <input class="fi su-contrib" data-contrib="cf_unused_fy2025" type="number" placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+        </div>
+      </div>
+      <!-- FY history -->
+      <div style="margin-top:14px;margin-bottom:14px">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">BALANCE AT END OF FINANCIAL YEAR</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0 24px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2016</label><input class="fi su-fy-input" data-fy="2016" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2017</label><input class="fi su-fy-input" data-fy="2017" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2018</label><input class="fi su-fy-input" data-fy="2018" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2019</label><input class="fi su-fy-input" data-fy="2019" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2020</label><input class="fi su-fy-input" data-fy="2020" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2021</label><input class="fi su-fy-input" data-fy="2021" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2022</label><input class="fi su-fy-input" data-fy="2022" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2023</label><input class="fi su-fy-input" data-fy="2023" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2024</label><input class="fi su-fy-input" data-fy="2024" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY2025</label><input class="fi su-fy-input" data-fy="2025" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>
+      </div>
+      <!-- Live preview -->
+      <div id="su-preview" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-bottom:16px;font-family:var(--mono);font-size:12px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px" id="su-preview-grid"></div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-g" onclick="saveSuperAccount()">SAVE ACCOUNT</button>
+        <button class="btn" onclick="clearSuperForm()">CLEAR</button>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--text3)" id="su-edit-id"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Accounts list -->
+  <div id="su-accounts-wrap" style="margin-top:18px"></div>
+
+</div>
+</div>
+<!-- SPENDING -->
+<div class="panel" id="panel-spending">
+
+  <!-- Summary cards -->
+  <div class="cards" id="sp-cards" style="margin-bottom:20px"></div>
+
+  <!-- FY selector + controls -->
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.08em">FINANCIAL YEAR</div>
+    <div id="sp-fy-bar" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <div style="flex:1"></div>
+    <input class="fi" type="text" id="sp-search" placeholder="Search merchant..." oninput="renderSpending()"
+      style="width:180px;font-size:12px;padding:5px 10px">
+    <label class="btn btn-g" style="cursor:pointer" title="Import credit card CSV">
+      ⬆ IMPORT CSV
+      <input type="file" accept=".csv" style="display:none" onchange="importSpendingCSV(this)">
+    </label>
+    <button class="btn btn-r" onclick="clearSpendingData()" title="Clear all spending data">🗑 CLEAR</button>
+  </div>
+  <div id="sp-import-status" style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px;display:none"></div>
+
+  <!-- Money Out -->
+  <div class="fs" style="margin-bottom:16px">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
+      <span>💸 Money Out</span>
+      <span id="sp-out-total" style="font-family:var(--mono);font-size:13px;color:var(--red)"></span>
+    </div>
+
+    <!-- Category summary rows -->
+    <div id="sp-cat-list" style="margin-bottom:14px"></div>
+
+    <!-- Transaction detail table (shown when category selected) -->
+    <div id="sp-txn-wrap" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <button class="btn" onclick="clearSpendingCat()" style="font-size:11px;padding:4px 10px">← All Categories</button>
+        <span id="sp-txn-title" style="font-family:var(--mono);font-size:12px;color:var(--gold);font-weight:600"></span>
+      </div>
+      <table class="tbl" style="width:100%">
+        <thead><tr id="sp-txn-head"></tr></thead>
+        <tbody id="sp-txn-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Money In -->
+  <div class="fs">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
+      <span>💚 Money In</span>
+      <span id="sp-in-total" style="font-family:var(--mono);font-size:13px;color:var(--green)"></span>
+    </div>
+    <div id="sp-in-list" style="margin-bottom:14px"></div>
+    <div id="sp-in-txn-wrap" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <button class="btn" onclick="clearSpendingInCat()" style="font-size:11px;padding:4px 10px">← All</button>
+        <span id="sp-in-txn-title" style="font-family:var(--mono);font-size:12px;color:var(--green);font-weight:600"></span>
+      </div>
+      <table class="tbl" style="width:100%">
+        <thead><tr id="sp-in-txn-head"></tr></thead>
+        <tbody id="sp-in-txn-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+
+<!-- SETTINGS -->
+<div class="panel" id="panel-tax"></div>
+
+<div class="panel" id="panel-settings">
+
+  <!-- Cloudflare Worker setup -->
+  <div class="fs" style="margin-bottom:16px">
+    <div class="fst">💾 Backup &amp; Restore</div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px">
+
+      <!-- Export -->
+      <div style="flex:1;min-width:220px">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">EXPORT</div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <button class="btn btn-g" onclick="backupExport()" style="padding:8px;text-align:left">
+            ⬇ Download Backup <span style="color:var(--text3);font-size:10px">.json</span>
+          </button>
+          <button class="btn btn-g" onclick="exportXLSX()" style="padding:8px;text-align:left">
+            📊 Export Spreadsheet <span style="color:var(--text3);font-size:10px">.xlsx</span>
+          </button>
+          <button class="btn btn-g" onclick="exportCSVZip()" style="padding:8px;text-align:left">
+            📄 Export All CSV <span style="color:var(--text3);font-size:10px">individual .csv files</span>
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">
+          XLSX &amp; CSV export every data type to separate sheets/files. JSON backup is the only format that can be fully restored.
+        </div>
+      </div>
+
+      <!-- Import -->
+      <div style="flex:1;min-width:220px">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">RESTORE / IMPORT</div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <label class="btn btn-r" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
+            ⬆ Restore from Backup <span style="color:var(--text3);font-size:10px">.json</span>
+            <input type="file" accept=".json" style="display:none" onchange="backupImport(this)">
+          </label>
+          <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
+            📈 Import Trades CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+            <input type="file" accept=".csv" style="display:none" onchange="csvImport('trades',this)">
+          </label>
+          <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
+            💰 Import Dividends CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+            <input type="file" accept=".csv" style="display:none" onchange="csvImport('dividends',this)">
+          </label>
+          <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
+            📄 Import Dividend/DRP PDF <span style="color:var(--text3);font-size:10px">auto-parses statement</span>
+            <input type="file" accept=".pdf" multiple style="display:none" onchange="importDividendPDF(this)">
+          </label>
+          <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
+            🏠 Import Properties CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+            <input type="file" accept=".csv" style="display:none" onchange="csvImport('properties',this)">
+          </label>
+          <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
+            🏦 Import Super CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+            <input type="file" accept=".csv" style="display:none" onchange="csvImport('super',this)">
+          </label>
+          <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
+            💳 Import Spending CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+            <input type="file" accept=".csv" style="display:none" onchange="csvImport('spending',this)">
+          </label>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">
+          JSON backup fully restores everything. CSV imports merge into existing data, skipping duplicates.<br>
+          The 6 exported CSVs: <b style="color:var(--text2)">Trades, Dividends, Properties &amp; Spending</b> can be re-imported above. Holdings and Settings cannot.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Restore preview modal -->
+    <div id="backup-preview" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:8px">
+      <div style="font-family:var(--mono);font-size:12px;color:var(--gold);font-weight:700;margin-bottom:12px">📋 RESTORE PREVIEW</div>
+      <div id="backup-preview-body" style="font-size:12px;line-height:2;margin-bottom:14px"></div>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-r" id="backup-confirm-btn" onclick="backupConfirm()" style="padding:7px 20px">✓ Yes, Restore Now</button>
+        <button class="btn" onclick="backupCancel()" style="padding:7px 16px">✗ Cancel</button>
+      </div>
+    </div>
+
+    <div id="backup-status" style="display:none;font-family:var(--mono);font-size:11px;margin-top:8px"></div>
+  </div>
+  <div class="fs" style="margin-bottom:18px">
+    <div class="fst">☁ Cloud Sync — GitHub Gist</div>
+    <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:5px;padding:8px 12px;margin-bottom:12px;font-size:11px;color:var(--text3)">
+      ⚠ Sync only works when opened via <b style="color:var(--blue)">https://mangohill.github.io/mango-mango/</b> — not from a downloaded/local file. Safari on iPad blocks network requests from local files.
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div><label class="fl">GitHub Token <span style="font-size:10px;color:var(--text3)">(gist scope only)</span></label>
+        <input class="fi" type="password" id="sync-key" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" oninput="saveSyncKey(this.value)">
+      </div>
+      <div><label class="fl">Device Name</label>
+        <input class="fi" type="text" id="sync-device" placeholder="e.g. iPhone, Work PC" oninput="saveSyncDevice(this.value)">
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label class="fl">Gist ID <span style="font-size:10px;color:var(--text3)">(auto-filled after first push — paste on other devices)</span></label>
+      <input class="fi" type="text" id="sync-gist-id" placeholder="Auto-filled after first push" style="font-family:var(--mono);font-size:12px">
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn btn-g" onclick="syncPush()" style="min-width:130px">☁ Push to Gist</button>
+      <button class="btn" onclick="syncPull()" style="min-width:130px">⬇ Pull from Gist</button>
+      <span id="sync-status" style="font-family:var(--mono);font-size:11px;color:var(--text3)">Not synced</span>
+    </div>
+    <div id="sync-conflict" style="display:none;background:var(--bg);border:1px solid var(--gold);border-radius:5px;padding:12px;margin-bottom:10px">
+      <div style="font-family:var(--mono);font-size:12px;color:var(--gold);margin-bottom:10px">⚠ Conflict — which version do you want to keep?</div>
+      <div id="sync-conflict-info" style="font-size:11px;color:var(--text3);margin-bottom:10px"></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-g" onclick="syncResolve('local')">Keep This Device</button>
+        <button class="btn" onclick="syncResolve('remote')">Keep Cloud Version</button>
+        <button class="btn" onclick="syncCancelConflict()">Cancel</button>
+      </div>
+    </div>
+    <div style="font-size:10px;color:var(--text3)">Free — uses GitHub Gist as private storage. Create a token at github.com → Settings → Developer settings → Personal access tokens → tick <b>gist</b> scope only.</div>
+  
+
+  <div class="fs">
+    <div class="fst">⚡ Auto Prices — Cloudflare Worker Setup (Free, 5 min)</div>
+    <p style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:16px">
+      Deploy a free Cloudflare Worker to proxy Yahoo Finance — bypasses CORS from your browser.<br>
+      Cloudflare free plan: <strong style="color:var(--text)">100,000 requests/day</strong>. No credit card needed.
+    </p>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-bottom:14px;font-family:var(--mono);font-size:11px;line-height:1.8;color:var(--text2)">
+      <div style="color:var(--text);margin-bottom:6px;font-size:12px">SETUP STEPS:</div>
+      1. Go to <strong style="color:var(--blue)">workers.cloudflare.com</strong> → Sign up free → Create Worker<br>
+      2. Click <strong style="color:var(--text)">Edit Code</strong> → paste the worker code below → <strong style="color:var(--text)">Deploy</strong><br>
+      3. Copy your worker URL (e.g. <span style="color:var(--green)">https://asx-prices.yourname.workers.dev</span>)<br>
+      4. Paste it in the field below and click <strong style="color:var(--text)">SAVE URL</strong>
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Worker Code — paste this into Cloudflare</div>
+      <textarea class="fi" id="worker-code-box" rows="10" readonly onclick="this.select()" style="width:100%;resize:none;font-size:11px;color:var(--green);background:var(--bg);cursor:text"></textarea>
+    </div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div class="fgi" style="flex:1;min-width:280px">
+        <label class="fl">Your Worker URL</label>
+        <input class="fi" type="text" id="cf-url" placeholder="https://asx-prices.yourname.workers.dev" style="width:100%">
+      </div>
+      <button class="btn btn-g" onclick="saveCFUrl()" style="align-self:flex-end">SAVE URL</button>
+      <button class="btn" onclick="testWorker()" style="align-self:flex-end">TEST</button>
+    </div>
+    <div style="font-family:var(--mono);font-size:11px;margin-top:8px;color:var(--text3)" id="cf-status"></div>
+  </div>
+
+  <!-- Manual prices -->
+  <div class="fs">
+    <div class="fst">Manual Price Entry</div>
+    <p style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:14px">
+      Paste prices from <strong style="color:var(--text)">asx.com.au</strong> or Google. One per line or comma-separated.
+    </p>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
+      <div class="fgi"><label class="fl">Symbol</label>
+        <input class="fi" type="text" id="mp-sym" placeholder="DHHF" oninput="this.value=this.value.toUpperCase()" style="width:110px"
+          onkeydown="if(event.key==='Tab'||event.key==='Enter'){event.preventDefault();$('mp-price').focus();}">
+      </div>
+      <div class="fgi"><label class="fl">Price (AUD)</label>
+        <input class="fi" type="number" id="mp-price" placeholder="0.00" step="any" min="0" style="width:130px"
+          onkeydown="if(event.key==='Enter')setManualPrice();">
+      </div>
+      <button class="btn btn-g" onclick="setManualPrice()" style="align-self:flex-end">SET PRICE</button>
+      <button class="btn" onclick="fetchAndSetMAIF()" title="Fetch latest MAIF buy price from Monash" style="align-self:flex-end;background:var(--gold);color:#000;font-weight:700">⟳ MAIF</button>
+      
+    </div>
+    <textarea class="fi" id="mp-bulk" rows="5" placeholder="DHHF 39.50&#10;NDQ 45.20&#10;WQG 1.62&#10;MAAT 1.08" style="width:100%;resize:vertical;margin-bottom:10px"></textarea>
+    <button class="btn btn-g" onclick="bulkSetPrices()">SET ALL PRICES</button>
+  </div>
+
+  <!-- Cached prices -->
+  <div class="tw">
+    <div class="th" style="justify-content:space-between">
+      <span class="tt">CACHED PRICES</span>
+      <button class="btn btn-r" onclick="clearAllPrices()" style="font-size:11px;padding:4px 10px">CLEAR ALL</button>
+    </div>
+    <div class="ovx">
+      <table><thead><tr><th>Symbol</th><th>Price (AUD)</th><th>Type</th><th></th></tr></thead>
+      <tbody id="prices-body"></tbody></table>
+    </div>
+    <div class="empty" id="prices-empty"><div class="empty-icon">💰</div>No prices cached yet.</div>
+  </div>
+
+
+
+
+
+
+  <!-- Stock Ownership -->
+  <div class="fs" style="margin-top:18px">
+    <div class="fst">👤 Stock Ownership</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
+      Assign each stock/ETF to a person. Affects dividend attribution and tax estimates.
+      Changes take effect immediately in Holdings, Dividends, and Tax tabs.<br>
+      <span style="color:var(--gold)">DRP toggle</span> — enable per symbol to include in DRP processing.
+      Process DRP from the <strong style="color:var(--text)">Dividends tab → 🔍 Check &amp; Process Dividends</strong>.
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <button class="btn" onclick="promptAddPerson()" style="font-size:12px">+ Add Person</button>
+      <span id="persons-list" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></span>
+    </div>
+    <div id="ownership-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px"></div>
+    <div style="font-size:10px;color:var(--text3);margin-top:10px">
+      Joint = 50/50 split between all persons (default for new stocks)
+    
+</div>
+  </div>
+</div>
+
+<div class="notif" id="notif"></div>
+
+  <script src="lib/xlsx.min.js"></script>
+  <script src="lib/chart.min.js"></script>
+  <script src="js/helpers.js"></script>
+  <script src="js/imports.js"></script>
+  <script src="js/portfolio.js"></script>
+  <script src="js/trades.js"></script>
+  <script src="js/prices.js"></script>
+  <script src="js/analytics.js"></script>
+  <script src="js/dividends.js"></script>
+  <script src="js/properties.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/spending.js"></script>
+  <script src="js/backup.js"></script>
+  <script src="js/tax.js"></script>
+  <script src="js/sw-register.js"></script>
+</body>
+</html>
