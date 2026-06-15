@@ -26,6 +26,7 @@ function detectSrc(filename,headers){
   if(hs.has('orderno')&&hs.has('pair')&&hs.has('executed')) return 'binance';
   if(fn.includes('binance')) return 'binance';
   if(hs.has('recordtype')||hs.has('transactionid')||fn.includes('btcmarket')) return 'btcmarkets';
+  if(hs.has('transaction id')||hs.has('market id')||fn.includes('taxtransactionreport')) return 'btcmarkets_tax';
   if(hs.has('asxcode')||fn.includes('cmc')) return 'cmc';
   if(hs.has('comment')&&hs.has('transactiondate')) return 'selfwealth';
   if(fn.includes('betashare')) return 'betashares';
@@ -103,10 +104,60 @@ function parseSW(rows){
 // Ledger format: paired rows per referenceId
 // Buy: AUD debit row + crypto credit row + Trading Fee row
 // Sell: crypto debit row + AUD credit row + Trading Fee row
+// ── BTCMARKETS TAX TRANSACTION REPORT PARSER ─────────────────────────
+// Format: Transaction Id, Transaction Date and Timestamp, Transaction,
+//         Asset, Market Id, Volume, Price (AUD), Fee (AUD), Nett Value (AUD), Reference Id
+// Dates are UTC — converted to Australian Eastern time (AEDT/AEST)
+function utcToAEST(utcStr){
+  // Parse UTC timestamp, convert to AEST (UTC+10) or AEDT (UTC+11)
+  // AEDT: first Sun Oct → first Sun Apr; AEST: rest of year
+  if(!utcStr) return '';
+  const dt = new Date(utcStr);
+  if(isNaN(dt)) return utcStr.slice(0,10);
+  const month = dt.getUTCMonth() + 1; // 1-12
+  // Approximate DST: Oct, Nov, Dec, Jan, Feb, Mar = AEDT (+11), else AEST (+10)
+  const offsetHrs = (month >= 10 || month <= 3) ? 11 : 10;
+  const local = new Date(dt.getTime() + offsetHrs * 3600 * 1000);
+  return local.toISOString().slice(0, 10);
+}
+
+function parseBTCMTax(rows){
+  const results = [];
+  for(const r of rows){
+    const g = k => (r[k] || r[' '+k] || '').trim();
+    const txnType = g('Transaction');
+    if(txnType !== 'Buy Order' && txnType !== 'Sell Order') continue;
+    const sym   = g('Asset').toUpperCase();
+    const utcTs = g('Transaction Date and Timestamp');
+    const date  = utcToAEST(utcTs);
+    const units = Math.abs(parseFloat(g('Volume')) || 0);
+    const price = Math.abs(parseFloat(g('Price (AUD)')) || 0);
+    const fees  = Math.abs(parseFloat(g('Fee (AUD)')) || 0);
+    const nett  = Math.abs(parseFloat(g('Nett Value (AUD)')) || 0);
+    const side  = txnType === 'Buy Order' ? 'buy' : 'sell';
+    if(!sym || !units || !price || !date) continue;
+    // Note records the AUD total and price for CGT record-keeping
+    const total = (units * price).toFixed(2);
+    const notes = `BTC Markets · ${side==='buy'?'Cost':'Proceeds'}: $${nett.toFixed(2)} · Price: $${price} · Fee: $${fees.toFixed(4)}`;
+    results.push({date, type:side, symbol:sym,
+      assetType: resolveAssetType(sym,'crypto'),
+      units: +units.toFixed(8), price: +price.toFixed(8),
+      fees: +fees.toFixed(4), source:'btcmarkets', notes, id:uid()});
+  }
+  return results;
+}
+
+// ── BTCMARKETS LEDGER PARSER (old format) ───────────────────────────
+// Format: paired debit/credit rows per referenceId
 function parseBTCM(rows){
-  // Only trade record rows
+  // Detect which format: Tax Report has "Transaction" column; Ledger has "recordType"
+  const firstRow = rows[0] || {};
+  const hasTxnCol = Object.keys(firstRow).some(k => k.trim().toLowerCase() === 'transaction');
+  const hasRecType = Object.keys(firstRow).some(k => k.trim().toLowerCase() === 'recordtype');
+  if(hasTxnCol && !hasRecType) return parseBTCMTax(rows);
+
+  // Old ledger format below
   const tr=rows.filter(r=>(r['recordType']||r[' recordType']||'').trim()==='Trade');
-  // Group by referenceId
   const groups={};
   for(const r of tr){
     const ref=(r['referenceId']||'').trim();
@@ -115,7 +166,6 @@ function parseBTCM(rows){
   }
   const results=[];
   for(const grp of Object.values(groups)){
-    // Crypto row: currency != AUD, action = Buy Order or Sell Order
     const cryptoRow=grp.find(r=>{
       const cur=(r['currency']||'').trim();
       const act=(r['action']||'').trim();
@@ -126,11 +176,9 @@ function parseBTCM(rows){
     const units=Math.abs(parseFloat(cryptoRow['amount'])||0);
     const side=(cryptoRow['action']||'').trim()==='Buy Order'?'buy':'sell';
     const date=nd((cryptoRow['creationTime']||'').split('T')[0]);
-    // AUD row (not the fee row)
     const audRow=grp.find(r=>(r['currency']||'').trim()==='AUD'&&(r['action']||'').trim()!=='Trading Fee');
     const audAmt=Math.abs(parseFloat(audRow?.amount||0)||0);
     const price=units>0?+(audAmt/units).toFixed(8):0;
-    // Fee row
     const feeRow=grp.find(r=>(r['action']||'').trim()==='Trading Fee');
     const fees=Math.abs(parseFloat(feeRow?.amount||0)||0);
     if(!sym||!units||!price||!date) continue;
@@ -217,7 +265,7 @@ function parseFile(text,filename){
   if(src==='commsec')     parsed=parseCommsec(rows);
   else if(src==='cmc')    parsed=parseCMC(rows);
   else if(src==='selfwealth') parsed=parseSW(rows);
-  else if(src==='btcmarkets') parsed=parseBTCM(rows);
+  else if(src==='btcmarkets'||src==='btcmarkets_tax') parsed=parseBTCM(rows);
   else if(src==='binance') parsed=parseBinance(rows);
   else                    parsed=parseGeneric(rows,src);
   if(!parsed.length){notify(`No trades found (detected: ${src}). Check file format.`,'err');return;}
