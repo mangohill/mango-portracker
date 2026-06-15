@@ -28,6 +28,7 @@ function detectSrc(filename,headers){
   if(hs.has('recordtype')||hs.has('transactionid')||fn.includes('btcmarket')) return 'btcmarkets';
   if(hs.has('transaction id')||hs.has('market id')||fn.includes('taxtransactionreport')) return 'btcmarkets_tax';
   if(hs.has('asxcode')||fn.includes('cmc')) return 'cmc';
+  if(hs.has('market')&&hs.has('rate inc. fee')||fn.includes('orderhistory')||fn.includes('coinspot')) return 'coinspot';
   if(hs.has('comment')&&hs.has('transactiondate')) return 'selfwealth';
   if(fn.includes('betashare')) return 'betashares';
   // CommSec: Date, Reference, Details, Debit($), Credit($), Balance($)
@@ -187,6 +188,50 @@ function parseBTCM(rows){
   return results;
 }
 
+// ── COINSPOT PARSER ─────────────────────────────────────────────────
+// Format: Transaction Date (dd/mm/yyyy HH:MM AM/PM AEST), Type, Market (e.g. DOGE/AUD),
+//         Amount, Rate inc. fee, Rate ex. fee, Fee (AUD), Fee AUD (inc GST), GST AUD,
+//         Total AUD, Total (inc GST)
+// Dates are already in AEST — no UTC conversion needed.
+function parseCoinSpot(rows){
+  const results = [];
+  for(const r of rows){
+    const g = k => (r[k]||'').trim();
+    const rawDate  = g('Transaction Date');
+    const txnType  = g('Type').toLowerCase();
+    const market   = g('Market');                     // e.g. DOGE/AUD
+    const symbol   = market.split('/')[0].toUpperCase();
+    const units    = Math.abs(parseFloat(g('Amount'))||0);
+    // Rate ex. fee = clean per-unit price excluding fee
+    const price    = Math.abs(parseFloat(g('Rate ex. fee'))||0);
+    // Fee: strip trailing " AUD" then parse
+    const feeStr   = g('Fee').replace(/\s*AUD$/i,'').replace(/,/g,'');
+    const fees     = Math.abs(parseFloat(feeStr)||0);
+    const total    = Math.abs(parseFloat(g('Total AUD'))||0);
+
+    if(!symbol||!units||!price||!rawDate) continue;
+    if(txnType!=='buy'&&txnType!=='sell') continue;
+
+    // Parse dd/mm/yyyy HH:MM AM/PM
+    const dm = rawDate.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if(!dm) continue;
+    let hr = parseInt(dm[4]);
+    if(dm[6].toUpperCase()==='PM' && hr!==12) hr+=12;
+    if(dm[6].toUpperCase()==='AM' && hr===12) hr=0;
+    const date = `${dm[3]}-${dm[2]}-${dm[1]}`;
+
+    const side = txnType === 'sell' ? 'sell' : 'buy';
+    const notes = `CoinSpot · ${side==='buy'?'Cost':'Proceeds'}: $${total.toFixed(2)} · Price: $${price} · Fee: $${fees.toFixed(4)}`;
+    results.push({
+      date, type:side, symbol,
+      assetType: resolveAssetType(symbol, 'crypto'),
+      units: +units.toFixed(8), price: +price.toFixed(8),
+      fees: +fees.toFixed(4), source:'coinspot', notes, id:uid()
+    });
+  }
+  return results;
+}
+
 // ── GENERIC PARSER ───────────────────────────────────────────────────
 function parseGeneric(rows,source){
   const gc=(r,...names)=>{
@@ -266,6 +311,7 @@ function parseFile(text,filename){
   else if(src==='cmc')    parsed=parseCMC(rows);
   else if(src==='selfwealth') parsed=parseSW(rows);
   else if(src==='btcmarkets'||src==='btcmarkets_tax') parsed=parseBTCM(rows);
+  else if(src==='coinspot') parsed=parseCoinSpot(rows);
   else if(src==='binance') parsed=parseBinance(rows);
   else                    parsed=parseGeneric(rows,src);
   if(!parsed.length){notify(`No trades found (detected: ${src}). Check file format.`,'err');return;}
