@@ -194,11 +194,25 @@ function renderH(){
     ).join('');
   const ownerF_h = _htOwnCur;
 
+  // Rebuild broker filter from actual holdings sources
+  const _htBroker = $('ht-broker');
+  const _htBrokerCur = _htBroker ? _htBroker.value : '';
+  if(_htBroker){
+    const _brokerSources = [...new Set(holdings.map(h=>h.source).filter(Boolean))].sort();
+    const _brokerLabels = getAllBrokers().reduce((m,b)=>{m[b.value]=b.label;return m;},{});
+    _htBroker.innerHTML = '<option value="">All Brokers</option>' +
+      _brokerSources.map(s=>`<option value="${s}" ${s===_htBrokerCur?'selected':''}>${_brokerLabels[s]||s}</option>`).join('');
+  }
+  const brokerF_h = _htBrokerCur;
+
   const s = ($('hs').value||'').toLowerCase(), tf = $('ht').value;
   let f = holdings.filter(h=>{
     if(s && !h.symbol.toLowerCase().includes(s)) return false;
     if(tf && h.assetType !== tf) return false;
     if(ownerF_h && getSymbolOwner(h.symbol) !== ownerF_h) return false;
+    if(portfolioView===1 && isCrypto(h)) return false;
+    if(portfolioView===2 && isStock(h)) return false;
+    if(brokerF_h && h.source !== brokerF_h) return false;
     return true;
   });
   $('he').style.display = f.length ? 'none' : '';
