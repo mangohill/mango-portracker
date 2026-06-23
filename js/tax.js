@@ -535,7 +535,7 @@ function renderTax(){
       const pRec = rec.props[p.id] || {};
       const expenses = share*(
         (+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+
-        (+pRec.agent||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0)
+        (+pRec.agent||0)+(+pRec.landtax||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0)
       ) + rentalInterest * share;
 
       netRent     += annualRent;
@@ -655,7 +655,7 @@ function renderTax(){
     const _m = propMetrics(p);
     const _annRent = (p.weeklyRent||0)*52*share;
     const _annInt  = _m.monthlyInterest*12*share;
-    const _nonInt  = share*((+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+(+pRec.agent||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0));
+    const _nonInt  = share*((+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+(+pRec.agent||0)+(+pRec.landtax||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0));
     const _totalExp = _nonInt + _annInt;
     const _netResult = _annRent - _totalExp;
     const _resultStr = _netResult >= 0 ? '+'+n2(_netResult) : '-'+n2(Math.abs(_netResult));
@@ -677,6 +677,7 @@ function renderTax(){
         ${fi('insurance','Insurance','$')}
         ${fi('repairs','Repairs & Maintenance','$')}
         ${fi('agent','Agent Fees','$')}
+        ${fi('landtax','Land Tax','$')}
         ${fi('other','Other Expenses','$')}
         ${fi('depr_bldg','Depreciation — Building','$')}
         ${fi('depr_pe','Depreciation — Plant & Equipment','$')}
@@ -937,21 +938,23 @@ ${(()=>{
           window.__div293 = window.__div293 || {};
           window.__div293['lumia']  = {...lumTax,  personLabel: getPersonLabel('lumia')};
           window.__div293['chilli'] = {...chiTax, personLabel: getPersonLabel('chilli')};
-          const lumD293Cell = lumTax.div293>0
-            ? `<td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted"
-                 data-div293="lumia" title="Click to see calculation">${n2(lumTax.div293)}</td>`
-            : `<td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px">—</td>`;
-          const chiD293Cell = chiTax.div293>0
-            ? `<td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted"
-                 data-div293="chilli" title="Click to see calculation">${n2(chiTax.div293)}</td>`
-            : `<td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px">—</td>`;
           return `<tr class='neg'>
           <td style='color:var(--text3);font-size:12px;padding:5px 8px'>
             Division 293 Tax
             <span style='color:var(--text3);font-size:10px'> extra 15% on super · income &gt;$250k</span>
           </td>
-          ${lumD293Cell}
-          ${chiD293Cell}
+          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
+            ${lumTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
+            onclick='${lumTax.div293>0?'showDiv293Breakdown(\'lumia\')':''}'
+            title='${lumTax.div293>0?'Click to see calculation':''}'>
+            ${lumTax.div293>0?n2(lumTax.div293):'—'}
+          </td>
+          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
+            ${chiTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
+            onclick='${chiTax.div293>0?'showDiv293Breakdown(\'chilli\')':''}'
+            title='${chiTax.div293>0?'Click to see calculation':''}'>
+            ${chiTax.div293>0?n2(chiTax.div293):'—'}
+          </td>
         </tr>`;
         })()}
       ${(lumTax.hecsRep>0||chiTax.hecsRep>0)?row('HECS-HELP Repayment',
@@ -980,7 +983,6 @@ ${(()=>{
       ⚠ Estimates only. CGT split 50/50 between persons. Dividends split 50/50. FY2025/26 Stage 3 rates + 2% Medicare levy. MLS applies if family income &gt; $186,000 and no private hospital cover. HECS uses ATO FY2025/26 repayment rates. Consult your accountant.
     </div>
   </div>`;
-
 }
 
 function taxFamilyUpdate(field, val, fy){
