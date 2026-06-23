@@ -269,44 +269,56 @@ function renderH(){
     </tr>`;
   }).join('');
 
-  // ── Summary cards — filtered by portfolioView ──────────────────
-  const allH = holdings; // unfiltered by search/type, for card totals
-  const filterFn = portfolioView===1 ? isStock : portfolioView===2 ? isCrypto : ()=>true;
-  const viewH = allH.filter(filterFn).map(h=>{
-    const cur = prices[priceSymbol(h.symbol)]??null;
-    const mv  = cur!=null ? cur*h.units : null;
-    const pl  = mv!=null  ? mv-h.costBasis : null;
-    return {...h, _mv:mv, _pl:pl};
-  });
+  // ── Summary cards — reflect ALL active filters (view + type + owner + broker) ──
+  // f is already filtered by all dropdowns + portfolioView, so use it directly
+  const viewH = f.map(h=>({
+    ...h,
+    _mv: h._mv !== undefined ? h._mv : (prices[priceSymbol(h.symbol)]??null) != null ? prices[priceSymbol(h.symbol)]*h.units : null,
+    _pl: h._pl !== undefined ? h._pl : null,
+  }));
 
-  // Trades filtered for card count
-  const viewTrades = portfolioView===0 ? trades
-    : portfolioView===1 ? trades.filter(t=>!CRYPTO_TYPES.includes(t.assetType))
-    : trades.filter(t=>CRYPTO_TYPES.includes(t.assetType));
+  // Trades filtered for card count — apply same broker/owner/type filters
+  const viewTrades = trades.filter(t=>{
+    if(portfolioView===1 && CRYPTO_TYPES.includes(t.assetType)) return false;
+    if(portfolioView===2 && !CRYPTO_TYPES.includes(t.assetType)) return false;
+    if(tf && t.assetType !== tf) return false;
+    if(ownerF_h && getSymbolOwner(t.symbol) !== ownerF_h) return false;
+    if(brokerF_h && t.source !== brokerF_h) return false;
+    return true;
+  });
 
   let tv=0, tc=0;
   viewH.forEach(h=>{ if(h._mv!=null) tv+=h._mv; tc+=h.costBasis; });
   const tpl = tv ? tv-tc : null;
   const tpp = tpl&&tc ? (tpl/tc*100) : null;
 
-  // Labels
-  const viewLabel = portfolioView===1 ? 'Stocks' : portfolioView===2 ? 'Crypto' : '';
-  const mvLabel   = viewLabel ? viewLabel+' — Market Value' : 'Market Value';
-  const cbLabel   = viewLabel ? viewLabel+' — Cost Basis'   : 'Cost Basis';
-  const mvSub     = portfolioView===0 ? 'AUD · all assets ↻'
-                  : portfolioView===1 ? 'Stocks only ↻'
-                  : 'Crypto only ↻';
+  // Build label reflecting active filters
+  const activeFilters = [
+    portfolioView===1?'Stocks':portfolioView===2?'Crypto':'',
+    tf ? (({asx_stock:'ASX',crypto:'Crypto',etf:'ETF',lic:'LIC',reit:'REIT',bond:'Bond',commodity:'Cmdty',managed:'Managed',super:'Super'})[tf]||tf) : '',
+    ownerF_h ? getPersonLabel(ownerF_h) : '',
+    brokerF_h ? (getAllBrokers().find(b=>b.value===brokerF_h)?.label||brokerF_h) : '',
+  ].filter(Boolean);
+  const viewLabel = activeFilters.join(' · ');
+  const isFiltered = activeFilters.length > 0;
+
+  const mvLabel = isFiltered ? viewLabel+' — Market Value' : 'Market Value';
+  const cbLabel = isFiltered ? viewLabel+' — Cost Basis'   : 'Cost Basis';
+  const mvSub   = portfolioView===0 && !isFiltered ? 'AUD · all assets ↻'
+                : portfolioView===1 ? 'Stocks only ↻'
+                : portfolioView===2 ? 'Crypto only ↻'
+                : isFiltered ? 'filtered ↻' : 'AUD · all assets ↻';
 
   if($('cl-mv')) $('cl-mv').textContent = mvLabel;
   if($('cl-cb')) $('cl-cb').textContent = cbLabel;
   if($('cs-mv')) $('cs-mv').textContent = mvSub;
-  if($('cs-pos')) $('cs-pos').textContent = viewLabel ? viewLabel+' positions' : 'Open';
+  if($('cs-pos')) $('cs-pos').textContent = isFiltered ? 'Filtered' : 'Open';
 
-  // Highlight cards wrapper to show active filter
+  // Highlight cards wrapper whenever any filter is active
   const cardsEl = $('portfolio-cards');
   if(cardsEl){
-    cardsEl.style.outline = portfolioView===0 ? '' : '2px solid var(--blue)';
-    cardsEl.style.borderRadius = portfolioView===0 ? '' : '7px';
+    cardsEl.style.outline = isFiltered ? '2px solid var(--blue)' : '';
+    cardsEl.style.borderRadius = isFiltered ? '7px' : '';
   }
 
   if($('cv')) $('cv').textContent = tv ? n2(tv) : '—';
