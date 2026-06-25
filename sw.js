@@ -58,6 +58,13 @@ self.addEventListener('activate', event => {
   );
 });
 
+// ── Message: allow page to force skipWaiting ────────────────────────────────
+self.addEventListener('message', event => {
+  if(event.data && event.data.type === 'SKIP_WAITING'){
+    self.skipWaiting();
+  }
+});
+
 // ── Fetch: cache-first, background revalidation ──────────────────────────────
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
