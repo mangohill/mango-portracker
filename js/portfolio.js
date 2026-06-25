@@ -331,9 +331,9 @@ function renderH(){
   if($('cpos')) $('cpos').textContent = viewH.length;
   if($('ctrd')) $('ctrd').textContent = viewTrades.length;
 
-  // cpt sub — price loaded count (always all)
-  const priceCount = allH.filter(h=>prices[priceSymbol(h.symbol)]!=null).length;
-  const noPriceCount = allH.filter(h=>prices[priceSymbol(h.symbol)]==null).length;
+  // cpt sub — price loaded count (always all holdings, not filtered)
+  const priceCount = holdings.filter(h=>prices[priceSymbol(h.symbol)]!=null).length;
+  const noPriceCount = holdings.filter(h=>prices[priceSymbol(h.symbol)]==null).length;
   if($('cpt')) $('cpt').textContent = noPriceCount>0
     ? noPriceCount+' price'+(noPriceCount>1?'s':'')+' missing'
     : 'All prices loaded';
