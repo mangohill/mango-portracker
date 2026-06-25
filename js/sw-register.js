@@ -8,20 +8,26 @@ if('serviceWorker' in navigator){
         // Check for updates every time the page loads
         reg.update();
 
+        function showUpdateBanner(worker){
+          // Tell the waiting SW to skip waiting and take over immediately
+          worker.postMessage({ type: 'SKIP_WAITING' });
+        }
+
         // Listen for the new SW telling us there's an update ready
         reg.addEventListener('updatefound', () => {
           const newWorker = reg.installing;
           if(!newWorker) return;
           newWorker.addEventListener('statechange', () => {
             if(newWorker.state === 'installed' && navigator.serviceWorker.controller){
-              // New version available — update the dot to amber and show a toast
+              // New version is waiting — show banner
               const dot = document.getElementById('logo-dot');
               if(dot){
-                dot.style.background   = 'var(--gold)';
-                dot.style.boxShadow    = '0 0 8px var(--gold)';
-                dot.title              = 'Update available — reload to get latest version';
+                dot.style.background = 'var(--gold)';
+                dot.style.boxShadow  = '0 0 8px var(--gold)';
+                dot.title            = 'Update available — tap Reload';
               }
-              // Show a subtle notification banner
+              const existing = document.getElementById('sw-update-banner');
+              if(existing) return;
               const banner = document.createElement('div');
               banner.id = 'sw-update-banner';
               banner.style.cssText = [
@@ -32,7 +38,7 @@ if('serviceWorker' in navigator){
                 'display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.4)',
               ].join(';');
               banner.innerHTML = '<span>🔄 New version available</span>'
-                + '<button onclick="window.location.reload()" style="'
+                + '<button id="sw-reload-btn" style="'
                 + 'background:var(--gold);color:#000;border:none;border-radius:4px;'
                 + 'padding:4px 12px;font-size:11px;font-family:var(--mono);cursor:pointer;font-weight:700'
                 + '">Reload</button>'
@@ -40,17 +46,30 @@ if('serviceWorker' in navigator){
                 + 'background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;padding:0 4px'
                 + '">✕</button>';
               document.body.appendChild(banner);
+              document.getElementById('sw-reload-btn').addEventListener('click', () => {
+                showUpdateBanner(newWorker);
+              });
+            }
+            if(newWorker.state === 'activated'){
+              // New SW has taken over — reload to get fresh files
+              window.location.reload();
             }
           });
         });
+
+        // If a waiting SW already exists on load (e.g. user never reloaded after last deploy)
+        if(reg.waiting){
+          showUpdateBanner(reg.waiting);
+        }
       })
       .catch(err => console.warn('[SW] Registration failed:', err));
 
-    // When SW sends SW_UPDATED message, note it (already handled via updatefound above)
-    navigator.serviceWorker.addEventListener('message', e => {
-      if(e.data && e.data.type === 'SW_UPDATED') {
-        console.log('[SW] Background update complete');
-      }
+    // When the controller changes (new SW took over), reload once
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if(refreshing) return;
+      refreshing = true;
+      window.location.reload();
     });
   });
 }
@@ -916,21 +935,78 @@ function showDiv293Breakdown(personKey){
       Div293 = 15% × min(total concessional contributions, income over $250k threshold)
     </div>`;
 
-  // Dismiss on outside click — deferred so the opening click doesn't immediately dismiss
+  // Dismiss on outside click
   popup.addEventListener('click', e => e.stopPropagation());
-  setTimeout(() => {
-    document.addEventListener('click', function dismiss(){
-      popup.remove();
-      document.removeEventListener('click', dismiss);
-    });
-  }, 0);
+  document.addEventListener('click', function dismiss(){
+    popup.remove();
+    document.removeEventListener('click', dismiss);
+  });
 
   document.body.appendChild(popup);
 }
 
-// ── Division 293 click handler — registered once at page load ────────────────
-document.addEventListener('click', function(e){
-  const cell = e.target.closest('[data-div293]');
-  if(!cell) return;
-  showDiv293Breakdown(cell.dataset.div293);
-});
+// ── iOS Safari PWA version polling ───────────────────────────────────────────
+// iOS freezes service workers in the background, so the SW update flow is
+// unreliable. This polls a version.json file every 5 minutes and reloads
+// if the deployed version differs from what we last loaded.
+(function(){
+  const VERSION_URL = '/mango-mango/version.json';
+  const POLL_MS     = 5 * 60 * 1000; // 5 minutes
+  let   _knownVer   = null;
+
+  async function checkVersion(){
+    try{
+      const r = await fetch(VERSION_URL + '?t=' + Date.now(), { cache: 'no-store' });
+      if(!r.ok) return;
+      const d = await r.json();
+      const v = d && d.v;
+      if(!v) return;
+      if(_knownVer === null){
+        _knownVer = v; // first load — record current version
+        return;
+      }
+      if(v !== _knownVer){
+        // New version detected — show banner if not already shown
+        const existing = document.getElementById('sw-update-banner');
+        if(!existing){
+          const banner = document.createElement('div');
+          banner.id = 'sw-update-banner';
+          banner.style.cssText = [
+            'position:fixed;bottom:16px;left:50%;transform:translateX(-50%)',
+            'background:var(--surface);border:1px solid var(--gold)',
+            'color:var(--text);font-family:var(--mono);font-size:12px',
+            'padding:10px 18px;border-radius:8px;z-index:9999',
+            'display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.4)',
+          ].join(';');
+          banner.innerHTML = '<span>🔄 New version available</span>'
+            + '<button onclick="window.location.reload(true)" style="'
+            + 'background:var(--gold);color:#000;border:none;border-radius:4px;'
+            + 'padding:4px 12px;font-size:11px;font-family:var(--mono);cursor:pointer;font-weight:700'
+            + '">Reload</button>'
+            + '<button onclick="this.parentElement.remove()" style="'
+            + 'background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;padding:0 4px'
+            + '">✕</button>';
+          document.body.appendChild(banner);
+          // Also amber the dot
+          const dot = document.getElementById('logo-dot');
+          if(dot){
+            dot.style.background = 'var(--gold)';
+            dot.style.boxShadow  = '0 0 8px var(--gold)';
+            dot.title            = 'Update available — tap Reload';
+          }
+        }
+      }
+    } catch(e){ /* silent fail — offline */ }
+  }
+
+  // Poll on visibility change (covers iOS foregrounding from home screen)
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'visible') checkVersion();
+  });
+
+  // Also poll on interval while active
+  setInterval(checkVersion, POLL_MS);
+
+  // Initial check after short delay (let SW settle first)
+  setTimeout(checkVersion, 3000);
+})();
