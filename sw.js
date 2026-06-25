@@ -1,17 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Portfolio Tracker — Service Worker
-// Strategy: Network-first for JS/CSS/HTML, cache fallback for offline
-// Bumping CACHE_NAME forces old cache deletion on next visit.
+// Strategy: Cache-first, background update
+// Scope: https://mangohill.github.io/mango-mango/
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'portfolio-tracker-v7';
+const CACHE_NAME = 'portfolio-tracker-v8';
 const BASE       = '/mango-mango/';
 
 const PRECACHE_URLS = [
   BASE,
   BASE + 'index.html',
   BASE + 'app.css',
-  BASE + 'version.json',
   BASE + 'lib/xlsx.min.js',
   BASE + 'lib/chart.min.js',
   BASE + 'js/helpers.js',
@@ -29,30 +28,23 @@ const PRECACHE_URLS = [
   BASE + 'js/sw-register.js',
 ];
 
-// JS/CSS/HTML files — always try network first so updates are instant
-const NETWORK_FIRST_EXTS = ['.js', '.css', '.html'];
-function isNetworkFirst(url) {
-  const path = new URL(url).pathname;
-  return NETWORK_FIRST_EXTS.some(ext => path.endsWith(ext)) || path.endsWith('/');
-}
-
-// ── Install: pre-cache everything, take over immediately ─────────────────────
+// ── Install: pre-cache everything ────────────────────────────────────────────
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       console.log('[SW] Pre-caching', PRECACHE_URLS.length, 'files');
       return Promise.allSettled(
         PRECACHE_URLS.map(url =>
-          fetch(url, { cache: 'no-cache' }).then(res => {
+          fetch(url).then(res => {
             if (res.ok) return cache.put(url, res);
           }).catch(() => {})
         )
       );
-    }).then(() => self.skipWaiting())  // take over without waiting for tabs to close
+    }).then(() => self.skipWaiting())
   );
 });
 
-// ── Activate: delete ALL old caches, claim all clients immediately ────────────
+// ── Activate: delete old caches ──────────────────────────────────────────────
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -62,25 +54,27 @@ self.addEventListener('activate', event => {
           return caches.delete(k);
         })
       )
-    ).then(() => self.clients.claim())  // take control of all open tabs now
+    ).then(() => self.clients.claim())
   );
 });
 
-// ── Message: page can request skipWaiting ────────────────────────────────────
-self.addEventListener('message', event => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
-
 // ── Fetch ─────────────────────────────────────────────────────────────────────
+// JS/CSS/HTML: network-first so code changes are instant
+// Other assets: cache-first for offline support
+function isNetworkFirst(url) {
+  const p = new URL(url).pathname;
+  return p.endsWith('.js') || p.endsWith('.css') || p.endsWith('.html') || p.endsWith('/');
+}
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
+});
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
   if (event.request.method !== 'GET') return;
   if (url.origin !== location.origin)  return;
 
-  // Skip API/external calls entirely — let them go straight to network
+  // Skip API calls
   const isApi = url.pathname.startsWith('/api/') ||
     url.searchParams.has('symbols') ||
     url.searchParams.has('maif') ||
@@ -93,28 +87,27 @@ self.addEventListener('fetch', event => {
   if (isApi) return;
 
   if (isNetworkFirst(event.request.url)) {
-    // ── Network-first for JS/CSS/HTML: always get fresh code ─────────────────
+    // Network-first: always fetch fresh JS/CSS/HTML, fall back to cache offline
     event.respondWith(
-      fetch(event.request, { cache: 'no-cache' }).then(res => {
-        if (res && res.ok) {
-          // Update cache with fresh version
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, res.clone()));
-        }
-        return res;
-      }).catch(() =>
-        // Offline fallback: serve from cache
-        caches.match(event.request)
-      )
+      fetch(event.request, { cache: 'no-cache' })
+        .then(res => {
+          if (res && res.ok)
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, res.clone()));
+          return res;
+        })
+        .catch(() => caches.match(event.request))
     );
   } else {
-    // ── Cache-first for images/fonts/other static assets ─────────────────────
+    // Cache-first for other assets
     event.respondWith(
       caches.open(CACHE_NAME).then(async cache => {
         const cached = await cache.match(event.request);
         if (cached) return cached;
         const res = await fetch(event.request).catch(() => null);
         if (res && res.ok) cache.put(event.request, res.clone());
-        return res || new Response('Offline', { status: 503 });
+        return res || new Response('App offline. Open while connected first.', {
+          status: 503, headers: { 'Content-Type': 'text/plain' }
+        });
       })
     );
   }

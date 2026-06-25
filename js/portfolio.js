@@ -194,7 +194,7 @@ function renderH(){
     ).join('');
   const ownerF_h = _htOwnCur;
 
-  // Rebuild broker filter from actual holdings sources
+  // Broker filter — populate from actual holdings sources
   const _htBroker = $('ht-broker');
   const _htBrokerCur = _htBroker ? _htBroker.value : '';
   if(_htBroker){
@@ -269,14 +269,14 @@ function renderH(){
     </tr>`;
   }).join('');
 
-  // ── Summary cards — use filtered f so all filters affect totals ──────────────
+  // ── Summary cards — all filters (type + owner + broker + view) affect totals ─
   const viewH = f.map(h=>{
     const cur = prices[priceSymbol(h.symbol)]??null;
     const mv  = cur!=null ? cur*h.units : null;
     return {...h, _mv:mv, _pl:mv!=null?mv-h.costBasis:null};
   });
 
-  // Trade count filtered to match all active filters
+  // Trade count matches same filters
   const viewTrades = trades.filter(t=>{
     if(portfolioView===1 && CRYPTO_TYPES.includes(t.assetType)) return false;
     if(portfolioView===2 && !CRYPTO_TYPES.includes(t.assetType)) return false;
@@ -291,11 +291,11 @@ function renderH(){
   const tpl = tv ? tv-tc : null;
   const tpp = tpl!=null&&tc ? (tpl/tc*100) : null;
 
-  // Build label showing all active filters
+  // Label shows which filters are active
+  const _AT = {asx_stock:'ASX',crypto:'Crypto',etf:'ETF',lic:'LIC',reit:'REIT',bond:'Bond',commodity:'Cmdty',managed:'Managed',super:'Super'};
   const activeFilters = [
     portfolioView===1?'Stocks':portfolioView===2?'Crypto':'',
-    tf ? ({asx_stock:'ASX',crypto:'Crypto',etf:'ETF',lic:'LIC',reit:'REIT',
-           bond:'Bond',commodity:'Cmdty',managed:'Managed',super:'Super'}[tf]||tf) : '',
+    tf ? (_AT[tf]||tf) : '',
     ownerF_h ? getPersonLabel(ownerF_h) : '',
     brokerF_h ? (getAllBrokers().find(b=>b.value===brokerF_h)?.label||brokerF_h) : '',
   ].filter(Boolean);
@@ -330,7 +330,7 @@ function renderH(){
   if($('cpos')) $('cpos').textContent = viewH.length;
   if($('ctrd')) $('ctrd').textContent = viewTrades.length;
 
-  // Price status uses all holdings (not filtered)
+  // Price status always counts all holdings regardless of filter
   const noPriceCount = holdings.filter(h=>prices[priceSymbol(h.symbol)]==null).length;
   if($('cpt')) $('cpt').textContent = noPriceCount>0
     ? noPriceCount+' price'+(noPriceCount>1?'s':'')+' missing'
