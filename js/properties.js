@@ -930,6 +930,7 @@ function applyRemoteData(remote){
   localStorage.setItem('pt_prices',   JSON.stringify(prices));
   if(d.cf_worker_url)    localStorage.setItem('cf_worker_url',    d.cf_worker_url);
   if(d.pt_drp_carry)     localStorage.setItem('pt_drp_carry',     JSON.stringify(d.pt_drp_carry));
+  if(d.pt_drp_settings)  saveDRPSettings(d.pt_drp_settings);
   if(d.pt_brokers && d.pt_brokers.length) saveCustomBrokers(d.pt_brokers);
   if(d.pt_super)         { superAccounts = d.pt_super; saveSuperAccounts(); }
   if(d.pt_stock_owners){ stockOwners=d.pt_stock_owners; saveStockOwners(); }
