@@ -58,16 +58,11 @@ self.addEventListener('activate', event => {
   );
 });
 
+self.addEventListener('message', e => { if(e.data&&e.data.type==='SKIP_WAITING') self.skipWaiting(); });
+
+function isNetworkFirst(u){ const p=new URL(u).pathname; return p.endsWith('.js')||p.endsWith('.css')||p.endsWith('.html')||p.endsWith('/'); }
+
 // ── Fetch ─────────────────────────────────────────────────────────────────────
-// JS/CSS/HTML: network-first so code changes are instant
-// Other assets: cache-first for offline support
-function isNetworkFirst(url) {
-  const p = new URL(url).pathname;
-  return p.endsWith('.js') || p.endsWith('.css') || p.endsWith('.html') || p.endsWith('/');
-}
-self.addEventListener('message', event => {
-  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
-});
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
@@ -86,29 +81,9 @@ self.addEventListener('fetch', event => {
     url.hostname.includes('cloudflare');
   if (isApi) return;
 
-  if (isNetworkFirst(event.request.url)) {
-    // Network-first: always fetch fresh JS/CSS/HTML, fall back to cache offline
-    event.respondWith(
-      fetch(event.request, { cache: 'no-cache' })
-        .then(res => {
-          if (res && res.ok)
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, res.clone()));
-          return res;
-        })
-        .catch(() => caches.match(event.request))
-    );
+  if(isNetworkFirst(event.request.url)){
+    event.respondWith(fetch(event.request,{cache:'no-cache'}).then(res=>{ if(res&&res.ok) caches.open(CACHE_NAME).then(c=>c.put(event.request,res.clone())); return res; }).catch(()=>caches.match(event.request)));
   } else {
-    // Cache-first for other assets
-    event.respondWith(
-      caches.open(CACHE_NAME).then(async cache => {
-        const cached = await cache.match(event.request);
-        if (cached) return cached;
-        const res = await fetch(event.request).catch(() => null);
-        if (res && res.ok) cache.put(event.request, res.clone());
-        return res || new Response('App offline. Open while connected first.', {
-          status: 503, headers: { 'Content-Type': 'text/plain' }
-        });
-      })
-    );
+    event.respondWith(caches.open(CACHE_NAME).then(async cache=>{ const cached=await cache.match(event.request); if(cached) return cached; const res=await fetch(event.request).catch(()=>null); if(res&&res.ok) cache.put(event.request,res.clone()); return res||new Response('Offline',{status:503}); }));
   }
 });

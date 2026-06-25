@@ -535,7 +535,7 @@ function renderTax(){
       const pRec = rec.props[p.id] || {};
       const expenses = share*(
         (+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+
-        (+pRec.agent||0)+(+pRec.landtax||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0)
+        (+pRec.agent||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0)
       ) + rentalInterest * share;
 
       netRent     += annualRent;
@@ -655,7 +655,7 @@ function renderTax(){
     const _m = propMetrics(p);
     const _annRent = (p.weeklyRent||0)*52*share;
     const _annInt  = _m.monthlyInterest*12*share;
-    const _nonInt  = share*((+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+(+pRec.agent||0)+(+pRec.landtax||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0));
+    const _nonInt  = share*((+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+(+pRec.agent||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0));
     const _totalExp = _nonInt + _annInt;
     const _netResult = _annRent - _totalExp;
     const _resultStr = _netResult >= 0 ? '+'+n2(_netResult) : '-'+n2(Math.abs(_netResult));
@@ -677,7 +677,6 @@ function renderTax(){
         ${fi('insurance','Insurance','$')}
         ${fi('repairs','Repairs & Maintenance','$')}
         ${fi('agent','Agent Fees','$')}
-        ${fi('landtax','Land Tax','$')}
         ${fi('other','Other Expenses','$')}
         ${fi('depr_bldg','Depreciation — Building','$')}
         ${fi('depr_pe','Depreciation — Plant & Equipment','$')}
@@ -943,16 +942,12 @@ ${(()=>{
             Division 293 Tax
             <span style='color:var(--text3);font-size:10px'> extra 15% on super · income &gt;$250k</span>
           </td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
-            ${lumTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
-            onclick='${lumTax.div293>0?'showDiv293Breakdown(\'lumia\')':''}'
-            title='${lumTax.div293>0?'Click to see calculation':''}'>
+          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px'
+            ${lumTax.div293>0?'style="cursor:pointer;text-decoration:underline dotted" data-div293="lumia" title="Click to see calculation"':''}>
             ${lumTax.div293>0?n2(lumTax.div293):'—'}
           </td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
-            ${chiTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
-            onclick='${chiTax.div293>0?'showDiv293Breakdown(\'chilli\')':''}'
-            title='${chiTax.div293>0?'Click to see calculation':''}'>
+          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px'
+            ${chiTax.div293>0?'style="cursor:pointer;text-decoration:underline dotted" data-div293="chilli" title="Click to see calculation"':''}>
             ${chiTax.div293>0?n2(chiTax.div293):'—'}
           </td>
         </tr>`;
