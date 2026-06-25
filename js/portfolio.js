@@ -201,7 +201,7 @@ function renderH(){
     const _brokerSources = [...new Set(holdings.map(h=>h.source).filter(Boolean))].sort();
     const _brokerLabels = getAllBrokers().reduce((m,b)=>{m[b.value]=b.label;return m;},{});
     _htBroker.innerHTML = '<option value="">All Brokers</option>' +
-      _brokerSources.map(s=>`<option value="${s}" ${s===_htBrokerCur?'selected':''}>${_brokerLabels[s]||s}</option>`).join('');
+      _brokerSources.map(src=>`<option value="${src}" ${src===_htBrokerCur?'selected':''}>${_brokerLabels[src]||src}</option>`).join('');
   }
   const brokerF_h = _htBrokerCur;
 
@@ -210,9 +210,9 @@ function renderH(){
     if(s && !h.symbol.toLowerCase().includes(s)) return false;
     if(tf && h.assetType !== tf) return false;
     if(ownerF_h && getSymbolOwner(h.symbol) !== ownerF_h) return false;
+    if(brokerF_h && h.source !== brokerF_h) return false;
     if(portfolioView===1 && isCrypto(h)) return false;
     if(portfolioView===2 && isStock(h)) return false;
-    if(brokerF_h && h.source !== brokerF_h) return false;
     return true;
   });
   $('he').style.display = f.length ? 'none' : '';
@@ -269,55 +269,54 @@ function renderH(){
     </tr>`;
   }).join('');
 
-  // ── Summary cards — reflect ALL active filters (view + type + owner + broker) ──
-  // f is already filtered by all dropdowns + portfolioView, so use it directly
-  const viewH = f.map(h=>({
-    ...h,
-    _mv: h._mv !== undefined ? h._mv : (prices[priceSymbol(h.symbol)]??null) != null ? prices[priceSymbol(h.symbol)]*h.units : null,
-    _pl: h._pl !== undefined ? h._pl : null,
-  }));
+  // ── Summary cards — use filtered f so all filters affect totals ──────────────
+  const viewH = f.map(h=>{
+    const cur = prices[priceSymbol(h.symbol)]??null;
+    const mv  = cur!=null ? cur*h.units : null;
+    return {...h, _mv:mv, _pl:mv!=null?mv-h.costBasis:null};
+  });
 
-  // Trades filtered for card count — apply same broker/owner/type filters
+  // Trade count filtered to match all active filters
   const viewTrades = trades.filter(t=>{
     if(portfolioView===1 && CRYPTO_TYPES.includes(t.assetType)) return false;
     if(portfolioView===2 && !CRYPTO_TYPES.includes(t.assetType)) return false;
-    if(tf && t.assetType !== tf) return false;
-    if(ownerF_h && getSymbolOwner(t.symbol) !== ownerF_h) return false;
-    if(brokerF_h && t.source !== brokerF_h) return false;
+    if(tf && t.assetType!==tf) return false;
+    if(ownerF_h && getSymbolOwner(t.symbol)!==ownerF_h) return false;
+    if(brokerF_h && t.source!==brokerF_h) return false;
     return true;
   });
 
   let tv=0, tc=0;
   viewH.forEach(h=>{ if(h._mv!=null) tv+=h._mv; tc+=h.costBasis; });
   const tpl = tv ? tv-tc : null;
-  const tpp = tpl&&tc ? (tpl/tc*100) : null;
+  const tpp = tpl!=null&&tc ? (tpl/tc*100) : null;
 
-  // Build label reflecting active filters
+  // Build label showing all active filters
   const activeFilters = [
     portfolioView===1?'Stocks':portfolioView===2?'Crypto':'',
-    tf ? (({asx_stock:'ASX',crypto:'Crypto',etf:'ETF',lic:'LIC',reit:'REIT',bond:'Bond',commodity:'Cmdty',managed:'Managed',super:'Super'})[tf]||tf) : '',
+    tf ? ({asx_stock:'ASX',crypto:'Crypto',etf:'ETF',lic:'LIC',reit:'REIT',
+           bond:'Bond',commodity:'Cmdty',managed:'Managed',super:'Super'}[tf]||tf) : '',
     ownerF_h ? getPersonLabel(ownerF_h) : '',
     brokerF_h ? (getAllBrokers().find(b=>b.value===brokerF_h)?.label||brokerF_h) : '',
   ].filter(Boolean);
-  const viewLabel = activeFilters.join(' · ');
   const isFiltered = activeFilters.length > 0;
+  const viewLabel  = activeFilters.join(' · ');
 
   const mvLabel = isFiltered ? viewLabel+' — Market Value' : 'Market Value';
   const cbLabel = isFiltered ? viewLabel+' — Cost Basis'   : 'Cost Basis';
-  const mvSub   = portfolioView===0 && !isFiltered ? 'AUD · all assets ↻'
+  const mvSub   = portfolioView===2 ? 'Crypto only ↻'
                 : portfolioView===1 ? 'Stocks only ↻'
-                : portfolioView===2 ? 'Crypto only ↻'
-                : isFiltered ? 'filtered ↻' : 'AUD · all assets ↻';
+                : isFiltered        ? 'filtered ↻'
+                :                     'AUD · all assets ↻';
 
   if($('cl-mv')) $('cl-mv').textContent = mvLabel;
   if($('cl-cb')) $('cl-cb').textContent = cbLabel;
   if($('cs-mv')) $('cs-mv').textContent = mvSub;
   if($('cs-pos')) $('cs-pos').textContent = isFiltered ? 'Filtered' : 'Open';
 
-  // Highlight cards wrapper whenever any filter is active
   const cardsEl = $('portfolio-cards');
   if(cardsEl){
-    cardsEl.style.outline = isFiltered ? '2px solid var(--blue)' : '';
+    cardsEl.style.outline      = isFiltered ? '2px solid var(--blue)' : '';
     cardsEl.style.borderRadius = isFiltered ? '7px' : '';
   }
 
@@ -325,14 +324,13 @@ function renderH(){
   if($('cc')) $('cc').textContent = n2(tc);
   if($('cp')){
     $('cp').textContent = tpl!=null ? (tpl>=0?'+':'')+n2(tpl) : '—';
-    $('cp').className = 'card-value '+(tpl==null?'neu':tpl>=0?'pos':'neg');
+    $('cp').className   = 'card-value '+(tpl==null?'neu':tpl>=0?'pos':'neg');
   }
   if($('cpp')) $('cpp').textContent = tpp!=null ? (tpp>=0?'+':'')+tpp.toFixed(2)+'%' : '—';
   if($('cpos')) $('cpos').textContent = viewH.length;
   if($('ctrd')) $('ctrd').textContent = viewTrades.length;
 
-  // cpt sub — price loaded count (always all holdings, not filtered)
-  const priceCount = holdings.filter(h=>prices[priceSymbol(h.symbol)]!=null).length;
+  // Price status uses all holdings (not filtered)
   const noPriceCount = holdings.filter(h=>prices[priceSymbol(h.symbol)]==null).length;
   if($('cpt')) $('cpt').textContent = noPriceCount>0
     ? noPriceCount+' price'+(noPriceCount>1?'s':'')+' missing'
