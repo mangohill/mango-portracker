@@ -100,48 +100,7 @@ function readSuperForm(){
   };
 }
 
-function getConcessionalCap(fy){
-  if(fy <= 2024) return 27500;
-  return 30000; // FY2025+ (subject to future indexation)
-}
-
-// ── FY ROLLOVER — runs once on July 1, auto-migrates data ────────────────────
-function checkSuperFYRollover(){
-  const _n = new Date();
-  const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
-  const PREV_FY = CUR_FY - 1;
-  const rolloverKey = 'pt_super_rollover_fy';
-  const lastRollover = parseInt(localStorage.getItem(rolloverKey)||'0');
-  if(lastRollover >= CUR_FY) return;
-
-  let didRollover = false;
-  superAccounts = superAccounts.map(a => {
-    const contrib = { ...(a.contrib || {}) };
-    const fyData  = { ...(a.fyData  || {}) };
-    const prevFYBalAlreadySet = fyData[PREV_FY] != null && fyData[PREV_FY] !== '';
-    // Migrate current balance → closing balance for completed FY
-    if(!prevFYBalAlreadySet && a.balance){
-      fyData[PREV_FY] = +a.balance;
-      didRollover = true;
-    }
-    // Migrate cur contributions → prev (only if prev not already filled)
-    const hasCurrentData = contrib.empCC_cur || contrib.perCC_cur || contrib.ncc_cur;
-    if(hasCurrentData && !contrib.empCC_prev && !contrib.perCC_prev){
-      if(contrib.empCC_cur) contrib.empCC_prev = contrib.empCC_cur;
-      if(contrib.perCC_cur) contrib.perCC_prev = contrib.perCC_cur;
-      if(contrib.ncc_cur)   contrib.ncc_prev   = contrib.ncc_cur;
-      delete contrib.empCC_cur;
-      delete contrib.perCC_cur;
-      delete contrib.ncc_cur;
-      didRollover = true;
-    }
-    return { ...a, contrib, fyData };
-  });
-
-  if(didRollover) saveSuperAccounts();
-  localStorage.setItem(rolloverKey, String(CUR_FY));
-  console.log(`[Super] FY${CUR_FY} rollover complete`);
-}
+function getConcessionalCap(fy){ return fy <= 2024 ? 27500 : 30000; }
 
 function calcCarryForward(contrib, currentBalance){
   const _n = new Date();
@@ -149,11 +108,10 @@ function calcCarryForward(contrib, currentBalance){
   const BALANCE_THRESHOLD = 500000;
   const eligible = !currentBalance || currentBalance < BALANCE_THRESHOLD;
   const curCap = getConcessionalCap(CUR_FY);
-  // 5-year lookback window of completed FYs
-  const windowYears = [CUR_FY-6, CUR_FY-5, CUR_FY-4, CUR_FY-3, CUR_FY-2].filter(y=>y>=2019);
+  const windowYears = [CUR_FY-6,CUR_FY-5,CUR_FY-4,CUR_FY-3,CUR_FY-2].filter(y=>y>=2019);
   const breakdown = windowYears.map(yr => {
-    const cap    = getConcessionalCap(yr);
-    const entered = contrib[`cf_unused_fy${yr}`];
+    const cap     = getConcessionalCap(yr);
+    const entered = contrib['cf_unused_fy'+yr];
     const unused  = entered != null ? Math.max(0, Math.min(+entered, cap)) : 0;
     return { yr, cap, unused };
   });
@@ -164,11 +122,7 @@ function calcCarryForward(contrib, currentBalance){
   const cfUsedThisYear      = Math.max(0, curCC - curCap);
   const cfRemainingThisYear = eligible ? Math.max(0, totalUnused - cfUsedThisYear) : 0;
   const totalCapThisYear    = eligible ? curCap + totalUnused : curCap;
-  return {
-    eligible, currentBalance: currentBalance || 0,
-    breakdown, totalUnused, curCC, curFY: CUR_FY,
-    curCap, cfUsedThisYear, cfRemainingThisYear, totalCapThisYear,
-  };
+  return { eligible, currentBalance:currentBalance||0, breakdown, totalUnused, curCC, curFY:CUR_FY, curCap, cfUsedThisYear, cfRemainingThisYear, totalCapThisYear };
 }
 
 
@@ -273,31 +227,26 @@ function updateSuperFormFYLabels(){
   const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
   const PREV_FY = CUR_FY - 1;
   const el = id => document.getElementById(id);
-  if(el('su-contrib-cur-label'))  el('su-contrib-cur-label').textContent  = `CONTRIBUTIONS THIS YEAR (FY${CUR_FY})`;
-  if(el('su-contrib-prev-label')) el('su-contrib-prev-label').textContent = `CONTRIBUTIONS PREVIOUS YEAR (FY${PREV_FY})`;
-  if(el('su-bal-prev-label'))     el('su-bal-prev-label').textContent     = `Super Balance at 30 Jun FY${PREV_FY}`;
-  // Rebuild carry-forward inputs (5-year window of completed FYs)
+  if(el('su-contrib-cur-label'))  el('su-contrib-cur-label').textContent  = 'CONTRIBUTIONS THIS YEAR (FY'+CUR_FY+')';
+  if(el('su-contrib-prev-label')) el('su-contrib-prev-label').textContent = 'CONTRIBUTIONS PREVIOUS YEAR (FY'+PREV_FY+')';
+  if(el('su-bal-prev-label'))     el('su-bal-prev-label').textContent     = 'Super Balance at 30 Jun FY'+PREV_FY;
   const cfWrap = el('su-cf-fields');
   if(cfWrap){
-    const windowYears = [CUR_FY-6, CUR_FY-5, CUR_FY-4, CUR_FY-3, CUR_FY-2].filter(y=>y>=2019);
-    cfWrap.innerHTML = windowYears.map(yr => `
-      <div><label class="fl" style="font-size:10px">FY${yr} — Unused cap (from ATO)</label>
-        <input class="fi su-contrib" data-contrib="cf_unused_fy${yr}" type="number"
-          placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
-    `).join('');
+    const windowYears = [CUR_FY-6,CUR_FY-5,CUR_FY-4,CUR_FY-3,CUR_FY-2].filter(y=>y>=2019);
+    cfWrap.innerHTML = windowYears.map(yr =>
+      '<div><label class="fl" style="font-size:10px">FY'+yr+' — Unused cap (from ATO)</label>'+
+      '<input class="fi su-contrib" data-contrib="cf_unused_fy'+yr+'" type="number" placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>'
+    ).join('');
   }
-  // Rebuild FY balance history rows — FY2016 up to most recently completed FY
   const fyWrap = el('su-fy-fields');
   if(fyWrap){
-    const fyYears = [];
-    for(let y = 2016; y <= PREV_FY; y++) fyYears.push(y);
-    fyWrap.innerHTML = fyYears.map(yr => `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-        <label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY${yr}</label>
-        <input class="fi su-fy-input" data-fy="${yr}" type="number" placeholder="0"
-          step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()">
-      </div>
-    `).join('');
+    let html='';
+    for(let y=2016;y<=PREV_FY;y++){
+      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+
+        '<label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY'+y+'</label>'+
+        '<input class="fi su-fy-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>';
+    }
+    fyWrap.innerHTML = html;
   }
 }
 
@@ -316,18 +265,13 @@ function editSuperAccount(btn){
   });
   document.querySelectorAll('.su-contrib').forEach(inp => {
     const key = inp.dataset.contrib;
+    if(key) inp.value = (a.contrib && a.contrib[key] != null) ? a.contrib[key] : '';
+  });
+  document.querySelectorAll('.su-contrib').forEach(inp => {
+    const key = inp.dataset.contrib;
     inp.value = (a.contrib && a.contrib[key]) ? a.contrib[key] : '';
   });
   $('su-edit-id').dataset.id = a.id;
-  // Re-populate dynamically rebuilt cf and fy fields after updateSuperFormFYLabels
-  document.querySelectorAll('.su-contrib').forEach(inp => {
-    const key = inp.dataset.contrib;
-    inp.value = (a.contrib && a.contrib[key] != null) ? a.contrib[key] : '';
-  });
-  document.querySelectorAll('.su-fy-input').forEach(inp => {
-    const yr = +inp.dataset.fy;
-    inp.value = (a.fyData && a.fyData[yr]) ? a.fyData[yr] : '';
-  });
   $('su-form-title-text').textContent = 'Edit \u2014 ' + a.name;
   toggleSuperForm(true);
   $('su-form-wrap').scrollIntoView({ behavior:'smooth' });
@@ -536,7 +480,7 @@ function renderSuperAccounts(){
         ${!cf.eligible ? `
           <div style="padding:10px;background:rgba(239,68,68,0.1);border-radius:6px;
             color:var(--neg);font-size:12px;margin-bottom:12px">
-            ⚠ Not eligible — super balance ≥ $500,000 at 30 Jun FY${PREV_FY}
+            ⚠ Not eligible — super balance ≥ $500,000 at 30 Jun FY'+PREV_FY+'
             (${n2(cf.currentBalance)})
           </div>` : ''}
 
@@ -545,7 +489,7 @@ function renderSuperAccounts(){
             cf.eligible ? n2(cf.cfRemainingThisYear) : '—',
             cf.cfRemainingThisYear>0 ? 'pos' : 'neu',
             'unused from last 5 FYs')}
-          ${stat(`Total Cap FY${CUR_FY}`,
+          ${stat('Total Cap FY'+CUR_FY,
             n2(cf.totalCapThisYear),
             'neu',
             'base $30k + carry-forward')}
@@ -565,18 +509,18 @@ function renderSuperAccounts(){
           <div style="margin-top:14px;padding:12px;background:rgba(129,140,248,0.1);
             border-radius:6px;border:1px solid rgba(129,140,248,0.3);font-size:12px;line-height:1.6">
             <b style="color:#818cf8">${n2(cf.totalUnused)}</b> in unused concessional cap
-            available to carry forward into FY${CUR_FY}.
+            available to carry forward into FY'+CUR_FY+'.
             ${cf.curCC > cf.curCap
               ? `Currently using <b style="color:#818cf8">${n2(cf.cfUsedThisYear)}</b>
                  of carry-forward this year — <b>${n2(cf.cfRemainingThisYear)}</b> still available.`
               : `You can contribute up to an extra <b style="color:#818cf8">${n2(cf.cfRemainingThisYear)}</b>
-                 before 30 Jun ${CUR_FY} to use the full carry-forward.`}
+                 before 30 Jun '+CUR_FY+' to use the full carry-forward.`}
           </div>` : ''}
 
         <div style="font-size:10px;color:var(--text3);margin-top:10px;line-height:1.6">
           Enter actual CC totals used each year in the Contributions section above.
           Leave blank = assume full cap was used (no carry-forward for that year).
-          Carry-forward only available if balance &lt; $500,000 at 30 Jun FY${PREV_FY}.
+          Carry-forward only available if balance &lt; $500,000 at 30 Jun FY'+PREV_FY+'.
           ATO caps: FY2019–FY2024 = $27,500/yr · FY2025+ = $30,000/yr
         </div>
       </div>`;

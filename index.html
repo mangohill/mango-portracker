@@ -55,6 +55,7 @@
           <option value="stock">Stock</option><option value="etf">ETF</option><option value="lic">LIC</option><option value="reit">REIT</option><option value="bond">Bond</option><option value="commodity">Commodity</option><option value="managed">Managed Fund</option><option value="super">Super/Pension</option>
         </select>
         <select class="fsm" id="ht-own" onchange="renderH()"><option value="">All Owners</option></select>
+        <select class="fsm" id="ht-broker" onchange="renderH()"><option value="">All Brokers</option></select>
       </div>
     </div>
     <div class="ovx">
@@ -665,13 +666,13 @@
           <div><label class="fl" style="font-size:10px" id="su-bal-prev-label">Super Balance at 30 Jun FY2025
             <span style="color:var(--text3)">(must be &lt;$500k to be eligible)</span></label>
             <input class="fi su-contrib" data-contrib="bal_prevyr" type="number" placeholder="e.g. 180000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
-          <div id="su-cf-fields"><!-- built by updateSuperFormFYLabels() --></div>
+          <div id="su-cf-fields"><!-- built dynamically --></div>
         </div>
       </div>
       <!-- FY history -->
       <div style="margin-top:14px;margin-bottom:14px">
         <div style="font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">BALANCE AT END OF FINANCIAL YEAR</div>
-        <div id="su-fy-fields" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0 24px"><!-- built by updateSuperFormFYLabels() --></div>
+        <div id="su-fy-fields" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0 24px"><!-- built dynamically --></div>
       </div>
       <!-- Live preview -->
       <div id="su-preview" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-bottom:16px;font-family:var(--mono);font-size:12px">

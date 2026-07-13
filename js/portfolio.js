@@ -194,7 +194,6 @@ function renderH(){
     ).join('');
   const ownerF_h = _htOwnCur;
 
-  // Broker filter — populate from actual holdings sources
   const _htBroker = $('ht-broker');
   const _htBrokerCur = _htBroker ? _htBroker.value : '';
   if(_htBroker){
@@ -269,14 +268,12 @@ function renderH(){
     </tr>`;
   }).join('');
 
-  // ── Summary cards — all filters (type + owner + broker + view) affect totals ─
+  // ── Summary cards — all active filters affect totals ────────────────────────
   const viewH = f.map(h=>{
     const cur = prices[priceSymbol(h.symbol)]??null;
     const mv  = cur!=null ? cur*h.units : null;
     return {...h, _mv:mv, _pl:mv!=null?mv-h.costBasis:null};
   });
-
-  // Trade count matches same filters
   const viewTrades = trades.filter(t=>{
     if(portfolioView===1 && CRYPTO_TYPES.includes(t.assetType)) return false;
     if(portfolioView===2 && !CRYPTO_TYPES.includes(t.assetType)) return false;
@@ -285,52 +282,40 @@ function renderH(){
     if(brokerF_h && t.source!==brokerF_h) return false;
     return true;
   });
-
   let tv=0, tc=0;
   viewH.forEach(h=>{ if(h._mv!=null) tv+=h._mv; tc+=h.costBasis; });
   const tpl = tv ? tv-tc : null;
   const tpp = tpl!=null&&tc ? (tpl/tc*100) : null;
-
-  // Label shows which filters are active
   const _AT = {asx_stock:'ASX',crypto:'Crypto',etf:'ETF',lic:'LIC',reit:'REIT',bond:'Bond',commodity:'Cmdty',managed:'Managed',super:'Super'};
   const activeFilters = [
     portfolioView===1?'Stocks':portfolioView===2?'Crypto':'',
-    tf ? (_AT[tf]||tf) : '',
-    ownerF_h ? getPersonLabel(ownerF_h) : '',
-    brokerF_h ? (getAllBrokers().find(b=>b.value===brokerF_h)?.label||brokerF_h) : '',
+    tf?(_AT[tf]||tf):'',
+    ownerF_h?getPersonLabel(ownerF_h):'',
+    brokerF_h?(getAllBrokers().find(b=>b.value===brokerF_h)?.label||brokerF_h):'',
   ].filter(Boolean);
   const isFiltered = activeFilters.length > 0;
   const viewLabel  = activeFilters.join(' · ');
-
   const mvLabel = isFiltered ? viewLabel+' — Market Value' : 'Market Value';
   const cbLabel = isFiltered ? viewLabel+' — Cost Basis'   : 'Cost Basis';
-  const mvSub   = portfolioView===2 ? 'Crypto only ↻'
-                : portfolioView===1 ? 'Stocks only ↻'
-                : isFiltered        ? 'filtered ↻'
-                :                     'AUD · all assets ↻';
-
+  const mvSub   = portfolioView===2?'Crypto only ↻':portfolioView===1?'Stocks only ↻':isFiltered?'filtered ↻':'AUD · all assets ↻';
   if($('cl-mv')) $('cl-mv').textContent = mvLabel;
   if($('cl-cb')) $('cl-cb').textContent = cbLabel;
   if($('cs-mv')) $('cs-mv').textContent = mvSub;
   if($('cs-pos')) $('cs-pos').textContent = isFiltered ? 'Filtered' : 'Open';
-
   const cardsEl = $('portfolio-cards');
   if(cardsEl){
     cardsEl.style.outline      = isFiltered ? '2px solid var(--blue)' : '';
     cardsEl.style.borderRadius = isFiltered ? '7px' : '';
   }
-
   if($('cv')) $('cv').textContent = tv ? n2(tv) : '—';
   if($('cc')) $('cc').textContent = n2(tc);
   if($('cp')){
-    $('cp').textContent = tpl!=null ? (tpl>=0?'+':'')+n2(tpl) : '—';
+    $('cp').textContent = tpl!=null?(tpl>=0?'+':'')+n2(tpl):'—';
     $('cp').className   = 'card-value '+(tpl==null?'neu':tpl>=0?'pos':'neg');
   }
-  if($('cpp')) $('cpp').textContent = tpp!=null ? (tpp>=0?'+':'')+tpp.toFixed(2)+'%' : '—';
+  if($('cpp')) $('cpp').textContent = tpp!=null?(tpp>=0?'+':'')+tpp.toFixed(2)+'%':'—';
   if($('cpos')) $('cpos').textContent = viewH.length;
   if($('ctrd')) $('ctrd').textContent = viewTrades.length;
-
-  // Price status always counts all holdings regardless of filter
   const noPriceCount = holdings.filter(h=>prices[priceSymbol(h.symbol)]==null).length;
   if($('cpt')) $('cpt').textContent = noPriceCount>0
     ? noPriceCount+' price'+(noPriceCount>1?'s':'')+' missing'
