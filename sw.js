@@ -58,10 +58,8 @@ self.addEventListener('activate', event => {
   );
 });
 
-self.addEventListener('message', e => { if(e.data&&e.data.type==='SKIP_WAITING') self.skipWaiting(); });
-
-function isNetworkFirst(u){ const p=new URL(u).pathname; return p.endsWith('.js')||p.endsWith('.css')||p.endsWith('.html')||p.endsWith('/'); }
-
+self.addEventListener('message',e=>{if(e.data&&e.data.type==='SKIP_WAITING')self.skipWaiting();});
+function isNF(u){const p=new URL(u).pathname;return p.endsWith('.js')||p.endsWith('.css')||p.endsWith('.html')||p.endsWith('/');}
 // ── Fetch ─────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
@@ -81,9 +79,6 @@ self.addEventListener('fetch', event => {
     url.hostname.includes('cloudflare');
   if (isApi) return;
 
-  if(isNetworkFirst(event.request.url)){
-    event.respondWith(fetch(event.request,{cache:'no-cache'}).then(res=>{ if(res&&res.ok) caches.open(CACHE_NAME).then(c=>c.put(event.request,res.clone())); return res; }).catch(()=>caches.match(event.request)));
-  } else {
-    event.respondWith(caches.open(CACHE_NAME).then(async cache=>{ const cached=await cache.match(event.request); if(cached) return cached; const res=await fetch(event.request).catch(()=>null); if(res&&res.ok) cache.put(event.request,res.clone()); return res||new Response('Offline',{status:503}); }));
-  }
+  if(isNF(event.request.url)){event.respondWith(fetch(event.request,{cache:'no-cache'}).then(res=>{if(res&&res.ok)caches.open(CACHE_NAME).then(c=>c.put(event.request,res.clone()));return res;}).catch(()=>caches.match(event.request)));}
+  else{event.respondWith(caches.open(CACHE_NAME).then(async cache=>{const cached=await cache.match(event.request);if(cached)return cached;const res=await fetch(event.request).catch(()=>null);if(res&&res.ok)cache.put(event.request,res.clone());return res||new Response('Offline',{status:503});})};}
 });

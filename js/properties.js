@@ -100,41 +100,45 @@ function readSuperForm(){
   };
 }
 
+function getConcessionalCap(fy){
+  // ATO concessional caps by FY — update each year
+  if(fy <= 2024) return 27500;
+  return 30000; // FY2025 onwards (indexation may increase this in future years)
+}
+
 function calcCarryForward(contrib, currentBalance){
-  // ATO Carry-forward concessional contributions
-  // User enters the UNUSED amount directly from ATO website (MyGov/ATO portal)
-  // Available for FY2021–FY2025 (5-year window for FY2026)
+  // ATO Carry-forward concessional contributions — fully dynamic based on current FY
+  const _now = new Date();
+  const CUR_FY = _now.getMonth() >= 6 ? _now.getFullYear()+1 : _now.getFullYear();
   const BALANCE_THRESHOLD = 500000;
   const eligible = !currentBalance || currentBalance < BALANCE_THRESHOLD;
 
-  const CC_CAP_FY2026 = 30000;
-  const windowYears = [2021, 2022, 2023, 2024, 2025];
-  const CC_CAPS = { 2021:27500, 2022:27500, 2023:27500, 2024:27500, 2025:30000 };
+  const curCap = getConcessionalCap(CUR_FY);
 
-  // Per-year: user enters the unused amount directly from ATO
+  // 5-year lookback window (FY2022–FY2026 for FY2027, etc.)
+  const windowYears = [CUR_FY-6, CUR_FY-5, CUR_FY-4, CUR_FY-3, CUR_FY-2].filter(y=>y>=2019);
+
   const breakdown = windowYears.map(yr => {
-    const cap    = CC_CAPS[yr] || 27500;
-    const entered = contrib[`cf_unused_fy${yr}`];  // direct ATO value
-    const unused  = entered != null ? Math.max(0, Math.min(+entered, cap)) : 0; // blank=0, negative=0
+    const cap    = getConcessionalCap(yr);
+    const entered = contrib[`cf_unused_fy${yr}`];
+    const unused  = entered != null ? Math.max(0, Math.min(+entered, cap)) : 0;
     return { yr, cap, unused };
   });
 
   const totalUnused = breakdown.reduce((s, r) => s + r.unused, 0);
 
-  // Current year actual CC (employer + personal) for "how much cf used"
   const curEmp = +(contrib.empCC_cur || 0);
   const curPer = +(contrib.perCC_cur || 0);
   const curCC  = curEmp + curPer;
 
-  const cfUsedThisYear     = Math.max(0, curCC - CC_CAP_FY2026);
+  const cfUsedThisYear      = Math.max(0, curCC - curCap);
   const cfRemainingThisYear = eligible ? Math.max(0, totalUnused - cfUsedThisYear) : 0;
-  const totalCapThisYear   = eligible ? CC_CAP_FY2026 + totalUnused : CC_CAP_FY2026;
+  const totalCapThisYear    = eligible ? curCap + totalUnused : curCap;
 
   return {
     eligible, currentBalance: currentBalance || 0,
-    breakdown, totalUnused, curCC,
-    curCap: CC_CAP_FY2026,
-    cfUsedThisYear, cfRemainingThisYear, totalCapThisYear,
+    breakdown, totalUnused, curCC, curFY: CUR_FY,
+    curCap, cfUsedThisYear, cfRemainingThisYear, totalCapThisYear,
   };
 }
 
@@ -146,9 +150,10 @@ function calcSuperPreview(){
   const preview = $('su-preview');
   if(!preview) return;
 
-  const CUR_FY   = 2026;
-  const PREV_FY  = 2025;
-  const PREV2_FY = 2024;
+  const _now2 = new Date();
+  const CUR_FY   = _now2.getMonth() >= 6 ? _now2.getFullYear()+1 : _now2.getFullYear();
+  const PREV_FY  = CUR_FY - 1;
+  const PREV2_FY = CUR_FY - 2;
 
   const curBal  = parseFloat($('su-balance')?.value) || 0;
   if(!curBal){ preview.style.display='none'; return; }
@@ -234,10 +239,38 @@ function clearSuperForm(){
   $('su-preview').style.display = 'none';
 }
 
+function updateSuperFormFYLabels(){
+  // Update all FY-dependent labels in the super edit form dynamically
+  const _n = new Date();
+  const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
+  const PREV_FY = CUR_FY - 1;
+  const PREV2_FY= CUR_FY - 2;
+  const el = id => document.getElementById(id);
+  if(el('su-contrib-cur-label'))  el('su-contrib-cur-label').textContent  = `CONTRIBUTIONS THIS YEAR (FY${CUR_FY})`;
+  if(el('su-contrib-prev-label')) el('su-contrib-prev-label').textContent = `CONTRIBUTIONS PREVIOUS YEAR (FY${PREV_FY})`;
+  if(el('su-bal-prev-label'))     el('su-bal-prev-label').textContent     = `Super Balance at 30 Jun FY${PREV_FY}`;
+  // Update carry-forward year labels
+  document.querySelectorAll('[data-cf-fy-label]').forEach(el => {
+    const yr = +el.dataset.cfFyLabel;
+    el.textContent = `FY${yr} — Unused cap (from ATO)`;
+  });
+  // Rebuild cf_unused inputs for dynamic window (last 5 completed FYs)
+  const cfWrap = document.getElementById('su-cf-fields');
+  if(cfWrap){
+    const windowYears = [CUR_FY-6, CUR_FY-5, CUR_FY-4, CUR_FY-3, CUR_FY-2].filter(y=>y>=2019);
+    cfWrap.innerHTML = windowYears.map(yr => `
+      <div><label class="fl" style="font-size:10px" data-cf-fy-label="${yr}">FY${yr} — Unused cap (from ATO)</label>
+        <input class="fi su-contrib" data-contrib="cf_unused_fy${yr}" type="number"
+          placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+    `).join('');
+  }
+}
+
 function editSuperAccount(btn){
   const id = btn.dataset.id;
   const a  = superAccounts.find(x => x.id === id);
   if(!a) return;
+  updateSuperFormFYLabels();
   $('su-name').value    = a.name    || '';
   $('su-balance').value = a.balance || '';
   const ec = a.color || '#3b82f6';
@@ -246,6 +279,11 @@ function editSuperAccount(btn){
     const yr = +inp.dataset.fy;
     inp.value = (a.fyData && a.fyData[yr]) ? a.fyData[yr] : '';
   });
+  document.querySelectorAll('.su-contrib').forEach(inp => {
+    const key = inp.dataset.contrib;
+    inp.value = (a.contrib && a.contrib[key]) ? a.contrib[key] : '';
+  });
+  // Re-populate cf_unused fields after dynamic rebuild
   document.querySelectorAll('.su-contrib').forEach(inp => {
     const key = inp.dataset.contrib;
     inp.value = (a.contrib && a.contrib[key]) ? a.contrib[key] : '';
@@ -347,6 +385,7 @@ function cycleSuperCardView(){
 
 function renderSuperAccounts(){
   const wrap = $('su-accounts-wrap');
+  updateSuperFormFYLabels();
   if(!wrap) return;
   if(!superAccounts.length){
     wrap.innerHTML = '<div class="empty"><div class="empty-icon">\uD83C\uDFE6</div>No super accounts yet. Add one above.</div>';
@@ -457,7 +496,7 @@ function renderSuperAccounts(){
         ${!cf.eligible ? `
           <div style="padding:10px;background:rgba(239,68,68,0.1);border-radius:6px;
             color:var(--neg);font-size:12px;margin-bottom:12px">
-            ⚠ Not eligible — super balance ≥ $500,000 at 30 Jun FY2025
+            ⚠ Not eligible — super balance ≥ $500,000 at 30 Jun FY${PREV_FY}
             (${n2(cf.currentBalance)})
           </div>` : ''}
 
@@ -466,7 +505,7 @@ function renderSuperAccounts(){
             cf.eligible ? n2(cf.cfRemainingThisYear) : '—',
             cf.cfRemainingThisYear>0 ? 'pos' : 'neu',
             'unused from last 5 FYs')}
-          ${stat('Total Cap FY2026',
+          ${stat(`Total Cap FY${CUR_FY}`,
             n2(cf.totalCapThisYear),
             'neu',
             'base $30k + carry-forward')}
@@ -486,19 +525,19 @@ function renderSuperAccounts(){
           <div style="margin-top:14px;padding:12px;background:rgba(129,140,248,0.1);
             border-radius:6px;border:1px solid rgba(129,140,248,0.3);font-size:12px;line-height:1.6">
             <b style="color:#818cf8">${n2(cf.totalUnused)}</b> in unused concessional cap
-            available to carry forward into FY2026.
+            available to carry forward into FY${CUR_FY}.
             ${cf.curCC > cf.curCap
               ? `Currently using <b style="color:#818cf8">${n2(cf.cfUsedThisYear)}</b>
                  of carry-forward this year — <b>${n2(cf.cfRemainingThisYear)}</b> still available.`
               : `You can contribute up to an extra <b style="color:#818cf8">${n2(cf.cfRemainingThisYear)}</b>
-                 before 30 Jun 2026 to use the full carry-forward.`}
+                 before 30 Jun ${CUR_FY} to use the full carry-forward.`}
           </div>` : ''}
 
         <div style="font-size:10px;color:var(--text3);margin-top:10px;line-height:1.6">
           Enter actual CC totals used each year in the Contributions section above.
           Leave blank = assume full cap was used (no carry-forward for that year).
-          Carry-forward only available if balance &lt; $500,000 at 30 Jun FY2025.
-          ATO caps: FY2021–FY2024 = $27,500/yr · FY2025–FY2026 = $30,000/yr
+          Carry-forward only available if balance &lt; $500,000 at 30 Jun FY${PREV_FY}.
+          ATO caps: FY2019–FY2024 = $27,500/yr · FY2025+ = $30,000/yr (indexed)
         </div>
       </div>`;
     const cfPanel = collapsible('CARRY-FORWARD CC', cfBody);
@@ -930,7 +969,6 @@ function applyRemoteData(remote){
   localStorage.setItem('pt_prices',   JSON.stringify(prices));
   if(d.cf_worker_url)    localStorage.setItem('cf_worker_url',    d.cf_worker_url);
   if(d.pt_drp_carry)     localStorage.setItem('pt_drp_carry',     JSON.stringify(d.pt_drp_carry));
-  if(d.pt_drp_settings)  saveDRPSettings(d.pt_drp_settings);
   if(d.pt_brokers && d.pt_brokers.length) saveCustomBrokers(d.pt_brokers);
   if(d.pt_super)         { superAccounts = d.pt_super; saveSuperAccounts(); }
   if(d.pt_stock_owners){ stockOwners=d.pt_stock_owners; saveStockOwners(); }
