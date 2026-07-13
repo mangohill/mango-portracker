@@ -63,6 +63,65 @@ function toggleSuperSection(headerEl){
 }
 
 
+
+// ── FY ROLLOVER ───────────────────────────────────────────────────────────────
+// Runs once per FY. On July 1, automatically migrates:
+//   - Current balance → fyData[PREV_FY] closing balance
+//   - empCC_cur / perCC_cur / ncc_cur → empCC_prev / perCC_prev / ncc_prev
+//   - Clears _cur fields ready for new FY data entry
+function checkSuperFYRollover(){
+  const _n = new Date();
+  const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
+  const PREV_FY = CUR_FY - 1;
+
+  // Track which FY we last rolled over for, stored in localStorage
+  const rolloverKey = 'pt_super_rollover_fy';
+  const lastRollover = parseInt(localStorage.getItem(rolloverKey)||'0');
+
+  // Only run once per FY — skip if already rolled over for this FY
+  if(lastRollover >= CUR_FY) return;
+
+  let didRollover = false;
+  superAccounts = superAccounts.map(a => {
+    const contrib = { ...(a.contrib || {}) };
+    const fyData  = { ...(a.fyData  || {}) };
+
+    // Only migrate if we have current-year contribution data or a balance
+    // and the PREV_FY slot isn't already filled (don't overwrite manual entries)
+    const hasCurrentData = contrib.empCC_cur || contrib.perCC_cur || contrib.ncc_cur;
+    const prevFYBalAlreadySet = fyData[PREV_FY] != null && fyData[PREV_FY] !== '';
+
+    // Migrate closing balance: current live balance → fyData[PREV_FY]
+    if(!prevFYBalAlreadySet && a.balance){
+      fyData[PREV_FY] = +a.balance;
+      didRollover = true;
+    }
+
+    // Migrate contributions: cur → prev (only if prev not already filled)
+    if(hasCurrentData && !contrib.empCC_prev && !contrib.perCC_prev){
+      if(contrib.empCC_cur) contrib.empCC_prev = contrib.empCC_cur;
+      if(contrib.perCC_cur) contrib.perCC_prev = contrib.perCC_cur;
+      if(contrib.ncc_cur)   contrib.ncc_prev   = contrib.ncc_cur;
+      // Clear current-year fields for fresh FY data entry
+      delete contrib.empCC_cur;
+      delete contrib.perCC_cur;
+      delete contrib.ncc_cur;
+      didRollover = true;
+    }
+
+    return { ...a, contrib, fyData };
+  });
+
+  if(didRollover){
+    saveSuperAccounts();
+    localStorage.setItem(rolloverKey, String(CUR_FY));
+    console.log(`[Super] FY rollover complete: FY${PREV_FY} data archived, FY${CUR_FY} ready`);
+  } else {
+    // No data to migrate but mark as checked so we don't re-check every render
+    localStorage.setItem(rolloverKey, String(CUR_FY));
+  }
+}
+
 function saveSuperAccounts(){ localStorage.setItem('pt_super', JSON.stringify(superAccounts)); }
 
 function toggleSuperForm(forceOpen){
@@ -259,9 +318,23 @@ function updateSuperFormFYLabels(){
   if(cfWrap){
     const windowYears = [CUR_FY-6, CUR_FY-5, CUR_FY-4, CUR_FY-3, CUR_FY-2].filter(y=>y>=2019);
     cfWrap.innerHTML = windowYears.map(yr => `
-      <div><label class="fl" style="font-size:10px" data-cf-fy-label="${yr}">FY${yr} — Unused cap (from ATO)</label>
+      <div><label class="fl" style="font-size:10px">FY${yr} — Unused cap (from ATO)</label>
         <input class="fi su-contrib" data-contrib="cf_unused_fy${yr}" type="number"
           placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+    `).join('');
+  }
+
+  // Rebuild FY balance history rows — FY2016 up to most recently completed FY
+  const fyWrap = document.getElementById('su-fy-fields');
+  if(fyWrap){
+    const fyYears = [];
+    for(let y = 2016; y <= PREV_FY; y++) fyYears.push(y);
+    fyWrap.innerHTML = fyYears.map(yr => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY${yr}</label>
+        <input class="fi su-fy-input" data-fy="${yr}" type="number" placeholder="0"
+          step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()">
+      </div>
     `).join('');
   }
 }
@@ -385,6 +458,7 @@ function cycleSuperCardView(){
 
 function renderSuperAccounts(){
   const wrap = $('su-accounts-wrap');
+  checkSuperFYRollover();  // migrate data if July 1 has passed since last visit
   updateSuperFormFYLabels();
   if(!wrap) return;
   if(!superAccounts.length){
