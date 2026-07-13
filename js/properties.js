@@ -63,65 +63,6 @@ function toggleSuperSection(headerEl){
 }
 
 
-
-// ── FY ROLLOVER ───────────────────────────────────────────────────────────────
-// Runs once per FY. On July 1, automatically migrates:
-//   - Current balance → fyData[PREV_FY] closing balance
-//   - empCC_cur / perCC_cur / ncc_cur → empCC_prev / perCC_prev / ncc_prev
-//   - Clears _cur fields ready for new FY data entry
-function checkSuperFYRollover(){
-  const _n = new Date();
-  const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
-  const PREV_FY = CUR_FY - 1;
-
-  // Track which FY we last rolled over for, stored in localStorage
-  const rolloverKey = 'pt_super_rollover_fy';
-  const lastRollover = parseInt(localStorage.getItem(rolloverKey)||'0');
-
-  // Only run once per FY — skip if already rolled over for this FY
-  if(lastRollover >= CUR_FY) return;
-
-  let didRollover = false;
-  superAccounts = superAccounts.map(a => {
-    const contrib = { ...(a.contrib || {}) };
-    const fyData  = { ...(a.fyData  || {}) };
-
-    // Only migrate if we have current-year contribution data or a balance
-    // and the PREV_FY slot isn't already filled (don't overwrite manual entries)
-    const hasCurrentData = contrib.empCC_cur || contrib.perCC_cur || contrib.ncc_cur;
-    const prevFYBalAlreadySet = fyData[PREV_FY] != null && fyData[PREV_FY] !== '';
-
-    // Migrate closing balance: current live balance → fyData[PREV_FY]
-    if(!prevFYBalAlreadySet && a.balance){
-      fyData[PREV_FY] = +a.balance;
-      didRollover = true;
-    }
-
-    // Migrate contributions: cur → prev (only if prev not already filled)
-    if(hasCurrentData && !contrib.empCC_prev && !contrib.perCC_prev){
-      if(contrib.empCC_cur) contrib.empCC_prev = contrib.empCC_cur;
-      if(contrib.perCC_cur) contrib.perCC_prev = contrib.perCC_cur;
-      if(contrib.ncc_cur)   contrib.ncc_prev   = contrib.ncc_cur;
-      // Clear current-year fields for fresh FY data entry
-      delete contrib.empCC_cur;
-      delete contrib.perCC_cur;
-      delete contrib.ncc_cur;
-      didRollover = true;
-    }
-
-    return { ...a, contrib, fyData };
-  });
-
-  if(didRollover){
-    saveSuperAccounts();
-    localStorage.setItem(rolloverKey, String(CUR_FY));
-    console.log(`[Super] FY rollover complete: FY${PREV_FY} data archived, FY${CUR_FY} ready`);
-  } else {
-    // No data to migrate but mark as checked so we don't re-check every render
-    localStorage.setItem(rolloverKey, String(CUR_FY));
-  }
-}
-
 function saveSuperAccounts(){ localStorage.setItem('pt_super', JSON.stringify(superAccounts)); }
 
 function toggleSuperForm(forceOpen){
@@ -160,40 +101,69 @@ function readSuperForm(){
 }
 
 function getConcessionalCap(fy){
-  // ATO concessional caps by FY — update each year
   if(fy <= 2024) return 27500;
-  return 30000; // FY2025 onwards (indexation may increase this in future years)
+  return 30000; // FY2025+ (subject to future indexation)
+}
+
+// ── FY ROLLOVER — runs once on July 1, auto-migrates data ────────────────────
+function checkSuperFYRollover(){
+  const _n = new Date();
+  const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
+  const PREV_FY = CUR_FY - 1;
+  const rolloverKey = 'pt_super_rollover_fy';
+  const lastRollover = parseInt(localStorage.getItem(rolloverKey)||'0');
+  if(lastRollover >= CUR_FY) return;
+
+  let didRollover = false;
+  superAccounts = superAccounts.map(a => {
+    const contrib = { ...(a.contrib || {}) };
+    const fyData  = { ...(a.fyData  || {}) };
+    const prevFYBalAlreadySet = fyData[PREV_FY] != null && fyData[PREV_FY] !== '';
+    // Migrate current balance → closing balance for completed FY
+    if(!prevFYBalAlreadySet && a.balance){
+      fyData[PREV_FY] = +a.balance;
+      didRollover = true;
+    }
+    // Migrate cur contributions → prev (only if prev not already filled)
+    const hasCurrentData = contrib.empCC_cur || contrib.perCC_cur || contrib.ncc_cur;
+    if(hasCurrentData && !contrib.empCC_prev && !contrib.perCC_prev){
+      if(contrib.empCC_cur) contrib.empCC_prev = contrib.empCC_cur;
+      if(contrib.perCC_cur) contrib.perCC_prev = contrib.perCC_cur;
+      if(contrib.ncc_cur)   contrib.ncc_prev   = contrib.ncc_cur;
+      delete contrib.empCC_cur;
+      delete contrib.perCC_cur;
+      delete contrib.ncc_cur;
+      didRollover = true;
+    }
+    return { ...a, contrib, fyData };
+  });
+
+  if(didRollover) saveSuperAccounts();
+  localStorage.setItem(rolloverKey, String(CUR_FY));
+  console.log(`[Super] FY${CUR_FY} rollover complete`);
 }
 
 function calcCarryForward(contrib, currentBalance){
-  // ATO Carry-forward concessional contributions — fully dynamic based on current FY
-  const _now = new Date();
-  const CUR_FY = _now.getMonth() >= 6 ? _now.getFullYear()+1 : _now.getFullYear();
+  const _n = new Date();
+  const CUR_FY = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
   const BALANCE_THRESHOLD = 500000;
   const eligible = !currentBalance || currentBalance < BALANCE_THRESHOLD;
-
   const curCap = getConcessionalCap(CUR_FY);
-
-  // 5-year lookback window (FY2022–FY2026 for FY2027, etc.)
+  // 5-year lookback window of completed FYs
   const windowYears = [CUR_FY-6, CUR_FY-5, CUR_FY-4, CUR_FY-3, CUR_FY-2].filter(y=>y>=2019);
-
   const breakdown = windowYears.map(yr => {
     const cap    = getConcessionalCap(yr);
     const entered = contrib[`cf_unused_fy${yr}`];
     const unused  = entered != null ? Math.max(0, Math.min(+entered, cap)) : 0;
     return { yr, cap, unused };
   });
-
   const totalUnused = breakdown.reduce((s, r) => s + r.unused, 0);
-
   const curEmp = +(contrib.empCC_cur || 0);
   const curPer = +(contrib.perCC_cur || 0);
   const curCC  = curEmp + curPer;
-
   const cfUsedThisYear      = Math.max(0, curCC - curCap);
   const cfRemainingThisYear = eligible ? Math.max(0, totalUnused - cfUsedThisYear) : 0;
   const totalCapThisYear    = eligible ? curCap + totalUnused : curCap;
-
   return {
     eligible, currentBalance: currentBalance || 0,
     breakdown, totalUnused, curCC, curFY: CUR_FY,
@@ -209,8 +179,8 @@ function calcSuperPreview(){
   const preview = $('su-preview');
   if(!preview) return;
 
-  const _now2 = new Date();
-  const CUR_FY   = _now2.getMonth() >= 6 ? _now2.getFullYear()+1 : _now2.getFullYear();
+  const _np = new Date();
+  const CUR_FY   = _np.getMonth() >= 6 ? _np.getFullYear()+1 : _np.getFullYear();
   const PREV_FY  = CUR_FY - 1;
   const PREV2_FY = CUR_FY - 2;
 
@@ -299,22 +269,15 @@ function clearSuperForm(){
 }
 
 function updateSuperFormFYLabels(){
-  // Update all FY-dependent labels in the super edit form dynamically
   const _n = new Date();
   const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
   const PREV_FY = CUR_FY - 1;
-  const PREV2_FY= CUR_FY - 2;
   const el = id => document.getElementById(id);
   if(el('su-contrib-cur-label'))  el('su-contrib-cur-label').textContent  = `CONTRIBUTIONS THIS YEAR (FY${CUR_FY})`;
   if(el('su-contrib-prev-label')) el('su-contrib-prev-label').textContent = `CONTRIBUTIONS PREVIOUS YEAR (FY${PREV_FY})`;
   if(el('su-bal-prev-label'))     el('su-bal-prev-label').textContent     = `Super Balance at 30 Jun FY${PREV_FY}`;
-  // Update carry-forward year labels
-  document.querySelectorAll('[data-cf-fy-label]').forEach(el => {
-    const yr = +el.dataset.cfFyLabel;
-    el.textContent = `FY${yr} — Unused cap (from ATO)`;
-  });
-  // Rebuild cf_unused inputs for dynamic window (last 5 completed FYs)
-  const cfWrap = document.getElementById('su-cf-fields');
+  // Rebuild carry-forward inputs (5-year window of completed FYs)
+  const cfWrap = el('su-cf-fields');
   if(cfWrap){
     const windowYears = [CUR_FY-6, CUR_FY-5, CUR_FY-4, CUR_FY-3, CUR_FY-2].filter(y=>y>=2019);
     cfWrap.innerHTML = windowYears.map(yr => `
@@ -323,9 +286,8 @@ function updateSuperFormFYLabels(){
           placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
     `).join('');
   }
-
   // Rebuild FY balance history rows — FY2016 up to most recently completed FY
-  const fyWrap = document.getElementById('su-fy-fields');
+  const fyWrap = el('su-fy-fields');
   if(fyWrap){
     const fyYears = [];
     for(let y = 2016; y <= PREV_FY; y++) fyYears.push(y);
@@ -356,12 +318,16 @@ function editSuperAccount(btn){
     const key = inp.dataset.contrib;
     inp.value = (a.contrib && a.contrib[key]) ? a.contrib[key] : '';
   });
-  // Re-populate cf_unused fields after dynamic rebuild
+  $('su-edit-id').dataset.id = a.id;
+  // Re-populate dynamically rebuilt cf and fy fields after updateSuperFormFYLabels
   document.querySelectorAll('.su-contrib').forEach(inp => {
     const key = inp.dataset.contrib;
-    inp.value = (a.contrib && a.contrib[key]) ? a.contrib[key] : '';
+    inp.value = (a.contrib && a.contrib[key] != null) ? a.contrib[key] : '';
   });
-  $('su-edit-id').dataset.id = a.id;
+  document.querySelectorAll('.su-fy-input').forEach(inp => {
+    const yr = +inp.dataset.fy;
+    inp.value = (a.fyData && a.fyData[yr]) ? a.fyData[yr] : '';
+  });
   $('su-form-title-text').textContent = 'Edit \u2014 ' + a.name;
   toggleSuperForm(true);
   $('su-form-wrap').scrollIntoView({ behavior:'smooth' });
@@ -458,7 +424,7 @@ function cycleSuperCardView(){
 
 function renderSuperAccounts(){
   const wrap = $('su-accounts-wrap');
-  checkSuperFYRollover();  // migrate data if July 1 has passed since last visit
+  checkSuperFYRollover();
   updateSuperFormFYLabels();
   if(!wrap) return;
   if(!superAccounts.length){
@@ -611,7 +577,7 @@ function renderSuperAccounts(){
           Enter actual CC totals used each year in the Contributions section above.
           Leave blank = assume full cap was used (no carry-forward for that year).
           Carry-forward only available if balance &lt; $500,000 at 30 Jun FY${PREV_FY}.
-          ATO caps: FY2019–FY2024 = $27,500/yr · FY2025+ = $30,000/yr (indexed)
+          ATO caps: FY2019–FY2024 = $27,500/yr · FY2025+ = $30,000/yr
         </div>
       </div>`;
     const cfPanel = collapsible('CARRY-FORWARD CC', cfBody);
