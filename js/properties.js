@@ -108,7 +108,7 @@ function calcCarryForward(contrib, currentBalance){
   const BALANCE_THRESHOLD = 500000;
   const eligible = !currentBalance || currentBalance < BALANCE_THRESHOLD;
   const curCap = getConcessionalCap(CUR_FY);
-  const windowYears = [CUR_FY-6,CUR_FY-5,CUR_FY-4,CUR_FY-3,CUR_FY-2].filter(y=>y>=2019);
+  const windowYears = [CUR_FY-5,CUR_FY-4,CUR_FY-3,CUR_FY-2,CUR_FY-1].filter(y=>y>=2019);
   const breakdown = windowYears.map(yr => {
     const cap     = getConcessionalCap(yr);
     const entered = contrib['cf_unused_fy'+yr];
@@ -232,7 +232,7 @@ function updateSuperFormFYLabels(){
   if(el('su-bal-prev-label'))     el('su-bal-prev-label').textContent     = 'Super Balance at 30 Jun FY'+PREV_FY;
   const cfWrap = el('su-cf-fields');
   if(cfWrap){
-    const windowYears = [CUR_FY-6,CUR_FY-5,CUR_FY-4,CUR_FY-3,CUR_FY-2].filter(y=>y>=2019);
+    const windowYears = [CUR_FY-5,CUR_FY-4,CUR_FY-3,CUR_FY-2,CUR_FY-1].filter(y=>y>=2019);
     cfWrap.innerHTML = windowYears.map(yr =>
       '<div><label class="fl" style="font-size:10px">FY'+yr+' — Unused cap (from ATO)</label>'+
       '<input class="fi su-contrib" data-contrib="cf_unused_fy'+yr+'" type="number" placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>'
@@ -384,10 +384,23 @@ function checkSuperFYRollover(){
           a.fyData[PREV_FY] = +a.balance;
           changed = true;
         }
+        // Roll "this year" contributions into "previous year" so they stay
+        // attached to the correct FY once the labels advance, instead of
+        // being silently mislabelled as the new (empty) current year.
+        if(!a.contrib) a.contrib = {};
+        const c = a.contrib;
+        const hadCur = c.empCC_cur != null || c.perCC_cur != null || c.ncc_cur != null;
+        if(hadCur){
+          c.empCC_prev = c.empCC_cur || 0;
+          c.perCC_prev = c.perCC_cur || 0;
+          c.ncc_prev   = c.ncc_cur   || 0;
+          delete c.empCC_cur; delete c.perCC_cur; delete c.ncc_cur;
+          changed = true;
+        }
       });
       if(changed){
         saveSuperAccounts();
-        if(typeof notify === 'function') notify('Super balances snapshotted for FY'+PREV_FY+' rollover ✓','ok');
+        if(typeof notify === 'function') notify('Super balances & contributions rolled over to FY'+CUR_FY+' ✓','ok');
       }
     }
     localStorage.setItem('pt_super_last_fy', CUR_FY);
