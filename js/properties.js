@@ -366,6 +366,34 @@ function cycleSuperCardView(){
   renderSuperCards();
 }
 
+// Snapshot each account's balance into fyData when a new financial year starts,
+// so growth/ROI figures have a same-day-yesterday baseline instead of needing
+// manual entry. Wrapped defensively so it can never break the render chain.
+function checkSuperFYRollover(){
+  try{
+    const _d = new Date();
+    const CUR_FY  = _d.getMonth() >= 6 ? _d.getFullYear()+1 : _d.getFullYear();
+    const PREV_FY = CUR_FY - 1;
+    const lastFY  = +(localStorage.getItem('pt_super_last_fy')||0);
+
+    if(lastFY && lastFY < CUR_FY && Array.isArray(superAccounts)){
+      let changed = false;
+      superAccounts.forEach(a=>{
+        if(!a.fyData) a.fyData = {};
+        if(a.fyData[PREV_FY] == null && a.balance != null){
+          a.fyData[PREV_FY] = +a.balance;
+          changed = true;
+        }
+      });
+      if(changed){
+        saveSuperAccounts();
+        if(typeof notify === 'function') notify('Super balances snapshotted for FY'+PREV_FY+' rollover ✓','ok');
+      }
+    }
+    localStorage.setItem('pt_super_last_fy', CUR_FY);
+  }catch(e){ console.warn('checkSuperFYRollover error:', e); }
+}
+
 function renderSuperAccounts(){
   const wrap = $('su-accounts-wrap');
   checkSuperFYRollover();
