@@ -521,7 +521,7 @@ function renderSuperAccounts(){
         ${!cf.eligible ? `
           <div style="padding:10px;background:rgba(239,68,68,0.1);border-radius:6px;
             color:var(--neg);font-size:12px;margin-bottom:12px">
-            ⚠ Not eligible — super balance ≥ $500,000 at 30 Jun FY'+PREV_FY+'
+            ⚠ Not eligible — super balance ≥ $500,000 at 30 Jun FY${PREV_FY}
             (${n2(cf.currentBalance)})
           </div>` : ''}
 
@@ -550,18 +550,18 @@ function renderSuperAccounts(){
           <div style="margin-top:14px;padding:12px;background:rgba(129,140,248,0.1);
             border-radius:6px;border:1px solid rgba(129,140,248,0.3);font-size:12px;line-height:1.6">
             <b style="color:#818cf8">${n2(cf.totalUnused)}</b> in unused concessional cap
-            available to carry forward into FY'+CUR_FY+'.
+            available to carry forward into FY${CUR_FY}.
             ${cf.curCC > cf.curCap
               ? `Currently using <b style="color:#818cf8">${n2(cf.cfUsedThisYear)}</b>
                  of carry-forward this year — <b>${n2(cf.cfRemainingThisYear)}</b> still available.`
               : `You can contribute up to an extra <b style="color:#818cf8">${n2(cf.cfRemainingThisYear)}</b>
-                 before 30 Jun '+CUR_FY+' to use the full carry-forward.`}
+                 before 30 Jun ${CUR_FY} to use the full carry-forward.`}
           </div>` : ''}
 
         <div style="font-size:10px;color:var(--text3);margin-top:10px;line-height:1.6">
           Enter actual CC totals used each year in the Contributions section above.
           Leave blank = assume full cap was used (no carry-forward for that year).
-          Carry-forward only available if balance &lt; $500,000 at 30 Jun FY'+PREV_FY+'.
+          Carry-forward only available if balance &lt; $500,000 at 30 Jun FY${PREV_FY}.
           ATO caps: FY2019–FY2024 = $27,500/yr · FY2025+ = $30,000/yr
         </div>
       </div>`;
