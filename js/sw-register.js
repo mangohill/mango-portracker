@@ -416,9 +416,18 @@ function addAllMissingDivs() {
 
 function processDRP(){
   const drpSettings = getDRPSettings();
-  const enabledSyms = Object.entries(drpSettings)
-    .filter(([,s]) => s.enabled)
-    .map(([sym]) => sym);
+  // DRP settings can be keyed per broker-suffixed lot (e.g. "DHHF:CMC") since
+  // that's how the symbol appears in trades, but dividend records are always
+  // stored against the plain underlying symbol (e.g. "DHHF") since dividends
+  // aren't broker-specific. Normalize everything to the base symbol so a DRP
+  // toggle on any lot of a holding is respected, not just suffix-free ones.
+  const fractionalByBase = {};
+  Object.entries(drpSettings).forEach(([sym, s]) => {
+    if(!s.enabled) return;
+    const base = priceSymbol(sym);
+    fractionalByBase[base] = fractionalByBase[base] || s.fractional || false;
+  });
+  const enabledSyms = Object.keys(fractionalByBase);
 
   if(!enabledSyms.length){
     notify('No symbols have DRP enabled. Enable DRP in the Stock Ownership section above.','err');
@@ -433,35 +442,34 @@ function processDRP(){
   const carry   = getDRPCarry();
   const pending = []; // items ready for user confirmation
 
-  for(const sym of enabledSyms){
-    const settings = drpSettings[sym];
-    const fractional = settings.fractional || false;
+  for(const baseSym of enabledSyms){
+    const fractional = fractionalByBase[baseSym];
 
     // Find unprocessed dividends for this symbol in last 6 months
     // "Unprocessed" = no DRP buy trade within 7 days of the dividend date
     const symDivs = dividends
-      .filter(d => d.symbol === sym && d.date >= cutoffStr && d.type !== 'drp')
+      .filter(d => priceSymbol(d.symbol) === baseSym && d.date >= cutoffStr && d.type !== 'drp')
       .sort((a,b) => a.date.localeCompare(b.date));
 
     for(const div of symDivs){
       // Check: is there already a DRP trade close to this dividend?
       const divDate = new Date(div.date);
       const already = trades.some(t => {
-        if(t.symbol !== sym || t.type !== 'drp') return false;
+        if(priceSymbol(t.symbol) !== baseSym || t.type !== 'drp') return false;
         const diff = Math.abs(new Date(t.date) - divDate);
         return diff <= 35 * 24*60*60*1000; // within 35 days
       });
       if(already) continue; // already processed
 
       // Get current market price for DRP price pre-fill
-      const mktPrice = prices[priceSymbol(sym)] || 0;
+      const mktPrice = prices[baseSym] || 0;
 
       // Get carry-forward
-      const carryAmt = carry[sym] || 0;
+      const carryAmt = carry[div.symbol] || carry[baseSym] || 0;
       const total    = +(+div.amount + carryAmt).toFixed(4);
 
       pending.push({
-        sym,
+        sym:       div.symbol, // use the dividend's own (plain) symbol for the resulting DRP trade
         divId:     div.id,
         divDate:   div.date,
         divAmount: +div.amount,
