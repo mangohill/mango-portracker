@@ -194,13 +194,17 @@ function renderH(){
     ).join('');
   const ownerF_h = _htOwnCur;
 
+  // Rebuild ht-broker source/broker filter — built from brokers actually present in holdings
   const _htBroker = $('ht-broker');
   const _htBrokerCur = _htBroker ? _htBroker.value : '';
   if(_htBroker){
-    const _brokerSources = [...new Set(holdings.map(h=>h.source).filter(Boolean))].sort();
-    const _brokerLabels = getAllBrokers().reduce((m,b)=>{m[b.value]=b.label;return m;},{});
-    _htBroker.innerHTML = '<option value="">All Brokers</option>' +
-      _brokerSources.map(src=>`<option value="${src}" ${src===_htBrokerCur?'selected':''}>${_brokerLabels[src]||src}</option>`).join('');
+    const _brokersInUse = [...new Set(holdings.map(h=>h.source).filter(Boolean))].sort();
+    const _brokerLabels = getAllBrokers();
+    _htBroker.innerHTML = '<option value="">All Sources</option>' +
+      _brokersInUse.map(b=>{
+        const label = (_brokerLabels.find(x=>x.value===b)||{}).label || b;
+        return `<option value="${b}" ${b===_htBrokerCur?'selected':''}>${label}</option>`;
+      }).join('');
   }
   const brokerF_h = _htBrokerCur;
 
@@ -210,8 +214,6 @@ function renderH(){
     if(tf && h.assetType !== tf) return false;
     if(ownerF_h && getSymbolOwner(h.symbol) !== ownerF_h) return false;
     if(brokerF_h && h.source !== brokerF_h) return false;
-    if(portfolioView===1 && isCrypto(h)) return false;
-    if(portfolioView===2 && isStock(h)) return false;
     return true;
   });
   $('he').style.display = f.length ? 'none' : '';
@@ -268,55 +270,59 @@ function renderH(){
     </tr>`;
   }).join('');
 
-  // ── Summary cards — all active filters affect totals ────────────────────────
-  const viewH = f.map(h=>{
+  // ── Summary cards — filtered by portfolioView ──────────────────
+  const allH = holdings; // unfiltered by search/type, for card totals
+  const filterFn = portfolioView===1 ? isStock : portfolioView===2 ? isCrypto : ()=>true;
+  const viewH = allH.filter(filterFn).map(h=>{
     const cur = prices[priceSymbol(h.symbol)]??null;
     const mv  = cur!=null ? cur*h.units : null;
-    return {...h, _mv:mv, _pl:mv!=null?mv-h.costBasis:null};
+    const pl  = mv!=null  ? mv-h.costBasis : null;
+    return {...h, _mv:mv, _pl:pl};
   });
-  const viewTrades = trades.filter(t=>{
-    if(portfolioView===1 && CRYPTO_TYPES.includes(t.assetType)) return false;
-    if(portfolioView===2 && !CRYPTO_TYPES.includes(t.assetType)) return false;
-    if(tf && t.assetType!==tf) return false;
-    if(ownerF_h && getSymbolOwner(t.symbol)!==ownerF_h) return false;
-    if(brokerF_h && t.source!==brokerF_h) return false;
-    return true;
-  });
+
+  // Trades filtered for card count
+  const viewTrades = portfolioView===0 ? trades
+    : portfolioView===1 ? trades.filter(t=>!CRYPTO_TYPES.includes(t.assetType))
+    : trades.filter(t=>CRYPTO_TYPES.includes(t.assetType));
+
   let tv=0, tc=0;
   viewH.forEach(h=>{ if(h._mv!=null) tv+=h._mv; tc+=h.costBasis; });
   const tpl = tv ? tv-tc : null;
-  const tpp = tpl!=null&&tc ? (tpl/tc*100) : null;
-  const _AT = {asx_stock:'ASX',crypto:'Crypto',etf:'ETF',lic:'LIC',reit:'REIT',bond:'Bond',commodity:'Cmdty',managed:'Managed',super:'Super'};
-  const activeFilters = [
-    portfolioView===1?'Stocks':portfolioView===2?'Crypto':'',
-    tf?(_AT[tf]||tf):'',
-    ownerF_h?getPersonLabel(ownerF_h):'',
-    brokerF_h?(getAllBrokers().find(b=>b.value===brokerF_h)?.label||brokerF_h):'',
-  ].filter(Boolean);
-  const isFiltered = activeFilters.length > 0;
-  const viewLabel  = activeFilters.join(' · ');
-  const mvLabel = isFiltered ? viewLabel+' — Market Value' : 'Market Value';
-  const cbLabel = isFiltered ? viewLabel+' — Cost Basis'   : 'Cost Basis';
-  const mvSub   = portfolioView===2?'Crypto only ↻':portfolioView===1?'Stocks only ↻':isFiltered?'filtered ↻':'AUD · all assets ↻';
+  const tpp = tpl&&tc ? (tpl/tc*100) : null;
+
+  // Labels
+  const viewLabel = portfolioView===1 ? 'Stocks' : portfolioView===2 ? 'Crypto' : '';
+  const mvLabel   = viewLabel ? viewLabel+' — Market Value' : 'Market Value';
+  const cbLabel   = viewLabel ? viewLabel+' — Cost Basis'   : 'Cost Basis';
+  const mvSub     = portfolioView===0 ? 'AUD · all assets ↻'
+                  : portfolioView===1 ? 'Stocks only ↻'
+                  : 'Crypto only ↻';
+
   if($('cl-mv')) $('cl-mv').textContent = mvLabel;
   if($('cl-cb')) $('cl-cb').textContent = cbLabel;
   if($('cs-mv')) $('cs-mv').textContent = mvSub;
-  if($('cs-pos')) $('cs-pos').textContent = isFiltered ? 'Filtered' : 'Open';
+  if($('cs-pos')) $('cs-pos').textContent = viewLabel ? viewLabel+' positions' : 'Open';
+
+  // Highlight cards wrapper to show active filter
   const cardsEl = $('portfolio-cards');
   if(cardsEl){
-    cardsEl.style.outline      = isFiltered ? '2px solid var(--blue)' : '';
-    cardsEl.style.borderRadius = isFiltered ? '7px' : '';
+    cardsEl.style.outline = portfolioView===0 ? '' : '2px solid var(--blue)';
+    cardsEl.style.borderRadius = portfolioView===0 ? '' : '7px';
   }
+
   if($('cv')) $('cv').textContent = tv ? n2(tv) : '—';
   if($('cc')) $('cc').textContent = n2(tc);
   if($('cp')){
-    $('cp').textContent = tpl!=null?(tpl>=0?'+':'')+n2(tpl):'—';
-    $('cp').className   = 'card-value '+(tpl==null?'neu':tpl>=0?'pos':'neg');
+    $('cp').textContent = tpl!=null ? (tpl>=0?'+':'')+n2(tpl) : '—';
+    $('cp').className = 'card-value '+(tpl==null?'neu':tpl>=0?'pos':'neg');
   }
-  if($('cpp')) $('cpp').textContent = tpp!=null?(tpp>=0?'+':'')+tpp.toFixed(2)+'%':'—';
+  if($('cpp')) $('cpp').textContent = tpp!=null ? (tpp>=0?'+':'')+tpp.toFixed(2)+'%' : '—';
   if($('cpos')) $('cpos').textContent = viewH.length;
   if($('ctrd')) $('ctrd').textContent = viewTrades.length;
-  const noPriceCount = holdings.filter(h=>prices[priceSymbol(h.symbol)]==null).length;
+
+  // cpt sub — price loaded count (always all)
+  const priceCount = allH.filter(h=>prices[priceSymbol(h.symbol)]!=null).length;
+  const noPriceCount = allH.filter(h=>prices[priceSymbol(h.symbol)]==null).length;
   if($('cpt')) $('cpt').textContent = noPriceCount>0
     ? noPriceCount+' price'+(noPriceCount>1?'s':'')+' missing'
     : 'All prices loaded';
