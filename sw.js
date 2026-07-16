@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Portfolio Tracker — Service Worker
 // Strategy: Cache-first, background update
-// Scope: https://mangohill.github.io/mango-mango/
+// Scope: https://mangohill.github.io/mango-portracker/
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'portfolio-tracker-v7';
-const BASE       = '/mango-mango/';
+const CACHE_NAME = 'portfolio-tracker-v8';
+const BASE       = '/mango-portracker/';
 
 const PRECACHE_URLS = [
   BASE,

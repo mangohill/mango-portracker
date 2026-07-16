@@ -3,7 +3,7 @@
 // ── Service Worker Registration ───────────────────────────────────────────────
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/mango-mango/sw.js', { scope: '/mango-mango/' })
+    navigator.serviceWorker.register('/mango-portracker/sw.js', { scope: '/mango-portracker/' })
       .then(reg => {
         console.log('[SW] Registered, scope:', reg.scope);
 
@@ -64,7 +64,7 @@ if('serviceWorker' in navigator){
 // a stale app can detect a new deploy even when the SW update event never
 // fires, and prompts the same reload banner.
 (function(){
-  const VERSION_URL = '/mango-mango/version.json';
+  const VERSION_URL = '/mango-portracker/version.json';
   let knownVersion = null;
 
   function showReloadBanner(){
