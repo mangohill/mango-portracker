@@ -57,6 +57,71 @@ if('serviceWorker' in navigator){
   });
 }
 
+// ── Version Polling ────────────────────────────────────────────────────────
+// The browser's own SW update check (reg.update() above) is unreliable on
+// iOS Safari, especially for installed PWAs that get backgrounded rather
+// than fully reloaded. This polls version.json directly (cache-busted) so
+// a stale app can detect a new deploy even when the SW update event never
+// fires, and prompts the same reload banner.
+(function(){
+  const VERSION_URL = '/mango-mango/version.json';
+  let knownVersion = null;
+
+  function showReloadBanner(){
+    if(document.getElementById('sw-update-banner')) return; // already showing
+    const dot = document.getElementById('logo-dot');
+    if(dot){
+      dot.style.background = 'var(--gold)';
+      dot.style.boxShadow  = '0 0 8px var(--gold)';
+      dot.title            = 'Update available — reload to get latest version';
+    }
+    const banner = document.createElement('div');
+    banner.id = 'sw-update-banner';
+    banner.style.cssText = [
+      'position:fixed;bottom:16px;left:50%;transform:translateX(-50%)',
+      'background:var(--surface);border:1px solid var(--gold)',
+      'color:var(--text);font-family:var(--mono);font-size:12px',
+      'padding:10px 18px;border-radius:8px;z-index:9999',
+      'display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.4)',
+    ].join(';');
+    banner.innerHTML = '<span>🔄 New version available</span>'
+      + '<button onclick="window.location.reload()" style="'
+      + 'background:var(--gold);color:#000;border:none;border-radius:4px;'
+      + 'padding:4px 12px;font-size:11px;font-family:var(--mono);cursor:pointer;font-weight:700'
+      + '">Reload</button>'
+      + '<button onclick="this.parentElement.remove()" style="'
+      + 'background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;padding:0 4px'
+      + '">✕</button>';
+    document.body.appendChild(banner);
+  }
+
+  async function checkVersion(){
+    try{
+      const res = await fetch(VERSION_URL + '?t=' + Date.now(), { cache: 'no-store' });
+      if(!res.ok) return;
+      const data = await res.json();
+      const v = data && data.v;
+      if(v == null) return;
+      if(knownVersion == null){ knownVersion = v; return; } // first check just sets the baseline
+      if(v !== knownVersion){
+        showReloadBanner();
+        // Nudge the waiting/controlling SW to activate immediately so the
+        // reload actually picks up fresh assets rather than its own stale cache.
+        if(navigator.serviceWorker && navigator.serviceWorker.controller){
+          navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+        }
+      }
+    }catch(e){ /* offline or blocked — ignore, will retry on next poll */ }
+  }
+
+  window.addEventListener('load', checkVersion);
+  setInterval(checkVersion, 60000); // poll every 60s while the app is open
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'visible') checkVersion();
+  });
+  window.addEventListener('focus', checkVersion);
+})();
+
 // ── Online / offline indicator ───────────────────────────────────────────
 function updateConnStatus(){
   const dot = document.getElementById('logo-dot');
