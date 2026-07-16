@@ -511,6 +511,18 @@ function calcDRPUnits(total, price, fractional){
   }
 }
 
+// Wraps calcDRPUnits but respects a manual units override on the pending item,
+// so the user can correct for rounding differences vs. the registry's own
+// calculation without fighting the auto-calc.
+function getDRPCalc(p){
+  if(p.unitsOverride != null && p.unitsOverride !== ''){
+    const u = +p.unitsOverride;
+    const carryOut = +(p.total - u * p.price).toFixed(4);
+    return { units: u, carryOut, overridden: true };
+  }
+  return { ...calcDRPUnits(p.total, p.price, p.fractional), overridden: false };
+}
+
 function renderDRPPanel(){
   const panel = $('drp-tab-panel') || $('drp-process-panel');
   if(!panel) return;
@@ -519,8 +531,9 @@ function renderDRPPanel(){
   if(!pending.length){ panel.innerHTML = ''; return; }
 
   const rows = pending.map((p, idx) => {
-    const { units, carryOut } = calcDRPUnits(p.total, p.price, p.fractional);
+    const { units, carryOut, overridden } = getDRPCalc(p);
     const canProcess = p.price > 0 && units > 0;
+    const issueDate = p.issueDate || p.divDate;
     return `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:10px"
          id="drp-item-${idx}">
@@ -542,11 +555,26 @@ function renderDRPPanel(){
             style="width:130px;padding:5px 8px;font-family:var(--mono)"
             oninput="window._drpPending[${idx}].price=parseFloat(this.value)||0;updateDRPRow(${idx})">
         </div>
+        <div>
+          <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">UNITS <span style="color:var(--text3)">(override)</span></label>
+          <input type="number" class="fi" step="any" min="0"
+            value="${p.unitsOverride != null ? p.unitsOverride : ''}"
+            placeholder="${units>0 ? (p.fractional?units.toFixed(6):units) : 'auto'}"
+            style="width:120px;padding:5px 8px;font-family:var(--mono);${overridden?'border-color:var(--gold);color:var(--gold)':''}"
+            oninput="window._drpPending[${idx}].unitsOverride=this.value;updateDRPRow(${idx})">
+        </div>
+        <div>
+          <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:3px">DATE OF ISSUE</label>
+          <input type="date" class="fi"
+            value="${issueDate}"
+            style="width:145px;padding:5px 8px;font-family:var(--mono)"
+            oninput="window._drpPending[${idx}].issueDate=this.value">
+        </div>
         <div style="font-family:var(--mono);font-size:12px;padding-bottom:6px">
           <div id="drp-calc-${idx}" style="color:${canProcess?'var(--text)':'var(--text3)'}">
             ${canProcess
-              ? `<span style="color:var(--green)">▶ ${p.fractional ? units.toFixed(6) : units} units</span>
-                 ${carryOut > 0.005 ? '<span style="color:var(--text3)"> · carry: ' + n2(carryOut) + '</span>' : '<span style="color:var(--green)"> · fully reinvested</span>'}` 
+              ? `<span style="color:${overridden?'var(--gold)':'var(--green)'}">▶ ${p.fractional ? units.toFixed(6) : units} units${overridden?' (manual)':''}</span>
+                 ${carryOut > 0.005 ? '<span style="color:var(--text3)"> · carry: ' + n2(carryOut) + '</span>' : (carryOut < -0.005 ? '<span style="color:var(--red)"> · short ' + n2(-carryOut) + '</span>' : '<span style="color:var(--green)"> · fully reinvested</span>')}`
               : 'Enter price to calculate'}
           </div>
         </div>
@@ -561,7 +589,7 @@ function renderDRPPanel(){
     </div>`;
   }).join('');
 
-  const hasAny = pending.some(p => p.price > 0 && calcDRPUnits(p.total, p.price, p.fractional).units > 0);
+  const hasAny = pending.some(p => p.price > 0 && getDRPCalc(p).units > 0);
 
   panel.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
@@ -581,13 +609,13 @@ function renderDRPPanel(){
 
 function updateDRPRow(idx){
   const p = window._drpPending[idx];
-  const { units, carryOut } = calcDRPUnits(p.total, p.price, p.fractional);
+  const { units, carryOut, overridden } = getDRPCalc(p);
   const el = $(`drp-calc-${idx}`);
   if(!el) return;
   const canProcess = p.price > 0 && units > 0;
   el.innerHTML = canProcess
-    ? `<span style="color:var(--green)">▶ ${p.fractional ? units.toFixed(6) : units} units</span>
-       ${carryOut > 0.005 ? '<span style="color:var(--text3)"> · carry: ' + n2(carryOut) + '</span>' : '<span style="color:var(--green)"> · fully reinvested</span>'}`
+    ? `<span style="color:${overridden?'var(--gold)':'var(--green)'}">▶ ${p.fractional ? units.toFixed(6) : units} units${overridden?' (manual)':''}</span>
+       ${carryOut > 0.005 ? '<span style="color:var(--text3)"> · carry: ' + n2(carryOut) + '</span>' : (carryOut < -0.005 ? '<span style="color:var(--red)"> · short ' + n2(-carryOut) + '</span>' : '<span style="color:var(--green)"> · fully reinvested</span>')}`
     : (p.price > 0 ? '<span style="color:var(--text3)">Price too low to buy even 1 unit</span>' : 'Enter price to calculate');
 
   // Re-render confirm button area
@@ -597,20 +625,21 @@ function updateDRPRow(idx){
 function confirmDRPItem(idx){
   const p = window._drpPending[idx];
   if(!p){ notify('Item not found.','err'); return; }
-  const { units, carryOut } = calcDRPUnits(p.total, p.price, p.fractional);
-  if(units <= 0){ notify('No units to buy — check the DRP price.','err'); return; }
+  const { units, carryOut } = getDRPCalc(p);
+  if(units <= 0){ notify('No units to buy — check the DRP price or units override.','err'); return; }
+  const issueDate = p.issueDate || p.divDate;
 
   // Add the DRP buy trade
   trades.push({
     id:        uid(),
     type:      'drp',
     symbol:    p.sym,
-    date:      p.divDate,
+    date:      issueDate,
     units:     +units.toFixed(p.fractional ? 6 : 0),
     price:     +p.price.toFixed(4),
     fees:      0,
     assetType: getSymbolAssetType(p.sym),
-    notes:     'DRP — auto from dividend ' + p.divDate,
+    notes:     'DRP — auto from dividend ' + p.divDate + (issueDate !== p.divDate ? ' (issued ' + issueDate + ')' : ''),
   });
 
   // Update carry-forward
@@ -640,19 +669,20 @@ function confirmAllDRP(){
   const carry = getDRPCarry();
 
   for(const p of pending){
-    const { units, carryOut } = calcDRPUnits(p.total, p.price, p.fractional);
+    const { units, carryOut } = getDRPCalc(p);
     if(p.price <= 0 || units <= 0) continue;
+    const issueDate = p.issueDate || p.divDate;
 
     trades.push({
       id:        uid(),
       type:      'drp',
       symbol:    p.sym,
-      date:      p.divDate,
+      date:      issueDate,
       units:     +units.toFixed(p.fractional ? 6 : 0),
       price:     +p.price.toFixed(4),
       fees:      0,
       assetType: getSymbolAssetType(p.sym),
-      notes:     'DRP — auto from dividend ' + p.divDate,
+      notes:     'DRP — auto from dividend ' + p.divDate + (issueDate !== p.divDate ? ' (issued ' + issueDate + ')' : ''),
     });
     carry[p.sym] = carryOut;
     confirmed++;
