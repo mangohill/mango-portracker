@@ -29,8 +29,10 @@
   <div class="tab" onclick="switchTab('dividends',this)">💰 DIVIDENDS</div>
   <div class="tab" onclick="switchTab('property',this)">🏠 PROPERTY</div>
   <div class="tab" onclick="switchTab('super',this)">🏦 SUPER</div>
+  <div class="tab" onclick="switchTab('cgt',this)">📉 CAPITAL GAINS</div>
   <div class="tab" onclick="switchTab('spending',this)">💳 SPENDING</div>
   <div class="tab" onclick="switchTab('tax',this)">🧾 TAX</div>
+  <div class="tab" id="tab-cgt" onclick="switchTab('cgt',this)">📊 CAPITAL GAINS</div>
   <div class="tab" onclick="switchTab('settings',this)">⚙ SETTINGS</div>
 </div>
 
@@ -562,6 +564,9 @@
       <div class="fgi"><label class="fl">Purchase Date</label><input class="fi" type="date" id="pf-pdate"></div>
       <div class="fgi"><label class="fl">Purchase Price (AUD)</label><input class="fi" type="number" id="pf-pprice" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Purchase Costs (stamp duty, legal…)</label><input class="fi" type="number" id="pf-pcosts" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
+      <div class="fgi"><label class="fl">Capital Improvements (cumulative, AUD)
+        <span style="font-size:10px;color:var(--text3)"> — renovations, additions</span>
+      </label><input class="fi" type="number" id="pf-improvements" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Current Estimated Value (AUD)</label><input class="fi" type="number" id="pf-cval" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <!-- LOAN SPLITS -->
       <div class="fgi" style="grid-column:1/-1">
@@ -581,6 +586,24 @@
       <div class="fgi"><label class="fl">Owner</label>
         <select class="fi" id="pf-owner"><option value="lumia">Lumia</option><option value="chilli">Chilli</option><option value="joint">Joint (50/50)</option></select></div>
       <div class="fgi"><label class="fl">Notes</label><input class="fi" type="text" id="pf-notes" placeholder="Optional"></div>
+      <!-- DISPOSAL / CGT -->
+      <div class="fgi" style="grid-column:1/-1">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" id="pf-sold" onchange="togglePropSoldFields();calcPropPreview()">
+          <span class="fl" style="margin-bottom:0">Sold / Disposed</span>
+        </label>
+        <div id="pf-sold-fields" style="display:none;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:13px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:4px">
+          <div class="fgi"><label class="fl">Sale Date</label><input class="fi" type="date" id="pf-sdate" oninput="calcPropPreview()"></div>
+          <div class="fgi"><label class="fl">Sale Price (AUD)</label><input class="fi" type="number" id="pf-sprice" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
+          <div class="fgi"><label class="fl">Selling Costs (agent, legal…)</label><input class="fi" type="number" id="pf-scosts" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
+          <div class="fgi">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:18px">
+              <input type="checkbox" id="pf-mainres" onchange="calcPropPreview()">
+              <span class="fl" style="margin-bottom:0">Main residence exemption applies</span>
+            </label>
+          </div>
+        </div>
+      </div>
     </div>
     <!-- Live preview -->
     <div id="prop-preview" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-bottom:16px;font-family:var(--mono);font-size:12px">
@@ -778,6 +801,7 @@
 
 <!-- SETTINGS -->
 <div class="panel" id="panel-tax"></div>
+<div class="panel" id="panel-cgt"></div>
 
 <div class="panel" id="panel-settings">
 
@@ -998,6 +1022,7 @@
   <script src="js/settings.js"></script>
   <script src="js/spending.js"></script>
   <script src="js/backup.js"></script>
+  <script src="js/cgt.js"></script>
   <script src="js/tax.js"></script>
   <script src="js/sw-register.js"></script>
 </body>

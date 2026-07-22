@@ -1262,6 +1262,7 @@ function readPropForm(){
     purchaseDate:$('pf-pdate').value,
     purchasePrice: parseFloat($('pf-pprice').value)||0,
     purchaseCosts: parseFloat($('pf-pcosts').value)||0,
+    capitalImprovements: parseFloat($('pf-improvements').value)||0,
     currentValue:  parseFloat($('pf-cval').value)||0,
     splits,
     weeklyRent:    parseFloat($('pf-rent').value)||0,
@@ -1269,6 +1270,11 @@ function readPropForm(){
     hasManager:    $('pf-mgr').value,
     owner:         $('pf-owner')?.value || 'lumia',
     notes:         $('pf-notes').value.trim(),
+    sold:          $('pf-sold')?.checked || false,
+    soldDate:      $('pf-sdate')?.value || '',
+    salePrice:     parseFloat($('pf-sprice')?.value)||0,
+    sellingCosts:  parseFloat($('pf-scosts')?.value)||0,
+    mainResExempt: $('pf-mainres')?.checked || false,
   };
 }
 
@@ -1402,10 +1408,20 @@ function togglePropForm(forceOpen){
   toggle.style.color   = open ? 'var(--blue)' : 'var(--text3)';
 }
 
+function togglePropSoldFields(){
+  const box = $('pf-sold');
+  const wrap = $('pf-sold-fields');
+  if(!box || !wrap) return;
+  wrap.style.display = box.checked ? 'grid' : 'none';
+}
+
 function clearPropForm(){
-  ['pf-name','pf-pprice','pf-pcosts','pf-cval','pf-rent','pf-expenses','pf-notes']
-    .forEach(id=>$(id).value='');
+  ['pf-name','pf-pprice','pf-pcosts','pf-improvements','pf-cval','pf-rent','pf-expenses','pf-notes','pf-sdate','pf-sprice','pf-scosts']
+    .forEach(id=>{ const el=$(id); if(el) el.value=''; });
   $('pf-pdate').value='';
+  if($('pf-sold')) $('pf-sold').checked=false;
+  if($('pf-mainres')) $('pf-mainres').checked=false;
+  togglePropSoldFields();
   $('pf-edit-id').textContent=''; $('pf-edit-id').dataset.id='';
   $('prop-form-title-text').textContent='Add Property';
   renderSplitRows([]);
@@ -1422,6 +1438,7 @@ function editProperty(btn){
   $('pf-pdate').value        = p.purchaseDate||'';
   $('pf-pprice').value       = p.purchasePrice||'';
   $('pf-pcosts').value       = p.purchaseCosts||'';
+  if($('pf-improvements')) $('pf-improvements').value = p.capitalImprovements||'';
   $('pf-cval').value         = p.currentValue||'';
   $('pf-rent').value         = p.weeklyRent||'';
   // Prefill Annual Expenses from Tax tab (rates+insurance+repairs+agent+other)
@@ -1434,6 +1451,14 @@ function editProperty(btn){
   if($('pf-owner')) $('pf-owner').value = p.owner||'lumia';
   $('pf-mgr').value          = p.hasManager||'no';
   $('pf-notes').value        = p.notes||'';
+  if($('pf-sold')){
+    $('pf-sold').checked   = !!p.sold;
+    $('pf-sdate').value    = p.soldDate||'';
+    $('pf-sprice').value   = p.salePrice||'';
+    $('pf-scosts').value   = p.sellingCosts||'';
+    $('pf-mainres').checked= !!p.mainResExempt;
+    togglePropSoldFields();
+  }
   $('pf-edit-id').dataset.id = p.id;
   renderSplitRows(normaliseSplits(p));
   $('prop-form-title-text').textContent = 'Edit Property — '+p.name;
@@ -1529,6 +1554,7 @@ function renderProperties(){
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <div style="font-family:var(--mono);font-size:15px;font-weight:600">${escHtml(p.name)}</div>
             <span style="font-size:10px;padding:2px 8px;border-radius:12px;font-family:var(--mono);background:${({lumia:"#1e3a5f",chilli:"#4a1942",joint:"#1a3a2a"})[p.owner||"lumia"]||"#1e3a5f"};color:${({lumia:"#60a5fa",chilli:"#f472b6",joint:"#34d399"})[p.owner||"lumia"]||"#60a5fa"}">${({lumia:"Lumia",chilli:"Chilli",joint:"Joint 50/50"})[p.owner||"lumia"]||"Lumia"}</span>
+            ${p.sold?'<span class="badge b-lic">SOLD '+(p.soldDate||'')+'</span>':''}
           </div>
           <div style="font-size:11px;color:var(--text3);margin-top:3px;font-family:var(--mono)">
             <span class="badge b-reit">${typeLabel}</span>
@@ -1591,15 +1617,16 @@ function renderProperties(){
 }
 
 function renderPropCards(){
-  const totalVal    = properties.reduce((s,p)=>s+(+p.currentValue||0),0);
-  const totalEquity = properties.reduce((s,p)=>s+propMetrics(p).equity,0);
-  const totalDebt   = properties.reduce((s,p)=>s+normaliseSplits(p).reduce((t,sp)=>t+(+sp.balance||0),0),0);
-  const totalOffset = properties.reduce((s,p)=>s+normaliseSplits(p).reduce((t,sp)=>t+(+sp.offset||0),0),0);
+  const heldProperties = properties.filter(p=>!p.sold);
+  const totalVal    = heldProperties.reduce((s,p)=>s+(+p.currentValue||0),0);
+  const totalEquity = heldProperties.reduce((s,p)=>s+propMetrics(p).equity,0);
+  const totalDebt   = heldProperties.reduce((s,p)=>s+normaliseSplits(p).reduce((t,sp)=>t+(+sp.balance||0),0),0);
+  const totalOffset = heldProperties.reduce((s,p)=>s+normaliseSplits(p).reduce((t,sp)=>t+(+sp.offset||0),0),0);
   const netDebt     = Math.max(0, totalDebt - totalOffset);
-  const totalGain   = properties.reduce((s,p)=>s+propMetrics(p).gainRaw,0);
-  const annualRent  = properties.filter(p=>p.propType!=='ppor')
+  const totalGain   = heldProperties.reduce((s,p)=>s+propMetrics(p).gainRaw,0);
+  const annualRent  = heldProperties.filter(p=>p.propType!=='ppor')
                        .reduce((s,p)=>s+(+p.weeklyRent||0)*52,0);
-  const monthlyRepay= properties.reduce((s,p)=>s+propMetrics(p).repay,0);
+  const monthlyRepay= heldProperties.reduce((s,p)=>s+propMetrics(p).repay,0);
 
   // Portfolio net worth
   const holdingsVal = calcH().reduce((s,h)=>s+(prices[priceSymbol(h.symbol)]?prices[priceSymbol(h.symbol)]*h.units:0),0);
@@ -1623,7 +1650,7 @@ function renderPropCards(){
   const repaySub   = propRepayAnnual ? 'Per year ↻' : 'Per month ↻';
 
   const cards = [
-    {l:'Property Value',  v:n2(totalVal),    s:'neu',            sub:properties.length+' propert'+(properties.length===1?'y':'ies'), fn:''},
+    {l:'Property Value',  v:n2(totalVal),    s:'neu',            sub:heldProperties.length+' propert'+(heldProperties.length===1?'y':'ies'), fn:''},
     {l:'Total Equity',    v:n2(totalEquity), s:clr(totalEquity), sub:'Value − loan balance',   fn:''},
     {l:debtLabel,         v:n2(debtVal),     s:'neg',            sub:debtSub,                  fn:'togglePropDebt()'},
     {l:'Unrealised Gain', v:n2(totalGain),   s:clr(totalGain),   sub:'vs purchase price',      fn:''},

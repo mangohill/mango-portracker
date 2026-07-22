@@ -4,7 +4,7 @@
 // Scope: https://mangohill.github.io/mango-portracker/
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'portfolio-tracker-v11';
+const CACHE_NAME = 'portfolio-tracker-v12';
 const BASE       = '/mango-portracker/';
 
 const PRECACHE_URLS = [
@@ -24,6 +24,7 @@ const PRECACHE_URLS = [
   BASE + 'js/settings.js',
   BASE + 'js/spending.js',
   BASE + 'js/backup.js',
+  BASE + 'js/cgt.js',
   BASE + 'js/tax.js',
   BASE + 'js/sw-register.js',
 ];
