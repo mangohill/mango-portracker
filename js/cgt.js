@@ -514,3 +514,70 @@ function cgtSaveCarryIn(){
   notify('✓ Loss carry-forward saved');
   renderCGT();
 }
+
+// ── BACKWARD-COMPATIBILITY SHIM ──────────────────────────────────────────
+// An earlier, incomplete version of this file exposed calcCGTEvents() /
+// summarizeCGTEvents() with an older API, and tax.js may still call them
+// for its CGT estimate line. These wrappers preserve that exact call
+// signature and return shape (so nothing crashes or silently changes
+// layout) by adapting the new, corrected engine underneath. NOTE: this
+// still reproduces the OLD (pre-fix) loss-vs-discount ordering for
+// backward compatibility — the Capital Gains tab itself uses the corrected
+// order. If your tax.js references these, treat its CGT figure as an
+// approximation until it's pointed at computeCGTSummary() directly.
+function calcCGTEvents(sellsInput){
+  const { disposals } = buildDisposals();
+  const bySaleId = {};
+  disposals.forEach(d=>{ bySaleId[d.tradeId] = d; });
+  const events = [];
+  for(const sell of (sellsInput||[])){
+    const d = bySaleId[sell.id];
+    const share = sell._share !== undefined ? sell._share : 1.0;
+    if(!d){
+      events.push({
+        id: sell.id, symbol: sell.symbol, sellDate: sell.date,
+        units:+sell.units, price:+sell.price, fees:+sell.fees||0,
+        proceeds: (+sell.units*+sell.price)-(+sell.fees||0), costBasis:0,
+        grossGain:0, share, shortPortion:0, longPortion:0, parcels:[],
+        unmatchedUnits:+sell.units, dataIncomplete:true, isLoss:false,
+      });
+      continue;
+    }
+    const grossGain = d.gain * share;
+    let shortPortion = 0, longPortion = 0;
+    d.lots.forEach(l=>{
+      const portion = l.gain * share;
+      if(l.longTerm) longPortion += portion; else shortPortion += portion;
+    });
+    const parcels = d.lots.map(l=>({
+      buyDate:l.buyDate, units:l.units, baseCostPerUnit: l.units ? l.cost/l.units : 0,
+      amitAdjPerUnit:0, adjCostPerUnit: l.units ? l.cost/l.units : 0,
+      parcelCost:l.cost, heldDays:l.heldDays, over12m:l.longTerm,
+    }));
+    events.push({
+      id: sell.id, symbol: d.symbol, sellDate: d.saleDate,
+      units: d.unitsSold, price:+sell.price, fees:+sell.fees||0,
+      proceeds: d.proceeds, costBasis: d.costConsumed, grossGain,
+      share, shortPortion, longPortion, parcels,
+      unmatchedUnits: d.shortfallUnits||0, dataIncomplete: (d.shortfallUnits||0) > 0.0001,
+      isLoss: grossGain < 0,
+    });
+  }
+  return events.sort((a,b)=>a.sellDate.localeCompare(b.sellDate));
+}
+
+function summarizeCGTEvents(events){
+  let shortGain=0, longGainRaw=0, totalLoss=0, incompleteCount=0;
+  (events||[]).forEach(e=>{
+    if(e.dataIncomplete){ incompleteCount++; return; }
+    if(e.grossGain >= 0){
+      if(e.shortPortion>0) shortGain += e.shortPortion;
+      if(e.longPortion>0)  longGainRaw += e.longPortion;
+    } else {
+      totalLoss += Math.abs(e.grossGain);
+    }
+  });
+  const longGain = longGainRaw * 0.5; // old (pre-fix) ordering — see note above
+  const netGain  = Math.max(0, shortGain + longGain - totalLoss);
+  return { shortGain, longGainRaw, longGain, totalLoss, netGain, incompleteCount };
+}

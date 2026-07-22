@@ -420,46 +420,13 @@ function renderTax(){
   // Realised sells in this FY
   const sells = trades.filter(t=>t.type==='sell'&&inFY(t.date));
 
-  // For each sell: find cost basis (match buys chronologically)
+  // For each sell: find cost basis (match buys chronologically) — delegates
+  // to the shared engine in cgt.js so AMIT cost-base adjustments and the
+  // Capital Gains tab stay consistent with this estimate.
   function calcCGT(personSells){
-    // personSells: each entry has a ._share property (1.0 = fully owned, 0.5 = joint)
-    let shortGain=0, longGain=0, totalLoss=0;
-    personSells.forEach(sell=>{
-      const share = sell._share !== undefined ? sell._share : 1.0;
-      // Find all buys of this symbol before sell date, sorted oldest first
-      const buys = trades
-        .filter(t=>(t.type==='buy'||t.type==='drp')&&t.symbol===sell.symbol&&t.date<sell.date)
-        .sort((a,b)=>a.date.localeCompare(b.date));
-      if(!buys.length) return;
-      // FIFO cost basis for sold units
-      let unitsToSell = +sell.units;
-      let costBasis = 0;
-      let heldOver12m = false;
-      const sellDate = new Date(sell.date);
-      for(const buy of buys){
-        if(unitsToSell <= 0) break;
-        const units = Math.min(+buy.units, unitsToSell);
-        const avgCost = ((+buy.units * +buy.price) + (+buy.fees||0)) / +buy.units;
-        costBasis += units * avgCost;
-        unitsToSell -= units;
-        // Check if held >12 months
-        const buyDate = new Date(buy.date);
-        const diff = (sellDate - buyDate) / (1000*60*60*24);
-        if(diff >= 365) heldOver12m = true;
-      }
-      const proceeds = +sell.units * +sell.price - (+sell.fees||0);
-      const gain = (proceeds - costBasis) * share;
-      if(gain >= 0){
-        // Apply 50% CGT discount if held >12 months
-        const discounted = heldOver12m ? gain * 0.5 : gain;
-        if(heldOver12m) longGain += discounted;
-        else shortGain += gain;
-      } else {
-        totalLoss += Math.abs(gain);
-      }
-    });
-    return { shortGain, longGain, totalLoss,
-             netGain: Math.max(0, shortGain + longGain - totalLoss) };
+    const events = calcCGTEvents(personSells);
+    const s = summarizeCGTEvents(events);
+    return { shortGain: s.shortGain, longGain: s.longGain, totalLoss: s.totalLoss, netGain: s.netGain };
   }
 
   // CGT attributed by stock ownership — each person only pays CGT on THEIR sells
@@ -535,7 +502,7 @@ function renderTax(){
       const pRec = rec.props[p.id] || {};
       const expenses = share*(
         (+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+
-        (+pRec.agent||0)+(+pRec.landtax||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0)
+        (+pRec.agent||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0)
       ) + rentalInterest * share;
 
       netRent     += annualRent;
@@ -655,7 +622,7 @@ function renderTax(){
     const _m = propMetrics(p);
     const _annRent = (p.weeklyRent||0)*52*share;
     const _annInt  = _m.monthlyInterest*12*share;
-    const _nonInt  = share*((+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+(+pRec.agent||0)+(+pRec.landtax||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0));
+    const _nonInt  = share*((+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+(+pRec.agent||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0));
     const _totalExp = _nonInt + _annInt;
     const _netResult = _annRent - _totalExp;
     const _resultStr = _netResult >= 0 ? '+'+n2(_netResult) : '-'+n2(Math.abs(_netResult));
@@ -677,7 +644,6 @@ function renderTax(){
         ${fi('insurance','Insurance','$')}
         ${fi('repairs','Repairs & Maintenance','$')}
         ${fi('agent','Agent Fees','$')}
-        ${fi('landtax','Land Tax','$')}
         ${fi('other','Other Expenses','$')}
         ${fi('depr_bldg','Depreciation — Building','$')}
         ${fi('depr_pe','Depreciation — Plant & Equipment','$')}
@@ -903,6 +869,11 @@ function renderTax(){
         ${row('Net Rental Income',lumTax.netRent>lumTax.netExpenses?'+'+n2(lumTax.netRent-lumTax.netExpenses):'—',chiTax.netRent>chiTax.netExpenses?'+'+n2(chiTax.netRent-chiTax.netExpenses):'—')}
         ${row('Rental Loss (negative gearing)',lumTax.netPropLoss>0?'-'+n2(lumTax.netPropLoss):'—',chiTax.netPropLoss>0?'-'+n2(chiTax.netPropLoss):'—','neg')}
         ${row('Net Capital Gain (after 50% disc)',n2(lumTax.myCGT),n2(chiTax.myCGT),'',cgt.totalLoss>0?'capital losses: -'+n2(cgt.totalLoss):'')}
+        <tr><td colspan="3" style="padding:2px 8px 8px">
+          <span style="font-size:11px;color:var(--blue);cursor:pointer" onclick="switchTab('cgt',$('tab-cgt'))">
+            ↳ View full Capital Gains report (per-parcel detail, any FY) →
+          </span>
+        </td></tr>
         <tr style="border-top:1px solid var(--border)">
           <td style="font-size:12px;font-weight:600;padding:6px 8px">Taxable Income</td>
           <td style="font-family:var(--mono);font-size:13px;font-weight:600;text-align:right;padding:6px 8px">
@@ -943,12 +914,16 @@ ${(()=>{
             Division 293 Tax
             <span style='color:var(--text3);font-size:10px'> extra 15% on super · income &gt;$250k</span>
           </td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px'
-            ${lumTax.div293>0?'style="cursor:pointer;text-decoration:underline dotted" data-div293="lumia" title="Click to see Div293 calculation"':''}>
+          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
+            ${lumTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
+            onclick='${lumTax.div293>0?'showDiv293Breakdown(\'lumia\')':''}'
+            title='${lumTax.div293>0?'Click to see calculation':''}'>
             ${lumTax.div293>0?n2(lumTax.div293):'—'}
           </td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px'
-            ${chiTax.div293>0?'style="cursor:pointer;text-decoration:underline dotted" data-div293="chilli" title="Click to see Div293 calculation"':''}>
+          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
+            ${chiTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
+            onclick='${chiTax.div293>0?'showDiv293Breakdown(\'chilli\')':''}'
+            title='${chiTax.div293>0?'Click to see calculation':''}'>
             ${chiTax.div293>0?n2(chiTax.div293):'—'}
           </td>
         </tr>`;
