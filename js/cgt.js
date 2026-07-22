@@ -363,6 +363,7 @@ function renderCGT(){
             <th style="text-align:right;padding:4px">GAIN/LOSS</th>
             <th style="text-align:right;padding:4px">HELD</th>
             <th style="text-align:right;padding:4px">DISCOUNT</th>
+            <th style="text-align:right;padding:4px">FINAL (NET CG)</th>
           </tr></thead>
           <tbody>
             ${d.lots.map(l=>`<tr style="border-bottom:1px solid var(--border)">
@@ -373,6 +374,7 @@ function renderCGT(){
               <td style="text-align:right;padding:4px" class="${clr(l.gain)}">${n2(l.gain)}</td>
               <td style="text-align:right;padding:4px">${l.heldDays}d</td>
               <td style="text-align:right;padding:4px">${l.longTerm && l.gain>0 ? '<span class="badge b-etf">50%</span>' : (l.longTerm?'<span style="color:var(--text3)">n/a (loss)</span>':'—')}</td>
+              <td style="text-align:right;padding:4px;font-weight:700" class="${clr(l.longTerm && l.gain>0 ? l.gain*0.5 : l.gain)}">${n2(l.longTerm && l.gain>0 ? l.gain*0.5 : l.gain)}</td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -386,7 +388,7 @@ function renderCGT(){
     <div class="tw">
       <div class="th"><span class="tt">PROPERTY DISPOSALS — FY${cgtFY}</span></div>
       <div class="ovx"><table>
-        <thead><tr><th>PROPERTY</th><th>SOLD</th><th>OWNER</th><th>COST BASE</th><th>PROCEEDS</th><th>GAIN/LOSS</th><th>DISCOUNT</th></tr></thead>
+        <thead><tr><th>PROPERTY</th><th>SOLD</th><th>OWNER</th><th>COST BASE</th><th>PROCEEDS</th><th>GAIN/LOSS</th><th>DISCOUNT</th><th>FINAL (NET CG)</th></tr></thead>
         <tbody>
           ${fyProps.map(p=>`<tr>
             <td><b>${escHtml(p.name)}</b></td>
@@ -396,6 +398,7 @@ function renderCGT(){
             <td>${p.exempt?'—':n2(p.proceeds)}</td>
             <td class="${p.exempt?'neu':clr(p.gain)}">${p.exempt?'Exempt (main residence)':n2(p.gain)}</td>
             <td>${p.exempt?'—':(p.longTerm&&p.gain>0?'<span class="badge b-etf">50%</span>':(p.longTerm?'n/a (loss)':'—'))}</td>
+            <td style="font-weight:700" class="${p.exempt?'neu':clr(p.longTerm && p.gain>0 ? p.gain*0.5 : p.gain)}">${p.exempt?'—':n2(p.longTerm && p.gain>0 ? p.gain*0.5 : p.gain)}</td>
           </tr>`).join('')}
         </tbody>
       </table></div>
