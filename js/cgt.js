@@ -501,7 +501,7 @@ function renderCGT(){
            onclick="$('amit-pdf-input').click()">
         <div class="dz-icon">📄</div>
         <div class="dz-txt">Drop AMIT/AMMA tax statement PDF(s) here, or click to browse</div>
-        <div class="dz-sub">Auto-extracts symbol, FY-end date and cost-base adjustment — you review before adding. Works fully offline.</div>
+        <div class="dz-sub">Auto-extracts symbol, FY-end date and cost-base adjustment — you review before adding. Works offline for most statements; a few (font-encoding dependent) need a one-time internet-connected fallback read.</div>
       </div>
       <input type="file" id="amit-pdf-input" accept="application/pdf" multiple style="display:none"
              onchange="handleAmitPdfFiles(this.files)">
@@ -620,12 +620,57 @@ function parseAmitStatementText(text, filename){
 
   const excess    = excessMatch    ? parseFloat(excessMatch[1].replace(/,/g,''))    : 0;
   const shortfall = shortfallMatch ? parseFloat(shortfallMatch[1].replace(/,/g,'')) : 0;
-  if(!excessMatch && !shortfallMatch){
-    warning = (warning ? warning+' ' : '') + 'No AMIT cost-base adjustment figures found — check this is the right statement, or enter manually.';
+  // This is the one that actually matters — if the local extractor's text has
+  // no trace of the adjustment labels at all, it's likely a font-encoding
+  // issue (some registries embed the label text with non-standard character
+  // codes the lightweight local extractor can't decode), not genuinely a
+  // zero-adjustment statement. Worth a proper re-read via the fallback.
+  const needsFallback = !excessMatch && !shortfallMatch;
+  if(needsFallback){
+    warning = (warning ? warning+' ' : '') + 'No AMIT cost-base adjustment figures found in the quick read — retrying with the fuller PDF reader…';
   }
   const amount = +(shortfall - excess).toFixed(2);
 
-  return { symbol, date, amount, notes: filename ? ('Auto-parsed from ' + filename) : '', filename, warning };
+  return { symbol, date, amount, notes: filename ? ('Auto-parsed from ' + filename) : '', filename, warning, needsFallback };
+}
+
+// ── FALLBACK: pdf.js via CDN ─────────────────────────────────────────────
+// Only used when the local extractor above can't find the adjustment
+// figures at all — typically because the PDF's label text uses a custom
+// font encoding (needs a ToUnicode CMap) that the lightweight local parser
+// doesn't resolve. pdf.js handles font/CMap decoding properly, at the cost
+// of needing internet access on first use. This is a fallback, not the
+// default — most statements never need it.
+let _pdfJsLoadPromise = null;
+function loadPdfJsFallback(){
+  if(window.pdfjsLib) return Promise.resolve();
+  if(_pdfJsLoadPromise) return _pdfJsLoadPromise;
+  _pdfJsLoadPromise = new Promise((resolve, reject)=>{
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+    script.onload = ()=>{
+      try{
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        resolve();
+      }catch(e){ reject(e); }
+    };
+    script.onerror = ()=> reject(new Error('Could not load the fallback PDF reader — check your internet connection.'));
+    document.head.appendChild(script);
+  });
+  return _pdfJsLoadPromise;
+}
+
+async function extractPdfTextViaFallback(file){
+  await loadPdfJsFallback();
+  const buf = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+  let text = '';
+  for(let i=1; i<=pdf.numPages; i++){
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(it=>it.str).join(' ') + '\n';
+  }
+  return text;
 }
 
 async function handleAmitPdfFiles(fileList){
@@ -640,7 +685,26 @@ async function handleAmitPdfFiles(fileList){
         notify(`Could not read text from ${file.name} — it may be an image-scanned PDF.`, 'err');
         continue;
       }
-      const parsed = parseAmitStatementText(text, file.name);
+      let parsed = parseAmitStatementText(text, file.name);
+
+      if(parsed.needsFallback){
+        if(statusEl) statusEl.textContent = `${file.name}: quick read incomplete, trying fuller PDF reader (needs internet)…`;
+        try{
+          const fallbackText = await extractPdfTextViaFallback(file);
+          const fallbackParsed = parseAmitStatementText(fallbackText, file.name);
+          if(!fallbackParsed.needsFallback){
+            fallbackParsed.notes = 'Auto-parsed from ' + file.name + ' (fuller PDF reader)';
+            parsed = fallbackParsed;
+          } else {
+            parsed.warning = parsed.warning.replace('retrying with the fuller PDF reader…', '')
+              + 'Still no adjustment figures found even with the fuller reader — check this is the right statement, or enter manually.';
+          }
+        }catch(e){
+          parsed.warning = parsed.warning.replace('retrying with the fuller PDF reader…', '')
+            + 'Fuller PDF reader unavailable (' + e.message + ') — enter the adjustment manually.';
+        }
+      }
+
       amitPdfPending.push(parsed);
     }catch(e){
       notify(`Could not read ${file.name}: ${e.message}`, 'err');
