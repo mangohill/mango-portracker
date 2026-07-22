@@ -664,13 +664,35 @@ async function extractPdfTextViaFallback(file){
   await loadPdfJsFallback();
   const buf = await file.arrayBuffer();
   const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-  let text = '';
+  let fullText = '';
   for(let i=1; i<=pdf.numPages; i++){
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    text += content.items.map(it=>it.str).join(' ') + '\n';
+    // Naive stream-order concatenation can leave a label and its dollar value
+    // far apart in the joined text even though they sit on the same visual
+    // row (common in template-driven statement generators that draw labels
+    // and variable data as separate operations). Reconstruct actual reading
+    // order instead: group fragments into lines by Y position, then sort
+    // each line left-to-right by X — using the position data pdf.js gives
+    // us for free (the local extractor above doesn't track this).
+    const items = content.items.map(it => ({
+      str: it.str, x: it.transform[4], y: it.transform[5],
+    })).filter(it => it.str.trim());
+
+    const lineTolerance = 3;
+    const lines = [];
+    items.forEach(it=>{
+      let line = lines.find(l => Math.abs(l.y - it.y) <= lineTolerance);
+      if(!line){ line = { y: it.y, items: [] }; lines.push(line); }
+      line.items.push(it);
+    });
+    lines.sort((a,b) => b.y - a.y); // top to bottom (PDF y-axis runs bottom-up)
+    lines.forEach(line=>{
+      line.items.sort((a,b) => a.x - b.x); // left to right
+      fullText += line.items.map(it=>it.str).join(' ') + '\n';
+    });
   }
-  return text;
+  return fullText;
 }
 
 async function handleAmitPdfFiles(fileList){
