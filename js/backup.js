@@ -29,6 +29,9 @@ function backupExport(){
       pt_stock_owners: stockOwners,
       pt_extra_persons: extraPersons,
       cf_worker_code: WORKER_CODE,
+      pt_amit:      amitAdjustments,
+      pt_cgt_loss_carry_in: JSON.parse(localStorage.getItem('pt_cgt_loss_carry_in')||'{}'),
+      pt_drp_settings: JSON.parse(localStorage.getItem('pt_drp_settings')||'{}'),
     }
   };
 
@@ -44,6 +47,7 @@ function backupExport(){
     + `${payload.data.pt_spending.length} spending records, `
     + `${(payload.data.pt_super||[]).length} super accounts, `
     + `${payload.data.pt_brokers.length} custom brokers, `
+    + `${payload.data.pt_amit.length} AMIT adjustments, `
     + `${Object.keys(payload.data.pt_prices||{}).length} cached prices`, 'var(--green)');
 }
 
@@ -80,6 +84,7 @@ function backupImport(input){
       ['Combined colour',    d.su_combined_color||'—',  suCombinedColor],
       ['Custom brokers',    (d.pt_brokers||[]).length,  getCustomBrokers().length],
       ['Cached prices',     Object.keys(d.pt_prices||{}).length, Object.keys(prices).length],
+      ['AMIT adjustments',  (d.pt_amit||[]).length,     amitAdjustments.length],
     ];
 
     const rowHtml = rows.map(([label, incoming, current]) =>
@@ -147,6 +152,8 @@ function backupConfirm(){
   if(d.pt_stock_owners){ stockOwners = d.pt_stock_owners; saveStockOwners(); }
   if(d.pt_extra_persons){ extraPersons = d.pt_extra_persons; saveExtraPersons(); }
   if(d.su_combined_color){ suCombinedColor = d.su_combined_color; localStorage.setItem('su_combined_color', d.su_combined_color); }
+  if(d.pt_amit){ amitAdjustments = d.pt_amit; saveAmitAdjustments(); }
+  if(d.pt_cgt_loss_carry_in) localStorage.setItem('pt_cgt_loss_carry_in', JSON.stringify(d.pt_cgt_loss_carry_in));
   // Worker code is embedded in the app — no need to restore it
 
   _pendingRestore = null;

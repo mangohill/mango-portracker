@@ -48,7 +48,7 @@ function addAmitAdjustment(symbol, date, amount, notes){
   return true;
 }
 function deleteAmitAdjustment(id){
-  amitAdjustments = amitAdjustments.filter(a=>a.id!==id);
+  amitAdjustments = amitAdjustments.filter(a=>String(a.id)!==String(id));
   saveAmitAdjustments();
 }
 
@@ -405,7 +405,10 @@ function renderCGT(){
     </div>` : '';
 
   const symbolsInUse = [...new Set(trades.map(t=>t.symbol).filter(Boolean))].sort();
-  const amitRows = [...amitAdjustments].sort((a,b)=>b.date.localeCompare(a.date));
+  const amitSortState = getSortState('amit');
+  const amitRows = amitSortState.col
+    ? sortRows(amitAdjustments, amitSortState.col, amitSortState.dir)
+    : [...amitAdjustments].sort((a,b)=>b.date.localeCompare(a.date));
   const amitBodyHtml = amitRows.length ? amitRows.map(a=>`<tr>
     <td>${a.date}</td>
     <td><b>${escHtml(a.symbol)}</b></td>
@@ -522,7 +525,13 @@ function renderCGT(){
       <button class="btn btn-g" id="amit-form-btn" onclick="addAmitAdjustmentFromForm()">${amitEditingId ? '✓ SAVE CHANGES' : '+ ADD ADJUSTMENT'}</button>
       ${amitEditingId ? '<button class="btn" onclick="cancelEditAmitAdjustment()">Cancel edit</button>' : ''}
       <div class="ovx" style="margin-top:14px">
-        <table><thead><tr><th>Date</th><th>Symbol</th><th>Adjustment</th><th>Notes</th><th></th></tr></thead>
+        <table><thead><tr>
+          ${sortTh('amit','date','Date','renderCGT')}
+          ${sortTh('amit','symbol','Symbol','renderCGT')}
+          ${sortTh('amit','amount','Adjustment','renderCGT')}
+          ${sortTh('amit','notes','Notes','renderCGT')}
+          <th></th>
+        </tr></thead>
         <tbody>${amitBodyHtml}</tbody></table>
       </div>
     </div>
@@ -543,9 +552,9 @@ function renderCGT(){
 let amitEditingId = null;
 
 function editAmitAdjustment(id){
-  const a = amitAdjustments.find(x=>x.id===id);
+  const a = amitAdjustments.find(x=>String(x.id)===String(id));
   if(!a) return;
-  amitEditingId = id;
+  amitEditingId = a.id;
   renderCGT();
   // Populate the form after render (fresh DOM)
   if($('amit-sym'))  { if(![...$('amit-sym').options].some(o=>o.value===a.symbol)){ const opt=document.createElement('option'); opt.value=a.symbol; opt.textContent=a.symbol; $('amit-sym').appendChild(opt); } $('amit-sym').value = a.symbol; }
@@ -566,8 +575,8 @@ function addAmitAdjustmentFromForm(){
   const amount = $('amit-amount').value;
   const notes  = $('amit-notes').value;
 
-  if(amitEditingId){
-    const a = amitAdjustments.find(x=>x.id===amitEditingId);
+  if(amitEditingId != null){
+    const a = amitAdjustments.find(x=>String(x.id)===String(amitEditingId));
     if(!a){ amitEditingId=null; renderCGT(); return; }
     if(!sym || !date || isNaN(+amount)){ notify('Symbol, date and amount are required.','err'); return; }
     a.symbol = sym.trim().toUpperCase(); a.date = date; a.amount = +amount; a.notes = (notes||'').trim();
