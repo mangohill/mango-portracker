@@ -411,7 +411,10 @@ function renderCGT(){
     <td><b>${escHtml(a.symbol)}</b></td>
     <td style="color:${a.amount>=0?'var(--green)':'var(--red)'}">${a.amount>=0?'+':''}${n2(a.amount)}</td>
     <td style="color:var(--text3);font-size:11px">${escHtml(a.notes)}</td>
-    <td><button class="del-btn" onclick="deleteAmitAdjustment('${a.id}');renderCGT()">✕</button></td>
+    <td style="white-space:nowrap">
+      <button class="del-btn" onclick="editAmitAdjustment('${a.id}')" title="Edit">✎</button>
+      <button class="del-btn" onclick="deleteAmitAdjustment('${a.id}');renderCGT()" title="Delete">✕</button>
+    </td>
   </tr>`).join('') : '<tr><td colspan="5" class="empty">No AMIT adjustments recorded yet.</td></tr>';
 
   const carryInSettings = getCGTLossCarryIn();
@@ -427,6 +430,34 @@ function renderCGT(){
       </div>
     </div>`;
   }).join('');
+
+  // Pending PDF-parsed entries awaiting review/confirmation
+  const pdfPendingHtml = (amitPdfPending.length) ? `
+    <div class="fs" style="border-color:var(--gold);margin-bottom:14px">
+      <div class="fst" style="color:var(--gold)">📄 PARSED FROM PDF — REVIEW BEFORE ADDING</div>
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:10px">
+        Auto-extracted from the statement text — double-check the symbol, date and amount
+        against the PDF before adding (parsing can misread unusual layouts). Edit any field directly.
+      </div>
+      ${amitPdfPending.map((p,idx)=>`
+        <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;padding:10px;background:var(--surface2);border-radius:6px;margin-bottom:8px">
+          <div class="fgi" style="flex:0 0 90px"><label class="fl">Symbol</label>
+            <input class="fi" value="${escHtml(p.symbol)}" oninput="amitPdfPending[${idx}].symbol=this.value.toUpperCase()"></div>
+          <div class="fgi" style="flex:0 0 140px"><label class="fl">Record Date</label>
+            <input class="fi" type="date" value="${p.date||''}" oninput="amitPdfPending[${idx}].date=this.value"></div>
+          <div class="fgi" style="flex:0 0 120px"><label class="fl">Adjustment ($)</label>
+            <input class="fi" type="number" step="any" value="${p.amount}" oninput="amitPdfPending[${idx}].amount=parseFloat(this.value)||0"></div>
+          <div class="fgi" style="flex:1 1 160px"><label class="fl">Notes</label>
+            <input class="fi" value="${escHtml(p.notes)}" oninput="amitPdfPending[${idx}].notes=this.value"></div>
+          <div style="font-size:10px;color:var(--text3);flex:0 0 100%;margin-top:-4px">
+            source: ${escHtml(p.filename)}${p.warning?' · <span style="color:var(--gold)">'+escHtml(p.warning)+'</span>':''}
+          </div>
+          <button class="btn btn-g" style="padding:5px 12px;font-size:11px" onclick="cgtConfirmPdfEntry(${idx})">✓ Add</button>
+          <button class="btn" style="padding:5px 12px;font-size:11px;color:var(--text3)" onclick="cgtDiscardPdfEntry(${idx})">Discard</button>
+        </div>
+      `).join('')}
+      ${amitPdfPending.length>1 ? '<button class="btn btn-g" onclick="cgtConfirmAllPdfEntries()">✓ ADD ALL</button>' : ''}
+    </div>` : '';
 
   panel.innerHTML = `
     <div class="fs" style="border-color:var(--border2);margin-bottom:16px">
@@ -463,6 +494,21 @@ function renderCGT(){
         Enter each distribution's net cost-base adjustment from the fund's annual tax statement.
         Negative = cost base decrease (the common case for tax-deferred distributions).
       </div>
+
+      <div class="dz" style="padding:24px" ondragover="event.preventDefault();this.classList.add('drag')"
+           ondragleave="this.classList.remove('drag')"
+           ondrop="event.preventDefault();this.classList.remove('drag');handleAmitPdfFiles(event.dataTransfer.files)"
+           onclick="$('amit-pdf-input').click()">
+        <div class="dz-icon">📄</div>
+        <div class="dz-txt">Drop AMIT/AMMA tax statement PDF(s) here, or click to browse</div>
+        <div class="dz-sub">Auto-extracts symbol, FY-end date and cost-base adjustment — you review before adding. Works fully offline.</div>
+      </div>
+      <input type="file" id="amit-pdf-input" accept="application/pdf" multiple style="display:none"
+             onchange="handleAmitPdfFiles(this.files)">
+      <div id="amit-pdf-status" style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:14px"></div>
+
+      ${pdfPendingHtml}
+
       <div class="fg">
         <div class="fgi"><label class="fl">Symbol</label>
           <select class="fi" id="amit-sym">${symbolsInUse.map(sym=>`<option value="${sym}">${sym}</option>`).join('')}</select>
@@ -473,7 +519,8 @@ function renderCGT(){
         <div class="fgi"><label class="fl">Notes</label>
           <input class="fi" type="text" id="amit-notes" placeholder="e.g. FY26 AMMA statement"></div>
       </div>
-      <button class="btn btn-g" onclick="addAmitAdjustmentFromForm()">+ ADD ADJUSTMENT</button>
+      <button class="btn btn-g" id="amit-form-btn" onclick="addAmitAdjustmentFromForm()">${amitEditingId ? '✓ SAVE CHANGES' : '+ ADD ADJUSTMENT'}</button>
+      ${amitEditingId ? '<button class="btn" onclick="cancelEditAmitAdjustment()">Cancel edit</button>' : ''}
       <div class="ovx" style="margin-top:14px">
         <table><thead><tr><th>Date</th><th>Symbol</th><th>Adjustment</th><th>Notes</th><th></th></tr></thead>
         <tbody>${amitBodyHtml}</tbody></table>
@@ -492,15 +539,143 @@ function renderCGT(){
   `;
 }
 
+// ── EDIT EXISTING AMIT ENTRY ─────────────────────────────────────────────
+let amitEditingId = null;
+
+function editAmitAdjustment(id){
+  const a = amitAdjustments.find(x=>x.id===id);
+  if(!a) return;
+  amitEditingId = id;
+  renderCGT();
+  // Populate the form after render (fresh DOM)
+  if($('amit-sym'))  { if(![...$('amit-sym').options].some(o=>o.value===a.symbol)){ const opt=document.createElement('option'); opt.value=a.symbol; opt.textContent=a.symbol; $('amit-sym').appendChild(opt); } $('amit-sym').value = a.symbol; }
+  if($('amit-date'))   $('amit-date').value = a.date;
+  if($('amit-amount')) $('amit-amount').value = a.amount;
+  if($('amit-notes'))  $('amit-notes').value = a.notes;
+  $('amit-form-btn')?.scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+function cancelEditAmitAdjustment(){
+  amitEditingId = null;
+  renderCGT();
+}
+
 function addAmitAdjustmentFromForm(){
   const sym    = $('amit-sym') ? $('amit-sym').value : '';
   const date   = $('amit-date').value;
   const amount = $('amit-amount').value;
   const notes  = $('amit-notes').value;
+
+  if(amitEditingId){
+    const a = amitAdjustments.find(x=>x.id===amitEditingId);
+    if(!a){ amitEditingId=null; renderCGT(); return; }
+    if(!sym || !date || isNaN(+amount)){ notify('Symbol, date and amount are required.','err'); return; }
+    a.symbol = sym.trim().toUpperCase(); a.date = date; a.amount = +amount; a.notes = (notes||'').trim();
+    saveAmitAdjustments();
+    amitEditingId = null;
+    notify('✓ AMIT adjustment updated');
+    renderCGT();
+    return;
+  }
+
   if(addAmitAdjustment(sym, date, amount, notes)){
     notify('✓ AMIT adjustment added');
     renderCGT();
   }
+}
+
+// ── PDF UPLOAD & AUTO-PARSE ──────────────────────────────────────────────
+// Reuses the app's own local PDF text extractor (extractPDFText, defined in
+// tax.js and already used for registry dividend PDF imports) — no external
+// library, works fully offline. Regex-parses the extracted text for the
+// symbol, FY-end date and cost-base adjustment. Always shown as an editable
+// preview before anything is saved.
+let amitPdfPending = [];
+
+// Regex-based extraction — handles the wording variants seen across
+// registries (Link/MUFG/Computershare use "excess"/"shortfall"; VanEck uses
+// "increase amount"/"decrease amount"). Symbol comes from an "ASX Code:"
+// label when present, otherwise falls back to the filename.
+function parseAmitStatementText(text, filename){
+  const symMatch   = text.match(/ASX\s*[Cc]ode\s*:\s*([A-Z0-9]{2,6})/i);
+  const yearMatch  = text.match(/year\s+ended\s+30\s+June\s+(\d{4})/i);
+  const excessMatch    = text.match(/excess[^$]{0,40}\$\s*([\d,]+\.\d{2})/i)
+                       || text.match(/decrease\s+amount[^$]{0,20}\$\s*([\d,]+\.\d{2})/i);
+  const shortfallMatch = text.match(/shortfall[^$]{0,40}\$\s*([\d,]+\.\d{2})/i)
+                       || text.match(/increase\s+amount[^$]{0,20}\$\s*([\d,]+\.\d{2})/i);
+
+  let symbol = symMatch ? symMatch[1].toUpperCase() : '';
+  let warning = '';
+  if(!symbol){
+    // Fallback: derive from filename, e.g. "VAE_2025.pdf" -> "VAE"
+    const base = (filename||'').replace(/\.pdf$/i,'');
+    const guess = base.split(/[_\-\s]/)[0];
+    symbol = guess ? guess.toUpperCase() : '';
+    warning = 'Symbol not found in PDF text — guessed from filename, please verify.';
+  }
+
+  const year = yearMatch ? yearMatch[1] : '';
+  const date = year ? `${year}-06-30` : '';
+  if(!year) warning = (warning ? warning+' ' : '') + 'Could not find the statement date — please set it manually.';
+
+  const excess    = excessMatch    ? parseFloat(excessMatch[1].replace(/,/g,''))    : 0;
+  const shortfall = shortfallMatch ? parseFloat(shortfallMatch[1].replace(/,/g,'')) : 0;
+  if(!excessMatch && !shortfallMatch){
+    warning = (warning ? warning+' ' : '') + 'No AMIT cost-base adjustment figures found — check this is the right statement, or enter manually.';
+  }
+  const amount = +(shortfall - excess).toFixed(2);
+
+  return { symbol, date, amount, notes: filename ? ('Auto-parsed from ' + filename) : '', filename, warning };
+}
+
+async function handleAmitPdfFiles(fileList){
+  const files = Array.from(fileList||[]);
+  if(!files.length) return;
+  const statusEl = $('amit-pdf-status');
+  for(const file of files){
+    if(statusEl) statusEl.textContent = `Reading ${file.name}…`;
+    try{
+      const text = await extractPDFText(file); // local extractor from tax.js — no CDN, no network
+      if(!text || text.length < 20){
+        notify(`Could not read text from ${file.name} — it may be an image-scanned PDF.`, 'err');
+        continue;
+      }
+      const parsed = parseAmitStatementText(text, file.name);
+      amitPdfPending.push(parsed);
+    }catch(e){
+      notify(`Could not read ${file.name}: ${e.message}`, 'err');
+    }
+  }
+  if(statusEl) statusEl.textContent = '';
+  $('amit-pdf-input').value = '';
+  renderCGT();
+}
+
+function cgtConfirmPdfEntry(idx){
+  const p = amitPdfPending[idx];
+  if(!p) return;
+  if(addAmitAdjustment(p.symbol, p.date, p.amount, p.notes)){
+    amitPdfPending.splice(idx, 1);
+    notify('✓ AMIT adjustment added');
+    renderCGT();
+  }
+}
+
+function cgtDiscardPdfEntry(idx){
+  amitPdfPending.splice(idx, 1);
+  renderCGT();
+}
+
+function cgtConfirmAllPdfEntries(){
+  let added = 0;
+  const remaining = [];
+  for(const p of amitPdfPending){
+    if(addAmitAdjustment(p.symbol, p.date, p.amount, p.notes)) added++;
+    else remaining.push(p);
+  }
+  amitPdfPending = remaining;
+  notify(`✓ ${added} AMIT adjustment${added!==1?'s':''} added`);
+  renderCGT();
 }
 
 function cgtSaveCarryIn(){
