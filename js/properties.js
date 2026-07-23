@@ -827,7 +827,8 @@ function buildSyncPayload(){
       pt_super:          superAccounts,
       su_combined_color: localStorage.getItem('su_combined_color')||'#ffffff',
       pt_tax: taxData, pt_stock_owners: stockOwners, pt_extra_persons: extraPersons,
-      pt_tax:  taxData,
+      pt_amit: (()=>{try{return JSON.parse(localStorage.getItem('pt_amit')||'[]');}catch(e){return [];}})(),
+      pt_cgt_loss_carry_in: (()=>{try{return JSON.parse(localStorage.getItem('pt_cgt_loss_carry_in')||'{}');}catch(e){return {};}})(),
     }
   };
 }
@@ -999,6 +1000,9 @@ function applyRemoteData(remote){
   if(d.pt_stock_owners){ stockOwners=d.pt_stock_owners; saveStockOwners(); }
   if(d.pt_extra_persons){ extraPersons=d.pt_extra_persons; saveExtraPersons(); }
   if(d.pt_tax){ taxData = d.pt_tax; saveTaxData(); }
+  if(d.pt_drp_settings) localStorage.setItem('pt_drp_settings', JSON.stringify(d.pt_drp_settings));
+  if(d.pt_amit){ amitAdjustments = d.pt_amit; saveAmitAdjustments(); }
+  if(d.pt_cgt_loss_carry_in) localStorage.setItem('pt_cgt_loss_carry_in', JSON.stringify(d.pt_cgt_loss_carry_in));
   if(d.su_combined_color){ suCombinedColor = d.su_combined_color;
                            localStorage.setItem('su_combined_color', d.su_combined_color); }
   refreshAllBrokerSelects();
@@ -1008,6 +1012,7 @@ function applyRemoteData(remote){
   try { renderSuperAccounts(); renderSuperCards(); renderSuperChart(); } catch(e){}
   try { renderSpending(); } catch(e){}
   try { renderTax(); } catch(e){}
+  try { renderCGT(); } catch(e){}
   try { renderOwnershipGrid(); } catch(e){}
   // Clear revert buttons after sync pull (user confirmed remote data is source of truth)
   if(typeof mathInpClearAllReverts==='function') mathInpClearAllReverts();
