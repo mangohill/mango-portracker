@@ -104,8 +104,10 @@ function buildDisposals(){
       list.forEach(p=>{
         const share = e.amount * (p.units / totalUnits);
         let newCost = p.cost + share; // negative amount = cost-base decrease (typical case)
-        if(newCost < 0){ capped += -newCost; newCost = 0; }
+        let applied = share;
+        if(newCost < 0){ applied = -p.cost; capped += -newCost; newCost = 0; }
         p.cost = newCost;
+        p.amitTotal = (p.amitTotal||0) + applied;
       });
       if(capped > 0.005) amitLog.push({ symbol:e.symbol, date:e.date, amount:e.amount, capped });
       continue;
@@ -114,7 +116,8 @@ function buildDisposals(){
     const t = e, sym = t.symbol;
 
     if(t.type === 'buy' || t.type === 'drp'){
-      ensure(sym).push({ id:'p'+(seq++), units:+t.units, cost:(+t.units * +t.price) + (+t.fees||0), date:t.date });
+      const buyCost = (+t.units * +t.price) + (+t.fees||0);
+      ensure(sym).push({ id:'p'+(seq++), units:+t.units, cost:buyCost, originalCost:buyCost, amitTotal:0, date:t.date });
 
     } else if(t.type === 'sell'){
       let unitsToSell = +t.units;
@@ -134,6 +137,9 @@ function buildDisposals(){
         lots.push({ units:take, cost:takeCost, buyDate:p.date, longTerm, heldDays:Math.round(heldDays),
                      proceeds:lotProceeds, gain:+(lotProceeds - takeCost).toFixed(4) });
         costConsumed += takeCost;
+        const takeRatio = take / p.units;
+        p.originalCost = (p.originalCost||p.cost) * (1 - takeRatio);
+        p.amitTotal = (p.amitTotal||0) * (1 - takeRatio);
         p.units -= take; p.cost -= takeCost;
         unitsToSell -= take;
         if(p.units <= 0.000001) i++;
@@ -157,22 +163,25 @@ function buildDisposals(){
         const destList = ensure(sym);
         if(t.overrideCostBasis){
           const earliest = stash.length ? stash.reduce((a,b)=> a.date < b.date ? a : b).date : t.date;
-          destList.push({ id:'p'+(seq++), units:+t.units, cost:+t.overrideCostBasis, date:earliest });
+          destList.push({ id:'p'+(seq++), units:+t.units, cost:+t.overrideCostBasis, originalCost:+t.overrideCostBasis, amitTotal:0, date:earliest });
         } else if(sub === 'spinoff_to'){
           const stashUnits = stash.reduce((s,p)=>s+p.units,0) || 1;
           stash.forEach(p=>{
-            destList.push({ id:'p'+(seq++), units: p.units*(+t.units/stashUnits), cost: p.cost*allocPct, date:p.date });
+            destList.push({ id:'p'+(seq++), units: p.units*(+t.units/stashUnits), cost: p.cost*allocPct,
+                            originalCost:(p.originalCost||p.cost)*allocPct, amitTotal:(p.amitTotal||0)*allocPct, date:p.date });
           });
         } else {
           const stashUnits = stash.reduce((s,p)=>s+p.units,0) || 1;
           const ratioUnits = +t.units / stashUnits;
           stash.forEach(p=>{
-            destList.push({ id:'p'+(seq++), units: p.units*ratioUnits, cost: p.cost, date:p.date });
+            destList.push({ id:'p'+(seq++), units: p.units*ratioUnits, cost: p.cost,
+                            originalCost:(p.originalCost!=null?p.originalCost:p.cost), amitTotal:(p.amitTotal||0), date:p.date });
           });
         }
         if(sub === 'spinoff_to'){
           const parentList = ensure(fromSym);
-          stash.forEach(p=> parentList.push({ ...p, cost: p.cost*(1-allocPct) }));
+          stash.forEach(p=> parentList.push({ ...p, cost: p.cost*(1-allocPct),
+                                               originalCost:(p.originalCost||p.cost)*(1-allocPct), amitTotal:(p.amitTotal||0)*(1-allocPct) }));
         }
         delete parcels['_stash_'+fromSym];
       }
@@ -209,7 +218,7 @@ function buildPropertyDisposals(){
 // forward) against short-term gains first, then long-term — THEN apply
 // the 50% discount to whatever long-term amount remains.
 function computeCGTSummary(){
-  const { disposals, amitLog } = buildDisposals();
+  const { disposals, amitLog, openParcels } = buildDisposals();
   const propDisposals = buildPropertyDisposals();
   const persons = getAllPersons();
   const carryInSettings = getCGTLossCarryIn();
@@ -278,20 +287,21 @@ function computeCGTSummary(){
     }
   }
 
-  return { disposals, propDisposals, amitLog, byPersonFY, result, persons };
+  return { disposals, propDisposals, amitLog, byPersonFY, result, persons, openParcels };
 }
 
 // ── RENDER ────────────────────────────────────────────────────────────
 let cgtFY = null;
 let cgtExpanded = {};
 let cgtSymFilter = '';
+let cgtCostBaseExpanded = {};
 
 function renderCGT(){
   const panel = $('panel-cgt');
   if(!panel) return;
 
   const summary = computeCGTSummary();
-  const { disposals, propDisposals, amitLog, result, persons } = summary;
+  const { disposals, propDisposals, amitLog, result, persons, openParcels } = summary;
 
   const allFYs = [...new Set([
     ...disposals.map(d=>dateToFY(d.saleDate)),
@@ -420,16 +430,68 @@ function renderCGT(){
     </td>
   </tr>`).join('') : '<tr><td colspan="5" class="empty">No AMIT adjustments recorded yet.</td></tr>';
 
+  // ── CURRENT COST BASE (AMIT-adjusted, per currently-held symbol) ──────
+  const costBaseRows = Object.entries(openParcels)
+    .filter(([sym,list])=> !sym.startsWith('_stash_') && list.reduce((s,p)=>s+p.units,0) > 0.000001)
+    .map(([sym,list])=>{
+      const units    = list.reduce((s,p)=>s+p.units,0);
+      const adjCost  = list.reduce((s,p)=>s+p.cost,0);
+      const origCost = list.reduce((s,p)=>s+(p.originalCost!=null?p.originalCost:p.cost),0);
+      const amitTot  = list.reduce((s,p)=>s+(p.amitTotal||0),0);
+      return { sym, units, origCost, amitTot, adjCost, parcels:list };
+    })
+    .sort((a,b)=>a.sym.localeCompare(b.sym));
+
+  const costBaseHtml = costBaseRows.length ? costBaseRows.map((r,idx)=>{
+    const expanded = !!cgtCostBaseExpanded[r.sym];
+    return `
+    <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;background:var(--surface2);cursor:pointer"
+           onclick="cgtCostBaseExpanded['${r.sym}']=!cgtCostBaseExpanded['${r.sym}'];renderCGT()">
+        <span style="font-family:var(--mono);font-weight:700">${escHtml(r.sym)}</span>
+        <span style="font-size:11px;color:var(--text3)">${nN(r.units,6)} units held</span>
+        <span style="font-size:11px;color:var(--text3)">Original cost: ${n2(r.origCost)}</span>
+        <span style="font-size:11px" class="${r.amitTot>=0?'pos':'neg'}">AMIT adj: ${r.amitTot>=0?'+':''}${n2(r.amitTot)}</span>
+        <span style="margin-left:auto;font-family:var(--mono);font-weight:700">Adjusted cost base: ${n2(r.adjCost)}</span>
+        <span style="font-size:11px;color:var(--text3)">(${n2(r.units?r.adjCost/r.units:0,4)}/unit)</span>
+        <span style="color:var(--text3);font-size:11px">${expanded?'▲':'▼'}</span>
+      </div>
+      ${expanded ? `
+      <div style="padding:10px 14px">
+        <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px">
+          <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px">BUY DATE</th>
+            <th style="text-align:right;padding:4px">UNITS</th>
+            <th style="text-align:right;padding:4px">ORIGINAL COST</th>
+            <th style="text-align:right;padding:4px">AMIT ADJ</th>
+            <th style="text-align:right;padding:4px">ADJUSTED COST</th>
+            <th style="text-align:right;padding:4px">ADJUSTED $/UNIT</th>
+          </tr></thead>
+          <tbody>
+            ${r.parcels.map(p=>`<tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px">${p.date}</td>
+              <td style="text-align:right;padding:4px">${nN(p.units,6)}</td>
+              <td style="text-align:right;padding:4px">${n2(p.originalCost!=null?p.originalCost:p.cost)}</td>
+              <td style="text-align:right;padding:4px" class="${(p.amitTotal||0)>=0?'pos':'neg'}">${(p.amitTotal||0)>=0?'+':''}${n2(p.amitTotal||0)}</td>
+              <td style="text-align:right;padding:4px;font-weight:700">${n2(p.cost)}</td>
+              <td style="text-align:right;padding:4px">${n2(p.units?p.cost/p.units:0,4)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : ''}
+    </div>`;
+  }).join('') : '<div class="empty"><div class="empty-icon">📗</div>No open holdings with tracked parcels yet</div>';
+
   const carryInSettings = getCGTLossCarryIn();
   const carryInHtml = persons.map(person=>{
     const c = carryInSettings[person] || {};
     return `<div class="fgi">
       <label class="fl">${getPersonLabel(person)} — Opening Capital Loss Carry-Forward</label>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <input class="fi" type="number" step="any" min="0" placeholder="Amount"
-          id="cgt-carryin-amt-${person}" value="${c.amount||''}" style="flex:1">
+          id="cgt-carryin-amt-${person}" value="${c.amount||''}" style="flex:1;min-width:100px">
         <input class="fi" type="number" step="1" placeholder="As at FY (e.g. ${dateToFY(new Date().toISOString().slice(0,10))})"
-          id="cgt-carryin-fy-${person}" value="${c.fy||''}" style="width:170px">
+          id="cgt-carryin-fy-${person}" value="${c.fy||''}" style="flex:1;min-width:150px">
       </div>
     </div>`;
   }).join('');
@@ -537,12 +599,20 @@ function renderCGT(){
     </div>
 
     <div class="fs" style="margin-top:16px">
+      <div class="fst">CURRENT COST BASE (AMIT-ADJUSTED)</div>
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:10px">
+        Live cost base of every currently-held parcel, after all AMIT adjustments applied above. Click a symbol to see the per-parcel breakdown.
+      </div>
+      ${costBaseHtml}
+    </div>
+
+    <div class="fs" style="margin-top:16px">
       <div class="fst">OPENING LOSS CARRY-FORWARD</div>
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:10px">
         If you have unused capital losses from before you started tracking here, enter them once —
         future years will carry forward automatically from there.
       </div>
-      <div class="fg">${carryInHtml}</div>
+      <div class="fg" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">${carryInHtml}</div>
       <button class="btn btn-g" onclick="cgtSaveCarryIn()">SAVE CARRY-FORWARD</button>
     </div>
   `;
