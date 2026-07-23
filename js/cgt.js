@@ -405,7 +405,7 @@ function renderCGT(){
     </div>` : '';
 
   const symbolsInUse = [...new Set(trades.map(t=>t.symbol).filter(Boolean))].sort();
-  const amitSortState = getSortState('amit');
+  const amitSortState = getSort('amit');
   const amitRows = amitSortState.col
     ? sortRows(amitAdjustments, amitSortState.col, amitSortState.dir)
     : [...amitAdjustments].sort((a,b)=>b.date.localeCompare(a.date));
