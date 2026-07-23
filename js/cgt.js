@@ -290,11 +290,92 @@ function computeCGTSummary(){
   return { disposals, propDisposals, amitLog, byPersonFY, result, persons, openParcels };
 }
 
+// ── CURRENT COST BASE (AMIT-adjusted) — built standalone so the search box
+// can trigger a partial re-render of just the list, not the whole CGT panel
+// (a full renderCGT() on every keystroke would blow away input focus).
+function computeCostBaseRows(openParcels){
+  return Object.entries(openParcels)
+    .filter(([sym,list])=> !sym.startsWith('_stash_') && list.reduce((s,p)=>s+p.units,0) > 0.000001)
+    .map(([sym,list])=>{
+      const units    = list.reduce((s,p)=>s+p.units,0);
+      const adjCost  = list.reduce((s,p)=>s+p.cost,0);
+      const origCost = list.reduce((s,p)=>s+(p.originalCost!=null?p.originalCost:p.cost),0);
+      const amitTot  = list.reduce((s,p)=>s+(p.amitTotal||0),0);
+      return { sym, units, origCost, amitTot, adjCost, parcels:list };
+    })
+    .sort((a,b)=>a.sym.localeCompare(b.sym));
+}
+
+function buildCostBaseHtml(openParcels){
+  const costBaseRows = computeCostBaseRows(openParcels);
+  const filtered = costBaseRows.filter(r=>
+    !cgtCostBaseSearch || r.sym.toUpperCase().includes(cgtCostBaseSearch.trim().toUpperCase())
+  );
+  return filtered.length ? filtered.map(r=>{
+    const expanded = !!cgtCostBaseExpanded[r.sym];
+    return `
+    <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;background:var(--surface2);cursor:pointer"
+           onclick="cgtCostBaseExpanded['${r.sym}']=!cgtCostBaseExpanded['${r.sym}'];renderCostBaseList()">
+        <span style="font-family:var(--mono);font-weight:700">${escHtml(r.sym)}</span>
+        <span style="font-size:11px;color:var(--text3)">${nN(r.units,6)} units held</span>
+        <span style="font-size:11px;color:var(--text3)">Original cost: ${n2(r.origCost)}</span>
+        <span style="font-size:11px" class="${r.amitTot>=0?'pos':'neg'}">AMIT adj: ${r.amitTot>=0?'+':''}${n2(r.amitTot)}</span>
+        <span style="margin-left:auto;font-family:var(--mono);font-weight:700">Adjusted cost base: ${n2(r.adjCost)}</span>
+        <span style="font-size:11px;color:var(--text3)">(${n2(r.units?r.adjCost/r.units:0,4)}/unit)</span>
+        <span style="color:var(--text3);font-size:11px">${expanded?'▲':'▼'}</span>
+      </div>
+      ${expanded ? `
+      <div style="padding:10px 14px">
+        <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px">
+          <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px">BUY DATE</th>
+            <th style="text-align:right;padding:4px">UNITS</th>
+            <th style="text-align:right;padding:4px">ORIGINAL COST</th>
+            <th style="text-align:right;padding:4px">AMIT ADJ</th>
+            <th style="text-align:right;padding:4px">ADJUSTED COST</th>
+            <th style="text-align:right;padding:4px">ADJUSTED $/UNIT</th>
+          </tr></thead>
+          <tbody>
+            ${r.parcels.map(p=>`<tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px">${p.date}</td>
+              <td style="text-align:right;padding:4px">${nN(p.units,6)}</td>
+              <td style="text-align:right;padding:4px">${n2(p.originalCost!=null?p.originalCost:p.cost)}</td>
+              <td style="text-align:right;padding:4px" class="${(p.amitTotal||0)>=0?'pos':'neg'}">${(p.amitTotal||0)>=0?'+':''}${n2(p.amitTotal||0)}</td>
+              <td style="text-align:right;padding:4px;font-weight:700">${n2(p.cost)}</td>
+              <td style="text-align:right;padding:4px">${n2(p.units?p.cost/p.units:0,4)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : ''}
+    </div>`;
+  }).join('') : `<div class="empty"><div class="empty-icon">📗</div>${costBaseRows.length ? 'No symbols match "'+escHtml(cgtCostBaseSearch)+'"' : 'No open holdings with tracked parcels yet'}</div>`;
+}
+
+// Partial re-render: only touches the list container, so typing in the
+// search box (oninput) never loses focus the way a full renderCGT() would.
+function renderCostBaseList(){
+  const el = $('cgt-costbase-list');
+  if(!el) return; // section collapsed or not on this tab
+  const { openParcels } = computeCGTSummary();
+  el.innerHTML = buildCostBaseHtml(openParcels);
+}
+
+function cgtClearCostBaseSearch(){
+  cgtCostBaseSearch = '';
+  const input = $('cgt-costbase-search');
+  if(input) input.value = '';
+  renderCostBaseList();
+}
+
 // ── RENDER ────────────────────────────────────────────────────────────
 let cgtFY = null;
 let cgtExpanded = {};
 let cgtSymFilter = '';
 let cgtCostBaseExpanded = {};
+let cgtCostBaseSearch = '';
+let cgtAmitCollapsed = false;
+let cgtCostBaseCollapsed = false;
 
 function renderCGT(){
   const panel = $('panel-cgt');
@@ -431,56 +512,7 @@ function renderCGT(){
   </tr>`).join('') : '<tr><td colspan="5" class="empty">No AMIT adjustments recorded yet.</td></tr>';
 
   // ── CURRENT COST BASE (AMIT-adjusted, per currently-held symbol) ──────
-  const costBaseRows = Object.entries(openParcels)
-    .filter(([sym,list])=> !sym.startsWith('_stash_') && list.reduce((s,p)=>s+p.units,0) > 0.000001)
-    .map(([sym,list])=>{
-      const units    = list.reduce((s,p)=>s+p.units,0);
-      const adjCost  = list.reduce((s,p)=>s+p.cost,0);
-      const origCost = list.reduce((s,p)=>s+(p.originalCost!=null?p.originalCost:p.cost),0);
-      const amitTot  = list.reduce((s,p)=>s+(p.amitTotal||0),0);
-      return { sym, units, origCost, amitTot, adjCost, parcels:list };
-    })
-    .sort((a,b)=>a.sym.localeCompare(b.sym));
-
-  const costBaseHtml = costBaseRows.length ? costBaseRows.map((r,idx)=>{
-    const expanded = !!cgtCostBaseExpanded[r.sym];
-    return `
-    <div style="border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden">
-      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;background:var(--surface2);cursor:pointer"
-           onclick="cgtCostBaseExpanded['${r.sym}']=!cgtCostBaseExpanded['${r.sym}'];renderCGT()">
-        <span style="font-family:var(--mono);font-weight:700">${escHtml(r.sym)}</span>
-        <span style="font-size:11px;color:var(--text3)">${nN(r.units,6)} units held</span>
-        <span style="font-size:11px;color:var(--text3)">Original cost: ${n2(r.origCost)}</span>
-        <span style="font-size:11px" class="${r.amitTot>=0?'pos':'neg'}">AMIT adj: ${r.amitTot>=0?'+':''}${n2(r.amitTot)}</span>
-        <span style="margin-left:auto;font-family:var(--mono);font-weight:700">Adjusted cost base: ${n2(r.adjCost)}</span>
-        <span style="font-size:11px;color:var(--text3)">(${n2(r.units?r.adjCost/r.units:0,4)}/unit)</span>
-        <span style="color:var(--text3);font-size:11px">${expanded?'▲':'▼'}</span>
-      </div>
-      ${expanded ? `
-      <div style="padding:10px 14px">
-        <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px">
-          <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:4px">BUY DATE</th>
-            <th style="text-align:right;padding:4px">UNITS</th>
-            <th style="text-align:right;padding:4px">ORIGINAL COST</th>
-            <th style="text-align:right;padding:4px">AMIT ADJ</th>
-            <th style="text-align:right;padding:4px">ADJUSTED COST</th>
-            <th style="text-align:right;padding:4px">ADJUSTED $/UNIT</th>
-          </tr></thead>
-          <tbody>
-            ${r.parcels.map(p=>`<tr style="border-bottom:1px solid var(--border)">
-              <td style="padding:4px">${p.date}</td>
-              <td style="text-align:right;padding:4px">${nN(p.units,6)}</td>
-              <td style="text-align:right;padding:4px">${n2(p.originalCost!=null?p.originalCost:p.cost)}</td>
-              <td style="text-align:right;padding:4px" class="${(p.amitTotal||0)>=0?'pos':'neg'}">${(p.amitTotal||0)>=0?'+':''}${n2(p.amitTotal||0)}</td>
-              <td style="text-align:right;padding:4px;font-weight:700">${n2(p.cost)}</td>
-              <td style="text-align:right;padding:4px">${n2(p.units?p.cost/p.units:0,4)}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>` : ''}
-    </div>`;
-  }).join('') : '<div class="empty"><div class="empty-icon">📗</div>No open holdings with tracked parcels yet</div>';
+  const costBaseHtml = buildCostBaseHtml(openParcels);
 
   const carryInSettings = getCGTLossCarryIn();
   const carryInHtml = persons.map(person=>{
@@ -554,7 +586,11 @@ function renderCGT(){
     ${propsHtml}
 
     <div class="fs" style="margin-top:20px">
-      <div class="fst">AMIT COST-BASE ADJUSTMENTS</div>
+      <div class="fst" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="cgtAmitCollapsed=!cgtAmitCollapsed;renderCGT()">
+        <span>AMIT COST-BASE ADJUSTMENTS</span>
+        <span style="color:var(--text3);font-size:10px">${cgtAmitCollapsed?'▼ show':'▲ hide'}</span>
+      </div>
+      ${cgtAmitCollapsed ? '' : `
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:10px">
         Enter each distribution's net cost-base adjustment from the fund's annual tax statement.
         Negative = cost base decrease (the common case for tax-deferred distributions).
@@ -596,14 +632,25 @@ function renderCGT(){
         </tr></thead>
         <tbody>${amitBodyHtml}</tbody></table>
       </div>
+      `}
     </div>
 
     <div class="fs" style="margin-top:16px">
-      <div class="fst">CURRENT COST BASE (AMIT-ADJUSTED)</div>
+      <div class="fst" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="cgtCostBaseCollapsed=!cgtCostBaseCollapsed;renderCGT()">
+        <span>CURRENT COST BASE (AMIT-ADJUSTED)</span>
+        <span style="color:var(--text3);font-size:10px">${cgtCostBaseCollapsed?'▼ show':'▲ hide'}</span>
+      </div>
+      ${cgtCostBaseCollapsed ? '' : `
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:10px">
         Live cost base of every currently-held parcel, after all AMIT adjustments applied above. Click a symbol to see the per-parcel breakdown.
       </div>
-      ${costBaseHtml}
+      <div class="fr" style="margin-bottom:12px">
+        <input class="fsm" id="cgt-costbase-search" type="text" placeholder="Search symbol…" value="${escHtml(cgtCostBaseSearch)}"
+               oninput="cgtCostBaseSearch=this.value;renderCostBaseList()" style="min-width:180px">
+        <button class="btn" style="padding:5px 10px;font-size:11px" onclick="cgtClearCostBaseSearch()">✕ Clear</button>
+      </div>
+      <div id="cgt-costbase-list">${costBaseHtml}</div>
+      `}
     </div>
 
     <div class="fs" style="margin-top:16px">
