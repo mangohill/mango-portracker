@@ -308,9 +308,9 @@ function computeCostBaseRows(openParcels){
 
 function buildCostBaseHtml(openParcels){
   const costBaseRows = computeCostBaseRows(openParcels);
-  const filtered = costBaseRows.filter(r=>
-    !cgtCostBaseSearch || r.sym.toUpperCase().includes(cgtCostBaseSearch.trim().toUpperCase())
-  );
+  const filtered = costBaseRows
+    .filter(r=> !cgtCostBaseSearch || r.sym.toUpperCase().includes(cgtCostBaseSearch.trim().toUpperCase()))
+    .filter(r=> cgtCostBaseFilter !== 'adjusted' || Math.abs(r.amitTot) > 0.005);
   return filtered.length ? filtered.map(r=>{
     const expanded = !!cgtCostBaseExpanded[r.sym];
     return `
@@ -349,7 +349,11 @@ function buildCostBaseHtml(openParcels){
         </table>
       </div>` : ''}
     </div>`;
-  }).join('') : `<div class="empty"><div class="empty-icon">📗</div>${costBaseRows.length ? 'No symbols match "'+escHtml(cgtCostBaseSearch)+'"' : 'No open holdings with tracked parcels yet'}</div>`;
+  }).join('') : `<div class="empty"><div class="empty-icon">📗</div>${
+    !costBaseRows.length ? 'No open holdings with tracked parcels yet'
+    : cgtCostBaseFilter==='adjusted' ? 'No holdings have an AMIT adjustment applied yet'
+    : 'No symbols match "'+escHtml(cgtCostBaseSearch)+'"'
+  }</div>`;
 }
 
 // Partial re-render: only touches the list container, so typing in the
@@ -374,6 +378,7 @@ let cgtExpanded = {};
 let cgtSymFilter = '';
 let cgtCostBaseExpanded = {};
 let cgtCostBaseSearch = '';
+let cgtCostBaseFilter = 'all'; // 'all' | 'adjusted'
 let cgtAmitCollapsed = false;
 let cgtCostBaseCollapsed = false;
 
@@ -648,6 +653,8 @@ function renderCGT(){
         <input class="fsm" id="cgt-costbase-search" type="text" placeholder="Search symbol…" value="${escHtml(cgtCostBaseSearch)}"
                oninput="cgtCostBaseSearch=this.value;renderCostBaseList()" style="min-width:180px">
         <button class="btn" style="padding:5px 10px;font-size:11px" onclick="cgtClearCostBaseSearch()">✕ Clear</button>
+        <span class="ca-pill${cgtCostBaseFilter==='all'?' active':''}" onclick="cgtCostBaseFilter='all';renderCGT()">All</span>
+        <span class="ca-pill${cgtCostBaseFilter==='adjusted'?' active':''}" onclick="cgtCostBaseFilter='adjusted';renderCGT()">AMIT-adjusted only</span>
       </div>
       <div id="cgt-costbase-list">${costBaseHtml}</div>
       `}
