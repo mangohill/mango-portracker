@@ -322,7 +322,7 @@ function buildCostBaseHtml(openParcels){
         <span style="font-size:11px;color:var(--text3)">Original cost: ${n2(r.origCost)}</span>
         <span style="font-size:11px" class="${r.amitTot>=0?'pos':'neg'}">AMIT adj: ${r.amitTot>=0?'+':''}${n2(r.amitTot)}</span>
         <span style="margin-left:auto;font-family:var(--mono);font-weight:700">Adjusted cost base: ${n2(r.adjCost)}</span>
-        <span style="font-size:11px;color:var(--text3)">(${n2(r.units?r.adjCost/r.units:0,4)}/unit)</span>
+        <span style="font-size:11px;color:var(--text3)">(${n2(r.units?r.origCost/r.units:0,4)}/unit → ${n2(r.units?r.adjCost/r.units:0,4)}/unit)</span>
         <span style="color:var(--text3);font-size:11px">${expanded?'▲':'▼'}</span>
       </div>
       ${expanded ? `
@@ -332,19 +332,23 @@ function buildCostBaseHtml(openParcels){
             <th style="text-align:left;padding:4px">BUY DATE</th>
             <th style="text-align:right;padding:4px">UNITS</th>
             <th style="text-align:right;padding:4px">ORIGINAL COST</th>
+            <th style="text-align:right;padding:4px">ORIGINAL $/UNIT</th>
             <th style="text-align:right;padding:4px">AMIT ADJ</th>
             <th style="text-align:right;padding:4px">ADJUSTED COST</th>
             <th style="text-align:right;padding:4px">ADJUSTED $/UNIT</th>
           </tr></thead>
           <tbody>
-            ${r.parcels.map(p=>`<tr style="border-bottom:1px solid var(--border)">
+            ${r.parcels.map(p=>{
+              const origCostP = p.originalCost!=null?p.originalCost:p.cost;
+              return `<tr style="border-bottom:1px solid var(--border)">
               <td style="padding:4px">${p.date}</td>
               <td style="text-align:right;padding:4px">${nN(p.units,6)}</td>
-              <td style="text-align:right;padding:4px">${n2(p.originalCost!=null?p.originalCost:p.cost)}</td>
+              <td style="text-align:right;padding:4px">${n2(origCostP)}</td>
+              <td style="text-align:right;padding:4px">${n2(p.units?origCostP/p.units:0,4)}</td>
               <td style="text-align:right;padding:4px" class="${(p.amitTotal||0)>=0?'pos':'neg'}">${(p.amitTotal||0)>=0?'+':''}${n2(p.amitTotal||0)}</td>
               <td style="text-align:right;padding:4px;font-weight:700">${n2(p.cost)}</td>
               <td style="text-align:right;padding:4px">${n2(p.units?p.cost/p.units:0,4)}</td>
-            </tr>`).join('')}
+            </tr>`;}).join('')}
           </tbody>
         </table>
       </div>` : ''}
