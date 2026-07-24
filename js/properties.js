@@ -100,7 +100,82 @@ function readSuperForm(){
   };
 }
 
-function getConcessionalCap(fy){ return fy <= 2024 ? 27500 : 30000; }
+// ATO general concessional contributions cap by financial year.
+// FY18–FY21: $25,000 · FY22–FY24: $27,500 · FY25–FY26: $30,000 · FY27 onward: $32,500
+// (indexed to AWOTE in $2,500 steps — update the last line again once the ATO announces the next rise)
+function getConcessionalCap(fy){
+  if(fy <= 2021) return 25000;
+  if(fy <= 2024) return 27500;
+  if(fy <= 2026) return 30000;
+  return 32500;
+}
+
+// ATO general transfer balance cap (TBC) by financial year — this is also the
+// total-super-balance threshold at/above which the non-concessional cap is nil.
+// FY18–FY21: $1.6m · FY22–FY23: $1.7m · FY24–FY25: $1.9m · FY26: $2.0m · FY27 onward: $2.1m
+function getTransferBalanceCap(fy){
+  if(fy <= 2021) return 1600000;
+  if(fy <= 2023) return 1700000;
+  if(fy <= 2025) return 1900000;
+  if(fy <= 2026) return 2000000;
+  return 2100000;
+}
+
+// Non-concessional (after-tax) contributions cap = 4x the concessional cap.
+function getNonConcessionalCap(fy){ return getConcessionalCap(fy) * 4; }
+
+// Bring-forward eligibility: how many years of NCC cap can be brought forward
+// based on total super balance (TSB) at the end of the previous financial year.
+//   TSB >= TBC                    → not eligible, cap = $0
+//   TSB <  TBC - 2×annual cap     → 3-year bring-forward
+//   TSB <  TBC - 1×annual cap     → 2-year bring-forward
+//   otherwise                     → 1 year only (no bring-forward)
+function calcNonConcessional(priorTSB, fy){
+  fy = fy || (()=>{ const _n=new Date(); return _n.getMonth()>=6 ? _n.getFullYear()+1 : _n.getFullYear(); })();
+  const tbc = getTransferBalanceCap(fy);
+  const annualCap = getNonConcessionalCap(fy);
+  const tsb = +priorTSB || 0;
+  let bringForwardYears, cap, eligible;
+  if(!priorTSB && priorTSB !== 0){
+    // No balance entered — assume eligible at the standard annual cap (can't
+    // determine bring-forward tier without a TSB figure).
+    eligible = true; bringForwardYears = 1; cap = annualCap;
+  } else if(tsb >= tbc){
+    eligible = false; bringForwardYears = 0; cap = 0;
+  } else if(tsb < tbc - 2*annualCap){
+    eligible = true; bringForwardYears = 3; cap = 3*annualCap;
+  } else if(tsb < tbc - annualCap){
+    eligible = true; bringForwardYears = 2; cap = 2*annualCap;
+  } else {
+    eligible = true; bringForwardYears = 1; cap = annualCap;
+  }
+  return { fy, tbc, annualCap, tsb, eligible, bringForwardYears, cap };
+}
+
+// Tracks an already-triggered bring-forward period across its full length.
+// The tier (1/2/3 years) and total cap are locked in at the FY it was
+// triggered, using that FY's rules and the balance just before it — they
+// don't change even if the cap or your balance change in later years.
+// Returns null if no bf_start_fy has been entered (nothing to track).
+function calcBringForwardPeriod(contrib, curFY){
+  const startFY = +contrib.bf_start_fy || 0;
+  if(!startFY) return null;
+  const triggerTSB = (contrib.bf_trigger_tsb != null && contrib.bf_trigger_tsb !== '') ? +contrib.bf_trigger_tsb : null;
+  const lock  = calcNonConcessional(triggerTSB, startFY);
+  const years = Math.max(1, lock.bringForwardYears || 1);
+  const endFY = startFY + years - 1;
+  const usedByYear = [+contrib.bf_used_y1||0, +contrib.bf_used_y2||0, +contrib.bf_used_y3||0].slice(0, years);
+  const usedTotal  = usedByYear.reduce((s,v)=>s+v, 0);
+  return {
+    startFY, endFY, years,
+    totalCap: lock.cap, annualCapAtTrigger: lock.annualCap,
+    triggerTSB: lock.tsb, triggerEligible: lock.eligible, triggerTBC: lock.tbc,
+    usedByYear, usedTotal, remaining: Math.max(0, lock.cap - usedTotal),
+    isActive:  curFY >= startFY && curFY <= endFY,
+    isExpired: curFY > endFY,
+    isFuture:  curFY < startFY,
+  };
+}
 
 function calcCarryForward(contrib, currentBalance){
   const _n = new Date();
@@ -220,6 +295,19 @@ function clearSuperForm(){
   $('su-form-title-text').textContent = 'Add Super Account';
   toggleSuperForm(false);
   $('su-preview').style.display = 'none';
+  updateBfYearLabels();
+}
+
+// Relabel the three bring-forward "NCC used" fields with the actual FY numbers
+// once a start year is entered (FY2027, FY2028, FY2029 instead of Year 1/2/3).
+function updateBfYearLabels(){
+  const startEl = document.querySelector('.su-contrib[data-contrib="bf_start_fy"]');
+  const start = startEl ? parseInt(startEl.value) : NaN;
+  [1,2,3].forEach(n=>{
+    const el = $('bf-y'+n+'-label');
+    if(!el) return;
+    el.textContent = (!isNaN(start) && start>0) ? ('NCC used — FY'+(start+n-1)) : ('NCC used — Year '+n);
+  });
 }
 
 function updateSuperFormFYLabels(){
@@ -274,6 +362,7 @@ function editSuperAccount(btn){
   $('su-edit-id').dataset.id = a.id;
   $('su-form-title-text').textContent = 'Edit \u2014 ' + a.name;
   toggleSuperForm(true);
+  updateBfYearLabels();
   $('su-form-wrap').scrollIntoView({ behavior:'smooth' });
 }
 
@@ -533,11 +622,11 @@ function renderSuperAccounts(){
           ${stat('Total Cap FY'+CUR_FY,
             n2(cf.totalCapThisYear),
             'neu',
-            'base $30k + carry-forward')}
+            'base '+n2(cf.curCap)+' + carry-forward')}
           ${stat('CC Used This Year',
             n2(cf.curCC),
             cf.curCC > cf.totalCapThisYear ? 'neg' : cf.curCC > cf.curCap ? 'pos' : 'neu',
-            cf.curCC > cf.curCap ? 'includes carry-forward' : 'of $30k base cap')}
+            cf.curCC > cf.curCap ? 'includes carry-forward' : 'of '+n2(cf.curCap)+' base cap')}
         </div>
 
         <div style="font-size:10px;color:var(--text3);font-family:var(--mono);
@@ -562,10 +651,77 @@ function renderSuperAccounts(){
           Enter actual CC totals used each year in the Contributions section above.
           Leave blank = assume full cap was used (no carry-forward for that year).
           Carry-forward only available if balance &lt; $500,000 at 30 Jun FY${PREV_FY}.
-          ATO caps: FY2019–FY2024 = $27,500/yr · FY2025+ = $30,000/yr
+          ATO caps: FY2022–FY2024 = $27,500/yr · FY2025–FY2026 = $30,000/yr · FY2027+ = $32,500/yr
         </div>
       </div>`;
     const cfPanel = collapsible('CARRY-FORWARD CC', cfBody);
+
+    // ── NON-CONCESSIONAL panel ──────────────────────────────────
+    const priorTSBRaw = contrib.bal_prevyr;
+    const nc = calcNonConcessional(priorTSBRaw != null && priorTSBRaw !== '' ? +priorTSBRaw : null, CUR_FY);
+    const bfLabel = nc.bringForwardYears === 3 ? '3-year bring-forward'
+                  : nc.bringForwardYears === 2 ? '2-year bring-forward'
+                  : nc.bringForwardYears === 1 ? 'standard (no bring-forward)' : '—';
+
+    const bf = calcBringForwardPeriod(contrib, CUR_FY);
+    const bfPeriodBlock = bf ? `
+        <div style="padding:12px;border-radius:6px;margin-bottom:14px;
+          background:${bf.isExpired?'rgba(74,85,104,0.15)':bf.isActive?'rgba(16,185,129,0.1)':'rgba(245,166,35,0.1)'};
+          border:1px solid ${bf.isExpired?'var(--border2)':bf.isActive?'var(--green)':'var(--gold)'}">
+          <div style="font-family:var(--mono);font-size:11px;letter-spacing:.05em;margin-bottom:8px;
+            color:${bf.isExpired?'var(--text3)':bf.isActive?'var(--green)':'var(--gold)'}">
+            ${bf.isExpired?'ENDED':bf.isActive?'ACTIVE':'STARTS'} — ${bf.years}-YEAR BRING-FORWARD, FY${bf.startFY}–FY${bf.endFY}
+          </div>
+          ${!bf.triggerEligible ? `<div style="color:var(--neg);font-size:11px;margin-bottom:8px">
+            ⚠ Balance entered for FY${bf.startFY} (${n2(bf.triggerTSB)}) was at/above that year's transfer balance cap
+            (${n2(bf.triggerTBC)}) — you may not actually have been eligible to trigger this period. Double-check.</div>` : ''}
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            ${stat('Total Cap Locked', n2(bf.totalCap), 'neu', 'as at FY'+bf.startFY+' rules')}
+            ${stat('Used So Far', n2(bf.usedTotal), bf.usedTotal>bf.totalCap?'neg':'neu', bf.usedTotal>bf.totalCap?'exceeds locked cap':'across the period')}
+            ${stat('Remaining', n2(bf.remaining), bf.remaining>0?'pos':'neu', bf.isExpired?'period ended':'still available')}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(${bf.years},1fr);gap:8px;margin-top:10px">
+            ${bf.usedByYear.map((v,i)=>stat('FY'+(bf.startFY+i), n2(v))).join('')}
+          </div>
+        </div>` : '';
+
+    const standaloneBlock = (bf && bf.isActive) ? `
+        <div style="font-size:11px;color:var(--text3);padding:10px;background:var(--surface2);border-radius:6px">
+          Currently within the tracked bring-forward period above — a new bring-forward can't be triggered again until FY${bf.endFY+1}.
+        </div>` : `
+        <div style="padding:4px 0">
+        ${!nc.eligible ? `
+          <div style="padding:10px;background:rgba(239,68,68,0.1);border-radius:6px;
+            color:var(--neg);font-size:12px;margin-bottom:12px">
+            ⚠ Not eligible — total super balance ≥ ${n2(nc.tbc)} at 30 Jun FY${PREV_FY}
+            (${n2(nc.tsb)})
+          </div>` : ''}
+        ${(priorTSBRaw==null||priorTSBRaw==='') ? `
+          <div style="padding:10px;background:rgba(245,166,35,0.1);border-radius:6px;
+            color:var(--gold);font-size:12px;margin-bottom:12px">
+            Enter "Super Balance at 30 Jun FY${PREV_FY}" above to determine bring-forward eligibility.
+            Showing the standard annual cap for now.
+          </div>` : ''}
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+          ${stat('NCC Cap FY'+CUR_FY, nc.eligible ? n2(nc.annualCap) : '$0.00', 'neu', 'standard annual cap')}
+          ${stat('Bring-Forward Cap', nc.eligible ? n2(nc.cap) : '$0.00',
+              nc.bringForwardYears>1 ? 'pos' : 'neu', bfLabel)}
+          ${stat('NCC Made This Year', ncc_cur ? n2(ncc_cur) : '—',
+              ncc_cur > nc.cap ? 'neg' : 'neu',
+              ncc_cur > nc.cap ? 'exceeds available cap' : 'of '+n2(nc.cap)+' available')}
+        </div>
+
+        <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.6">
+          Non-concessional cap = 4× the concessional cap (${n2(nc.annualCap)} for FY${CUR_FY}).
+          Nil if total super balance ≥ the general transfer balance cap (${n2(nc.tbc)} for FY${CUR_FY}) at 30 Jun FY${PREV_FY}.
+          ${bf ? `Once you trigger a new period, fill in "Bring-forward triggered in FY" above to lock it in and track it here.`
+               : `If you trigger a 2- or 3-year bring-forward this year, fill in the Bring-Forward section above to lock it in and track it across the whole period.`}
+        </div>
+      </div>`;
+
+    const ncBody = bfPeriodBlock + standaloneBlock;
+    const ncPanel = collapsible('NON-CONCESSIONAL CONTRIBUTIONS', ncBody);
 
     // ── INVESTMENT RETURN panel ──────────────────────────────────
     const needsFYData = prevBal === null;
@@ -626,6 +782,7 @@ function renderSuperAccounts(){
       </div>
       ${contribPanel}
       ${cfPanel}
+      ${ncPanel}
       ${roiPanel}
     </div></div>`;
   }).join('');

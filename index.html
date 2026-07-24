@@ -702,6 +702,26 @@
             <input class="fi su-contrib" data-contrib="cf_unused_fy2025" type="number" placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
         </div>
       </div>
+
+      <!-- Non-Concessional Bring-Forward tracking -->
+      <div style="margin-top:16px;padding:12px;background:rgba(16,185,129,0.06);border-radius:8px;border:1px solid rgba(16,185,129,0.2)">
+        <div style="font-family:var(--mono);font-size:11px;color:var(--green);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">⟳ Non-Concessional Bring-Forward (optional)</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5">If you've triggered a 2- or 3-year bring-forward period, enter when it started and your total super balance just before it, to track the locked-in cap across the whole period.<br>Leave blank if you haven't triggered a bring-forward period.</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-bottom:10px">
+          <div><label class="fl" style="font-size:10px">Bring-forward triggered in FY</label>
+            <input class="fi su-contrib" data-contrib="bf_start_fy" type="number" placeholder="e.g. 2027" step="1" min="2018" style="padding:4px 8px" oninput="updateBfYearLabels();calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px">Total super balance at 30 Jun before that FY</label>
+            <input class="fi su-contrib" data-contrib="bf_trigger_tsb" type="number" placeholder="e.g. 1500000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">
+          <div><label class="fl" style="font-size:10px" id="bf-y1-label">NCC used — Year 1</label>
+            <input class="fi su-contrib" data-contrib="bf_used_y1" type="number" placeholder="0" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px" id="bf-y2-label">NCC used — Year 2</label>
+            <input class="fi su-contrib" data-contrib="bf_used_y2" type="number" placeholder="0" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+          <div><label class="fl" style="font-size:10px" id="bf-y3-label">NCC used — Year 3</label>
+            <input class="fi su-contrib" data-contrib="bf_used_y3" type="number" placeholder="0" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>
+        </div>
+      </div>
       <!-- FY history -->
       <div style="margin-top:14px;margin-bottom:14px">
         <div style="font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px">BALANCE AT END OF FINANCIAL YEAR</div>
