@@ -376,6 +376,49 @@ function cgtClearCostBaseSearch(){
   renderCostBaseList();
 }
 
+// ── AMIT COST-BASE ADJUSTMENTS table — search-filtered, built standalone
+// (same reasoning as the cost-base list) so typing in the search box only
+// re-renders the table body, not the whole panel.
+function buildAmitBodyHtml(){
+  const amitSortState = getSort('amit');
+  let rows = amitSortState.col
+    ? sortRows(amitAdjustments, amitSortState.col, amitSortState.dir)
+    : [...amitAdjustments].sort((a,b)=>b.date.localeCompare(a.date));
+  if(cgtAmitSearch.trim()){
+    const q = cgtAmitSearch.trim().toUpperCase();
+    rows = rows.filter(a=>(a.symbol||'').toUpperCase().includes(q));
+  }
+  if(!rows.length){
+    const msg = cgtAmitSearch.trim()
+      ? `No AMIT adjustments found for "${escHtml(cgtAmitSearch)}".`
+      : 'No AMIT adjustments recorded yet.';
+    return `<tr><td colspan="5" class="empty">${msg}</td></tr>`;
+  }
+  return rows.map(a=>`<tr>
+    <td>${a.date}</td>
+    <td><b>${escHtml(a.symbol)}</b></td>
+    <td style="color:${a.amount>=0?'var(--green)':'var(--red)'}">${a.amount>=0?'+':''}${n2(a.amount)}</td>
+    <td style="color:var(--text3);font-size:11px">${escHtml(a.notes)}</td>
+    <td style="white-space:nowrap">
+      <button class="del-btn" onclick="editAmitAdjustment('${a.id}')" title="Edit">✎</button>
+      <button class="del-btn" onclick="deleteAmitAdjustment('${a.id}');renderCGT()" title="Delete">✕</button>
+    </td>
+  </tr>`).join('');
+}
+
+function renderAmitTable(){
+  const el = $('cgt-amit-tbody');
+  if(!el) return; // section collapsed or not on this tab
+  el.innerHTML = buildAmitBodyHtml();
+}
+
+function cgtClearAmitSearch(){
+  cgtAmitSearch = '';
+  const input = $('cgt-amit-search');
+  if(input) input.value = '';
+  renderAmitTable();
+}
+
 // ── RENDER ────────────────────────────────────────────────────────────
 let cgtFY = null;
 let cgtExpanded = {};
@@ -385,6 +428,7 @@ let cgtCostBaseSearch = '';
 let cgtCostBaseFilter = 'all'; // 'all' | 'adjusted'
 let cgtAmitCollapsed = false;
 let cgtCostBaseCollapsed = false;
+let cgtAmitSearch = '';
 
 function renderCGT(){
   const panel = $('panel-cgt');
@@ -505,20 +549,7 @@ function renderCGT(){
     </div>` : '';
 
   const symbolsInUse = [...new Set(trades.map(t=>t.symbol).filter(Boolean))].sort();
-  const amitSortState = getSort('amit');
-  const amitRows = amitSortState.col
-    ? sortRows(amitAdjustments, amitSortState.col, amitSortState.dir)
-    : [...amitAdjustments].sort((a,b)=>b.date.localeCompare(a.date));
-  const amitBodyHtml = amitRows.length ? amitRows.map(a=>`<tr>
-    <td>${a.date}</td>
-    <td><b>${escHtml(a.symbol)}</b></td>
-    <td style="color:${a.amount>=0?'var(--green)':'var(--red)'}">${a.amount>=0?'+':''}${n2(a.amount)}</td>
-    <td style="color:var(--text3);font-size:11px">${escHtml(a.notes)}</td>
-    <td style="white-space:nowrap">
-      <button class="del-btn" onclick="editAmitAdjustment('${a.id}')" title="Edit">✎</button>
-      <button class="del-btn" onclick="deleteAmitAdjustment('${a.id}');renderCGT()" title="Delete">✕</button>
-    </td>
-  </tr>`).join('') : '<tr><td colspan="5" class="empty">No AMIT adjustments recorded yet.</td></tr>';
+  const amitBodyHtml = buildAmitBodyHtml();
 
   // ── CURRENT COST BASE (AMIT-adjusted, per currently-held symbol) ──────
   const costBaseHtml = buildCostBaseHtml(openParcels);
@@ -629,8 +660,17 @@ function renderCGT(){
         <div class="fgi"><label class="fl">Notes</label>
           <input class="fi" type="text" id="amit-notes" placeholder="e.g. FY26 AMMA statement"></div>
       </div>
-      <button class="btn btn-g" id="amit-form-btn" onclick="addAmitAdjustmentFromForm()">${amitEditingId ? '✓ SAVE CHANGES' : '+ ADD ADJUSTMENT'}</button>
-      ${amitEditingId ? '<button class="btn" onclick="cancelEditAmitAdjustment()">Cancel edit</button>' : ''}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-g" id="amit-form-btn" onclick="addAmitAdjustmentFromForm()">${amitEditingId ? '✓ SAVE CHANGES' : '+ ADD ADJUSTMENT'}</button>
+          ${amitEditingId ? '<button class="btn" onclick="cancelEditAmitAdjustment()">Cancel edit</button>' : ''}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="fsm" id="cgt-amit-search" type="text" placeholder="Search symbol…" value="${escHtml(cgtAmitSearch)}"
+                 oninput="cgtAmitSearch=this.value;renderAmitTable()" style="min-width:160px;text-transform:none">
+          <button class="btn" style="padding:4px 9px;font-size:11px" onclick="cgtClearAmitSearch()">✕</button>
+        </div>
+      </div>
       <div class="ovx" style="margin-top:14px">
         <table><thead><tr>
           ${sortTh('amit','date','Date','renderCGT')}
@@ -639,7 +679,7 @@ function renderCGT(){
           ${sortTh('amit','notes','Notes','renderCGT')}
           <th></th>
         </tr></thead>
-        <tbody>${amitBodyHtml}</tbody></table>
+        <tbody id="cgt-amit-tbody">${amitBodyHtml}</tbody></table>
       </div>
       `}
     </div>
