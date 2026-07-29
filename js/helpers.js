@@ -103,7 +103,7 @@ let superAccounts = (()=>{try{return JSON.parse(localStorage.getItem('pt_super')
 let editingSuperAccountId = null;
 let propRentAnnual = true;   // true=annual, false=monthly
 let propDebtNet = false;     // false=gross debt, true=net (minus offsets)
-let portfolioView = 0;
+let portfolioView = 1; // 0=All, 1=Stocks, 2=Crypto — defaults to Stocks on load
 let anHiddenGroups = new Set();
 let anPerfFilter = 'all'; // asset type filter for performers // groups hidden in analytics chart // 0=All, 1=Stocks, 2=Crypto
 let propRepayAnnual = false; // true=annual, false=monthly

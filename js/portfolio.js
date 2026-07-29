@@ -214,9 +214,14 @@ function renderH(){
     if(tf && h.assetType !== tf) return false;
     if(ownerF_h && getSymbolOwner(h.symbol) !== ownerF_h) return false;
     if(brokerF_h && h.source !== brokerF_h) return false;
+    if(portfolioView===1 && isCrypto(h)) return false;
+    if(portfolioView===2 && !isCrypto(h)) return false;
     return true;
   });
   $('he').style.display = f.length ? 'none' : '';
+
+  if($('hb-title')) $('hb-title').textContent =
+    portfolioView===1 ? 'HOLDINGS — STOCKS ONLY' : portfolioView===2 ? 'HOLDINGS — CRYPTO ONLY' : 'HOLDINGS';
 
   // Apply sort
   const {col, dir} = getSort('hb');
