@@ -980,6 +980,7 @@ function buildSyncPayload(){
       cf_worker_url:     localStorage.getItem('cf_worker_url')||'',
       pt_drp_carry:      (()=>{try{return JSON.parse(localStorage.getItem('pt_drp_carry')||'{}');}catch(e){return {};}})() ,
       pt_drp_skipped:    getDRPSkipped(),
+      pt_expdiv_skipped: getExpDivSkipped(),
       pt_drp_settings:   getDRPSettings(),
       pt_brokers:        getCustomBrokers(),
       pt_super:          superAccounts,
@@ -1154,6 +1155,7 @@ function applyRemoteData(remote){
   if(d.cf_worker_url)    localStorage.setItem('cf_worker_url',    d.cf_worker_url);
   if(d.pt_drp_carry)     localStorage.setItem('pt_drp_carry',     JSON.stringify(d.pt_drp_carry));
   if(d.pt_drp_skipped)   localStorage.setItem('pt_drp_skipped',   JSON.stringify(d.pt_drp_skipped));
+  if(d.pt_expdiv_skipped) localStorage.setItem('pt_expdiv_skipped', JSON.stringify(d.pt_expdiv_skipped));
   if(d.pt_brokers && d.pt_brokers.length) saveCustomBrokers(d.pt_brokers);
   if(d.pt_super)         { superAccounts = d.pt_super; saveSuperAccounts(); }
   if(d.pt_stock_owners){ stockOwners=d.pt_stock_owners; saveStockOwners(); }
@@ -1475,18 +1477,19 @@ function saveDRPCarry(obj){
 }
 
 // ── DRP SKIPPED ──────────────────────────────────────────────────────────────
-// Dividend IDs the user has explicitly skipped in DRP Processing, so they
-// don't keep reappearing every time processDRP() re-scans. Stored as an
-// object keyed by dividend id → { symbol, date, skippedAt } for reference.
+// Dividend IDs excluded from DRP Processing re-scans, keyed by dividend id →
+// { symbol, date, skippedAt, reason }. reason is 'cash' (company paid this
+// particular dividend out instead of reinvesting it — a genuine data point,
+// not just "ignore for now") or 'manual' (plain Skip button).
 function getDRPSkipped(){
   try { return JSON.parse(localStorage.getItem('pt_drp_skipped')||'{}'); } catch(e){ return {}; }
 }
 function saveDRPSkipped(obj){
   localStorage.setItem('pt_drp_skipped', JSON.stringify(obj));
 }
-function markDRPSkipped(divId, sym, date){
+function markDRPSkipped(divId, sym, date, reason){
   const skipped = getDRPSkipped();
-  skipped[divId] = { symbol:sym, date, skippedAt:new Date().toISOString().slice(0,10) };
+  skipped[divId] = { symbol:sym, date, skippedAt:new Date().toISOString().slice(0,10), reason: reason||'manual' };
   saveDRPSkipped(skipped);
 }
 function unskipDRPItem(divId){
@@ -1494,6 +1497,32 @@ function unskipDRPItem(divId){
   delete skipped[divId];
   saveDRPSkipped(skipped);
   notify('Restored to DRP Processing — click "Check & Process Dividends" again to see it.','ok');
+}
+
+// ── EXPECTED DIVIDEND CHECKER — dismissed entries ─────────────────────────────
+// The "Expected Dividends" checker synthesizes rows from Yahoo's dividend
+// history rather than reading real dividend records, so there's no id to key
+// off — use symbol+date+per-unit amount as a stable fingerprint instead.
+// Recorded rows are hidden by dvChkKey() lookup; separately, entries the user
+// has explicitly dismissed (false positives, N/A for them, etc.) are stored
+// here so they stay hidden across future checks too.
+function dvChkKey(r){ return r.symbol+'|'+r.date+'|'+(+r.perUnit).toFixed(6); }
+function getExpDivSkipped(){
+  try { return JSON.parse(localStorage.getItem('pt_expdiv_skipped')||'{}'); } catch(e){ return {}; }
+}
+function saveExpDivSkipped(obj){
+  localStorage.setItem('pt_expdiv_skipped', JSON.stringify(obj));
+}
+function markExpDivSkipped(r){
+  const skipped = getExpDivSkipped();
+  skipped[dvChkKey(r)] = { symbol:r.symbol, date:r.date, perUnit:r.perUnit, skippedAt:new Date().toISOString().slice(0,10) };
+  saveExpDivSkipped(skipped);
+}
+function unskipExpDivItem(key){
+  const skipped = getExpDivSkipped();
+  delete skipped[key];
+  saveExpDivSkipped(skipped);
+  notify('Restored — re-run "Check & Process Dividends" to see it.','ok');
 }
 
 // ── DRP SETTINGS ─────────────────────────────────────────────────────────────

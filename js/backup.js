@@ -23,6 +23,7 @@ function backupExport(){
       cf_worker_url:  localStorage.getItem('cf_worker_url') || '',
       pt_drp_carry:  JSON.parse(localStorage.getItem('pt_drp_carry')||'{}'),
       pt_drp_skipped: JSON.parse(localStorage.getItem('pt_drp_skipped')||'{}'),
+      pt_expdiv_skipped: JSON.parse(localStorage.getItem('pt_expdiv_skipped')||'{}'),
       pt_brokers:    getCustomBrokers(),
       pt_super:      superAccounts,
       su_combined_color: localStorage.getItem('su_combined_color') || '#ffffff',
@@ -147,6 +148,7 @@ function backupConfirm(){
   if(d.cf_worker_url)  localStorage.setItem('cf_worker_url',  d.cf_worker_url);
   if(d.pt_drp_carry)   localStorage.setItem('pt_drp_carry',  JSON.stringify(d.pt_drp_carry));
   if(d.pt_drp_skipped) localStorage.setItem('pt_drp_skipped', JSON.stringify(d.pt_drp_skipped));
+  if(d.pt_expdiv_skipped) localStorage.setItem('pt_expdiv_skipped', JSON.stringify(d.pt_expdiv_skipped));
   if(d.pt_drp_settings) localStorage.setItem('pt_drp_settings', JSON.stringify(d.pt_drp_settings));
   if(d.pt_brokers && d.pt_brokers.length) saveCustomBrokers(d.pt_brokers);
   if(d.pt_super){ superAccounts = d.pt_super; saveSuperAccounts(); }
@@ -293,6 +295,7 @@ function buildExportSheets(){
     {key: 'cf_worker_url',  value: localStorage.getItem('cf_worker_url') || ''},
     {key: 'pt_drp_carry',  value: localStorage.getItem('pt_drp_carry') || '{}'},
     {key: 'pt_drp_skipped', value: localStorage.getItem('pt_drp_skipped') || '{}'},
+    {key: 'pt_expdiv_skipped', value: localStorage.getItem('pt_expdiv_skipped') || '{}'},
     {key: 'cf_worker_code', value: WORKER_CODE},
     {key: 'export_date',    value: new Date().toISOString().slice(0,10)},
     {key: 'app_version',    value: 'Portfolio Tracker v3'},

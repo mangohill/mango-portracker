@@ -259,10 +259,11 @@ async function checkExpectedDividends() {
     }
   }
 
+  window._divCheckResults = results;
   renderDivCheckResults(results);
 }
 
-function renderDivCheckResults(results) {
+function renderDivCheckResults(results, showAll) {
   const panel = $('div-check-panel');
   if (!panel) return;
   panel.style.display = 'block';
@@ -273,9 +274,12 @@ function renderDivCheckResults(results) {
     return;
   }
 
-  const missing  = results.filter(r => !r.recorded && !r.error);
-  const found    = results.filter(r =>  r.recorded && !r.error);
-  const errors   = results.filter(r =>  r.error);
+  const skippedMap    = getExpDivSkipped();
+  const missing        = results.filter(r => !r.recorded && !r.error);
+  const found          = results.filter(r =>  r.recorded && !r.error);
+  const errors         = results.filter(r =>  r.error);
+  const visibleMissing = missing.filter(r => !skippedMap[dvChkKey(r)]);
+  const skippedMissing = missing.filter(r =>  skippedMap[dvChkKey(r)]);
   const totalExp = results.filter(r => !r.error).reduce((s,r) => s + (r.expected||0), 0);
   const totalMis = missing.reduce((s,r) => s + (r.expected||0), 0);
 
@@ -283,7 +287,15 @@ function renderDivCheckResults(results) {
   const fmtAmt  = a => '$' + (+a).toFixed(4);
   const fmtTot  = a => '$' + (+a).toFixed(2);
 
-  const rows = [...missing, ...found].sort((a,b) => a.date.localeCompare(b.date));
+  // Hidden by default: already-recorded rows and rows you've explicitly dismissed.
+  // Toggle reveals the full list (recorded shown faded ✓, skipped shown with ↩ Restore).
+  const rows = showAll
+    ? [...missing, ...found].sort((a,b) => a.date.localeCompare(b.date))
+    : visibleMissing.sort((a,b) => a.date.localeCompare(b.date));
+
+  const hiddenCount = found.length + skippedMissing.length;
+
+  window._missingDivs = visibleMissing; // "Add All" only ever adds what's actually visible
 
   panel.innerHTML = `
     <div class="fs">
@@ -304,6 +316,7 @@ function renderDivCheckResults(results) {
         <div style="background:var(--surface2);border-radius:5px;padding:10px 14px">
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px">MISSING / UNRECORDED</div>
           <div style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--${missing.length?'gold':'green'})">${missing.length}</div>
+          ${skippedMissing.length ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">${skippedMissing.length} dismissed</div>` : ''}
         </div>
         <div style="background:var(--surface2);border-radius:5px;padding:10px 14px">
           <div style="font-size:10px;color:var(--text3);margin-bottom:4px">MISSING TOTAL</div>
@@ -311,12 +324,19 @@ function renderDivCheckResults(results) {
         </div>
       </div>
 
-      ${missing.length ? `
+      ${visibleMissing.length ? `
       <div style="margin-bottom:12px">
         <button class="btn" onclick="addAllMissingDivs()" style="background:var(--gold);color:#000;font-weight:700">
-          ＋ Add All ${missing.length} Missing to Dividends Tab
+          ＋ Add All ${visibleMissing.length} Missing to Dividends Tab
         </button>
         <span style="font-size:11px;color:var(--text3);margin-left:10px">Review amounts — Yahoo ex-date may differ from pay date by ~1 week</span>
+      </div>` : ''}
+
+      ${hiddenCount ? `
+      <div style="margin-bottom:12px;font-size:11px;color:var(--text3)">
+        ${found.length} already recorded and ${skippedMissing.length} dismissed are hidden —
+        <span style="color:var(--blue);cursor:pointer;text-decoration:underline"
+              onclick="renderDivCheckResults(window._divCheckResults, ${!showAll})">${showAll ? 'hide them again' : `show all ${hiddenCount}`}</span>
       </div>` : ''}
 
       <div style="overflow-x:auto">
@@ -334,8 +354,11 @@ function renderDivCheckResults(results) {
             </tr>
           </thead>
           <tbody>
-            ${rows.map(r => `
-            <tr style="border-bottom:1px solid var(--border);${r.recorded?'opacity:0.55':''}">
+            ${rows.length ? rows.map(r => {
+              const key = dvChkKey(r);
+              const isSkipped = !r.recorded && skippedMap[key];
+              return `
+            <tr style="border-bottom:1px solid var(--border);${r.recorded||isSkipped?'opacity:0.55':''}">
               <td style="padding:6px 8px;font-weight:600">${escHtml(r.symbol)}</td>
               <td style="padding:6px 8px;font-size:11px;color:var(--text3)">${r.owner||'—'}</td>
               <td style="padding:6px 8px;color:var(--text2)">${fmtDate(r.date)}</td>
@@ -345,26 +368,29 @@ function renderDivCheckResults(results) {
               <td style="padding:6px 8px;text-align:center">
                 ${r.recorded
                   ? '<span style="color:var(--green);font-size:13px" title="Already in dividends tab">✓</span>'
+                  : isSkipped
+                  ? '<span style="color:var(--text3);font-size:13px" title="Dismissed">⏭ Dismissed</span>'
                   : '<span style="color:var(--gold);font-size:13px" title="Not found in dividends tab">⚠ Missing</span>'}
               </td>
-              <td style="padding:6px 8px;text-align:center">
-                ${!r.recorded ? `<button class="btn" style="padding:2px 8px;font-size:11px"
-                  onclick='addSingleMissingDiv(${JSON.stringify(r)})'>＋ Add</button>` : '—'}
+              <td style="padding:6px 8px;text-align:center;white-space:nowrap">
+                ${r.recorded ? '—' : isSkipped
+                  ? `<button class="btn" style="padding:2px 8px;font-size:11px" onclick="unskipExpDivItem('${key}');renderDivCheckResults(window._divCheckResults, ${!!showAll})">↩ Restore</button>`
+                  : `<button class="btn" style="padding:2px 8px;font-size:11px"
+                       onclick='addSingleMissingDiv(${JSON.stringify(r)}, ${!!showAll})'>＋ Add</button>
+                     <button class="btn" style="padding:2px 8px;font-size:11px;color:var(--text3)"
+                       onclick='skipExpectedDiv(${JSON.stringify(r)}, ${!!showAll})'>Skip</button>`}
               </td>
-            </tr>`).join('')}
+            </tr>`;}).join('') : `<tr><td colspan="8" class="empty">Nothing to show — everything's recorded or dismissed.</td></tr>`}
           </tbody>
         </table>
       </div>
       ${errors.length ? `<p style="font-size:11px;color:var(--text3);margin-top:8px">⚠ ${errors.length} symbol(s) failed: ${errors.map(e=>e.symbol).join(', ')}</p>` : ''}
     </div>
   `;
-
-  // Store missing for bulk add
-  window._missingDivs = missing;
 }
 
 // Add a single missing dividend to the dividends tab
-function addSingleMissingDiv(r) {
+function addSingleMissingDiv(r, showAll) {
   dividends.push({
     id:         'div_' + uid(),
     date:       r.date,
@@ -377,11 +403,20 @@ function addSingleMissingDiv(r) {
   save();
   renderDivCharts(); renderDivCards();
   notify(`✓ Added ${r.symbol} ${r.date} — ${n2(+r.expected)}`, 'ok');
-  renderDivCheckResults(window._missingDivs
-    ? (window._missingDivs = window._missingDivs.filter(m => m.date!==r.date||m.symbol!==r.symbol),
-       [...window._missingDivs])
-    : []);
+
+  // Mark it recorded in the standing results set (rather than re-fetching) and re-render
+  const match = (window._divCheckResults||[]).find(x => x.symbol===r.symbol && x.date===r.date && x.perUnit===r.perUnit);
+  if(match) match.recorded = true;
+  renderDivCheckResults(window._divCheckResults || [], !!showAll);
   renderDividends();
+}
+
+// Dismiss a "missing" expected dividend — false positive, not applicable, etc.
+// Persists so it won't keep reappearing on future checks (same idea as DRP Skip).
+function skipExpectedDiv(r, showAll) {
+  markExpDivSkipped(r);
+  notify(`${r.symbol} ${r.date} dismissed — won't be shown again.`, 'ok');
+  renderDivCheckResults(window._divCheckResults || [], !!showAll);
 }
 
 // Add all missing dividends at once
@@ -515,7 +550,8 @@ function toggleDRPSkippedList(){
       <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:11px">
         <span style="font-family:var(--mono);font-weight:700;color:var(--gold)">${escHtml(s.symbol)}</span>
         <span style="color:var(--text3)">${s.date}</span>
-        <span style="color:var(--text3);margin-left:auto">skipped ${s.skippedAt}</span>
+        <span style="color:${s.reason==='cash'?'var(--blue)':'var(--text3)'}">${s.reason==='cash'?'💵 cash payout':'⏭ skipped'}</span>
+        <span style="color:var(--text3);margin-left:auto">on ${s.skippedAt}</span>
         <button class="btn" style="padding:3px 9px;font-size:11px" onclick="unskipDRPItem('${divId}');processDRP()">↩ Restore</button>
       </div>`).join('') || '<div style="color:var(--text3);font-size:11px;padding:6px 0">None</div>';
     el.style.display = 'block';
@@ -607,8 +643,10 @@ function renderDRPPanel(){
           ${canProcess
             ? `<button class="btn btn-g" style="padding:5px 14px;font-size:12px"
                 onclick="confirmDRPItem(${idx})">✓ Confirm</button>` : ''}
+          <button class="btn" style="padding:5px 10px;font-size:12px;color:var(--text2);border-color:var(--blue)"
+            onclick="markDRPCashItem(${idx})" title="This one was paid out as cash instead of reinvested — won't be asked again">💵 Cash, not DRP</button>
           <button class="btn" style="padding:5px 10px;font-size:12px;color:var(--text3)"
-            onclick="skipDRPItem(${idx})">Skip</button>
+            onclick="skipDRPItem(${idx})" title="Skip for now — won't be asked again">Skip</button>
         </div>
       </div>
     </div>`;
@@ -690,10 +728,18 @@ function confirmDRPItem(idx){
 
 function skipDRPItem(idx){
   const p = window._drpPending[idx];
-  if(p) markDRPSkipped(p.divId, p.sym, p.divDate);
+  if(p) markDRPSkipped(p.divId, p.sym, p.divDate, 'manual');
   window._drpPending.splice(idx, 1);
   renderDRPPanel();
   notify('DRP item skipped — won\'t be shown again.','ok');
+}
+
+function markDRPCashItem(idx){
+  const p = window._drpPending[idx];
+  if(p) markDRPSkipped(p.divId, p.sym, p.divDate, 'cash');
+  window._drpPending.splice(idx, 1);
+  renderDRPPanel();
+  notify(`✓ ${p ? p.sym : ''} marked as paid out in cash — won't be asked again.`, 'ok');
 }
 
 function confirmAllDRP(){
