@@ -223,7 +223,9 @@ function renderH(){
   if($('hb-title')) $('hb-title').textContent =
     portfolioView===1 ? 'HOLDINGS — STOCKS ONLY' : portfolioView===2 ? 'HOLDINGS — CRYPTO ONLY' : 'HOLDINGS';
 
-  // Apply sort
+  // Apply sort — default to A→Z by symbol whenever nothing's been explicitly chosen
+  // (fresh load, or after switchTab's per-tab sort reset)
+  if(!getSort('hb').col) SORT_STATE['hb'] = {col:'symbol', dir:1};
   const {col, dir} = getSort('hb');
   if(col){
     f = sortRows(f.map(h=>{
