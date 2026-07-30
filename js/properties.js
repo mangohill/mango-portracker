@@ -979,6 +979,7 @@ function buildSyncPayload(){
       pt_prices:         prices,
       cf_worker_url:     localStorage.getItem('cf_worker_url')||'',
       pt_drp_carry:      (()=>{try{return JSON.parse(localStorage.getItem('pt_drp_carry')||'{}');}catch(e){return {};}})() ,
+      pt_drp_skipped:    getDRPSkipped(),
       pt_drp_settings:   getDRPSettings(),
       pt_brokers:        getCustomBrokers(),
       pt_super:          superAccounts,
@@ -1152,6 +1153,7 @@ function applyRemoteData(remote){
   localStorage.setItem('pt_prices',   JSON.stringify(prices));
   if(d.cf_worker_url)    localStorage.setItem('cf_worker_url',    d.cf_worker_url);
   if(d.pt_drp_carry)     localStorage.setItem('pt_drp_carry',     JSON.stringify(d.pt_drp_carry));
+  if(d.pt_drp_skipped)   localStorage.setItem('pt_drp_skipped',   JSON.stringify(d.pt_drp_skipped));
   if(d.pt_brokers && d.pt_brokers.length) saveCustomBrokers(d.pt_brokers);
   if(d.pt_super)         { superAccounts = d.pt_super; saveSuperAccounts(); }
   if(d.pt_stock_owners){ stockOwners=d.pt_stock_owners; saveStockOwners(); }
@@ -1470,6 +1472,28 @@ function getDRPCarry(){
 }
 function saveDRPCarry(obj){
   localStorage.setItem('pt_drp_carry', JSON.stringify(obj));
+}
+
+// ── DRP SKIPPED ──────────────────────────────────────────────────────────────
+// Dividend IDs the user has explicitly skipped in DRP Processing, so they
+// don't keep reappearing every time processDRP() re-scans. Stored as an
+// object keyed by dividend id → { symbol, date, skippedAt } for reference.
+function getDRPSkipped(){
+  try { return JSON.parse(localStorage.getItem('pt_drp_skipped')||'{}'); } catch(e){ return {}; }
+}
+function saveDRPSkipped(obj){
+  localStorage.setItem('pt_drp_skipped', JSON.stringify(obj));
+}
+function markDRPSkipped(divId, sym, date){
+  const skipped = getDRPSkipped();
+  skipped[divId] = { symbol:sym, date, skippedAt:new Date().toISOString().slice(0,10) };
+  saveDRPSkipped(skipped);
+}
+function unskipDRPItem(divId){
+  const skipped = getDRPSkipped();
+  delete skipped[divId];
+  saveDRPSkipped(skipped);
+  notify('Restored to DRP Processing — click "Check & Process Dividends" again to see it.','ok');
 }
 
 // ── DRP SETTINGS ─────────────────────────────────────────────────────────────

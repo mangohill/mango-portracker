@@ -196,7 +196,7 @@ function clearAll(){
   trades=[]; prices={}; dividends=[]; properties=[];
   superAccounts=[]; taxData={}; stockOwners={}; spendingData=[]; extraPersons=[];
   const keys = ['pt_trades','pt_prices','pt_divs','pt_props','pt_super','pt_tax',
-                 'pt_stock_owners','pt_spending','pt_extra_persons','pt_drp_carry','pt_drp_settings'];
+                 'pt_stock_owners','pt_spending','pt_extra_persons','pt_drp_carry','pt_drp_settings','pt_drp_skipped'];
   keys.forEach(k => localStorage.removeItem(k));
   renderH(); renderT(); renderR(); renderHD();
   renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards();
@@ -728,4 +728,3 @@ function renderHD(){
     <td colspan="2"></td>
   </tr>`;
 }
-

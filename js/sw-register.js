@@ -1,5 +1,3 @@
-
-
 // ── Service Worker Registration ───────────────────────────────────────────────
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
@@ -440,6 +438,7 @@ function processDRP(){
   const cutoffStr = cutoff.toISOString().slice(0,10);
 
   const carry   = getDRPCarry();
+  const skipped = getDRPSkipped();
   const pending = []; // items ready for user confirmation
 
   for(const baseSym of enabledSyms){
@@ -448,7 +447,7 @@ function processDRP(){
     // Find unprocessed dividends for this symbol in last 6 months
     // "Unprocessed" = no DRP buy trade within 7 days of the dividend date
     const symDivs = dividends
-      .filter(d => priceSymbol(d.symbol) === baseSym && d.date >= cutoffStr && d.type !== 'drp')
+      .filter(d => priceSymbol(d.symbol) === baseSym && d.date >= cutoffStr && d.type !== 'drp' && !skipped[d.id])
       .sort((a,b) => a.date.localeCompare(b.date));
 
     for(const div of symDivs){
@@ -483,13 +482,20 @@ function processDRP(){
   }
 
   if(!pending.length){
-    const panel = $('drp-process-panel');
+    const panel = $('drp-tab-panel') || $('drp-process-panel');
     if(panel){
       panel.style.display = 'block';
-      panel.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;
-        background:var(--surface);border-radius:6px;border:1px solid var(--border)">
-        <span style="color:var(--green);font-size:16px">✓</span>
-        <span style="font-size:12px;color:var(--text2)">DRP: nothing to process — all recent dividends for DRP-enabled symbols are handled.</span>
+      const skippedCount = Object.keys(skipped).length;
+      panel.innerHTML = `<div style="padding:10px 12px;background:var(--surface);border-radius:6px;border:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="color:var(--green);font-size:16px">✓</span>
+          <span style="font-size:12px;color:var(--text2)">DRP: nothing to process — all recent dividends for DRP-enabled symbols are handled.</span>
+        </div>
+        ${skippedCount ? `<div style="margin-top:8px;font-size:11px;color:var(--text3)">
+          ${skippedCount} previously skipped —
+          <span style="color:var(--blue);cursor:pointer;text-decoration:underline" onclick="toggleDRPSkippedList()">manage</span>
+        </div>
+        <div id="drp-skipped-list" style="display:none;margin-top:8px"></div>` : ''}
       </div>`;
     }
     return;
@@ -497,6 +503,25 @@ function processDRP(){
 
   window._drpPending = pending;
   renderDRPPanel();
+}
+
+function toggleDRPSkippedList(){
+  const el = $('drp-skipped-list');
+  if(!el) return;
+  if(el.style.display === 'none'){
+    const skipped = getDRPSkipped();
+    const entries = Object.entries(skipped).sort((a,b)=> b[1].date.localeCompare(a[1].date));
+    el.innerHTML = entries.map(([divId, s])=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:11px">
+        <span style="font-family:var(--mono);font-weight:700;color:var(--gold)">${escHtml(s.symbol)}</span>
+        <span style="color:var(--text3)">${s.date}</span>
+        <span style="color:var(--text3);margin-left:auto">skipped ${s.skippedAt}</span>
+        <button class="btn" style="padding:3px 9px;font-size:11px" onclick="unskipDRPItem('${divId}');processDRP()">↩ Restore</button>
+      </div>`).join('') || '<div style="color:var(--text3);font-size:11px;padding:6px 0">None</div>';
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 function calcDRPUnits(total, price, fractional){
@@ -604,6 +629,12 @@ function renderDRPPanel(){
     ${hasAny ? `<button class="btn" onclick="confirmAllDRP()"
       style="background:var(--gold);color:#000;font-weight:700;margin-top:4px">
       ⚡ Confirm All</button>` : ''}
+    ${(()=>{ const n = Object.keys(getDRPSkipped()).length; return n ? `
+    <div style="margin-top:10px;font-size:11px;color:var(--text3)">
+      ${n} previously skipped —
+      <span style="color:var(--blue);cursor:pointer;text-decoration:underline" onclick="toggleDRPSkippedList()">manage</span>
+    </div>
+    <div id="drp-skipped-list" style="display:none;margin-top:8px"></div>` : ''; })()}
   `;
 }
 
@@ -658,9 +689,11 @@ function confirmDRPItem(idx){
 }
 
 function skipDRPItem(idx){
+  const p = window._drpPending[idx];
+  if(p) markDRPSkipped(p.divId, p.sym, p.divDate);
   window._drpPending.splice(idx, 1);
   renderDRPPanel();
-  notify('DRP item skipped.','ok');
+  notify('DRP item skipped — won\'t be shown again.','ok');
 }
 
 function confirmAllDRP(){
@@ -1030,4 +1063,3 @@ function showDiv293Breakdown(personKey){
 
   document.body.appendChild(popup);
 }
-
