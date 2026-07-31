@@ -619,6 +619,20 @@ function renderHD(){
     getAllPersons().concat(['joint']).map(p=>`<option value="${p}" ${p===_hdOwnCur?'selected':''}>${getPersonLabel(p)}</option>`).join('');
   const ownerF_hd = _hdOwnCur;
 
+  // Rebuild hd-source broker/source filter — built from sources actually present in holdings
+  const _hdSource = $('hd-source');
+  const _hdSourceCur = _hdSource ? _hdSource.value : '';
+  if(_hdSource){
+    const _sourcesInUse = [...new Set(calcH().map(h=>h.source).filter(Boolean))].sort();
+    const _sourceLabels = getAllBrokers();
+    _hdSource.innerHTML = '<option value="">All Sources</option>' +
+      _sourcesInUse.map(b=>{
+        const label = (_sourceLabels.find(x=>x.value===b)||{}).label || b;
+        return `<option value="${b}" ${b===_hdSourceCur?'selected':''}>${label}</option>`;
+      }).join('');
+  }
+  const sourceF_hd = _hdSourceCur;
+
   // Map dropdown value to sort col/dir for initial load
   if(!SORT_STATE['hd-body'] || !SORT_STATE['hd-body'].col){
     const dropMap = {
@@ -655,9 +669,10 @@ function renderHD(){
     if(search && !h.symbol.toLowerCase().includes(search)) return false;
     if(typeF && h.assetType!==typeF) return false;
     if(ownerF_hd && getSymbolOwner(h.symbol) !== ownerF_hd) return false;
+    if(sourceF_hd && h.source !== sourceF_hd) return false;
     if(showF==='profit' && (h.pnl==null||h.pnl<=0)) return false;
     if(showF==='loss'   && (h.pnl==null||h.pnl>=0)) return false;
-    if(showF==='noprice'&& h.cur!=null) return false;
+    if(showF==='noPrice'&& h.cur!=null) return false;
     return true;
   });
 

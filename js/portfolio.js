@@ -340,8 +340,19 @@ function cyclePortfolioView(){
 }
 function renderT(){
   const s=($('ts').value||'').toLowerCase(), si=$('tsi').value, so=$('tso').value;
+
+  // Rebuild to-own owner filter
+  const _toOwn = $('to-own');
+  const _toOwnCur = _toOwn ? _toOwn.value : '';
+  if(_toOwn) _toOwn.innerHTML = '<option value="">All Owners</option>' +
+    getAllPersons().concat(['joint']).map(p=>
+      `<option value="${p}" ${p===_toOwnCur?'selected':''}>${getPersonLabel(p)}</option>`
+    ).join('');
+  const ownerF_t = _toOwnCur;
+
   let f=[...trades].filter(t=>
-    (!s||(t.symbol||'').toLowerCase().includes(s))&&(!si||t.type===si)&&(!so||(t.source||'')=== so));
+    (!s||(t.symbol||'').toLowerCase().includes(s))&&(!si||t.type===si)&&(!so||(t.source||'')=== so)
+    &&(!ownerF_t || getSymbolOwner(t.symbol) === ownerF_t));
 
   // Sort — default newest first if no sort set
   const {col, dir} = getSort('tb');

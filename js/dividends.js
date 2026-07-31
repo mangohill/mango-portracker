@@ -969,13 +969,6 @@ function renderFYBar(){
 function renderDividends(){
   const search = ($('dv-search').value||'').toLowerCase();
   const typeF  = $('dv-filter').value;
-  // Rebuild dv-sym-filter dynamically from all dividend symbols
-  const _dvSymSel = $('dv-sym-filter');
-  const _dvSymCur = _dvSymSel ? _dvSymSel.value : '';
-  const _dvSyms = [...new Set(dividends.map(d=>d.symbol).filter(Boolean))].sort();
-  if(_dvSymSel) _dvSymSel.innerHTML = '<option value="">All Symbols</option>' +
-    _dvSyms.map(s=>`<option value="${escHtml(s)}" ${s===_dvSymCur?'selected':''}>${escHtml(s)}</option>`).join('');
-  const symF = _dvSymCur;
   // Rebuild dv-owner-filter from actual owners
   const _dvOwnerSel = $('dv-owner-filter');
   const _dvOwnerCur = _dvOwnerSel ? _dvOwnerSel.value : '';
@@ -986,7 +979,6 @@ function renderDividends(){
   let filtered = [...dividends].filter(d=>{
     if(search && !d.symbol.toLowerCase().includes(search)) return false;
     if(typeF && d.type!==typeF) return false;
-    if(symF   && d.symbol!==symF) return false;
     if(ownerF && getSymbolOwner(d.symbol)!==ownerF) return false;
     if(dvFYFilter !== 'ALL'){
       const fy = dateToFY(d.date);
@@ -1137,4 +1129,3 @@ function saveEditDiv(){
   renderDivCards();
   notify('Dividend updated ✓');
 }
-
