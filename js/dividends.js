@@ -1051,7 +1051,7 @@ function renderDividends(){
   }).join('');
 
   // Filtered total footer — shown when search/filter/FY is active
-  const hasFilter = search || typeF || ownerF || _dvSymCur || dvFYFilter !== 'ALL';
+  const hasFilter = search || typeF || ownerF || dvFYFilter !== 'ALL';
   const filteredTotal = filtered.reduce((s,d)=>s+(+d.amount||0),0);
   const filteredCount = filtered.length;
   const foot = $('dv-foot');
