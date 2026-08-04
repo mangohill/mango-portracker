@@ -420,7 +420,7 @@ function renderT(){
       return html;
     }
 
-    const btnStyle = 'cursor:pointer;background:#1a2f4a;color:#3d9cf0;border:1px solid #3d9cf0;border-radius:4px;padding:3px 10px;font-size:11px;margin-right:4px';
+    const btnStyle = 'cursor:pointer;background:#1a2f4a;color:#38c6ff;border:1px solid #38c6ff;border-radius:4px;padding:3px 10px;font-size:11px;margin-right:4px';
 
     // Corporate action row — special display
     if(t.type==='corporate_action'){

@@ -1010,7 +1010,7 @@ function taxDrillDividends(personKey, fy){
   const fyBar = document.getElementById('dv-fy-bar');
   if(fyBar){
     fyBar.style.transition = 'background 0.3s';
-    fyBar.style.background = 'rgba(245,166,35,0.15)';
+    fyBar.style.background = 'rgba(255,176,0,0.15)';
     setTimeout(function(){ fyBar.style.background = ''; }, 1400);
   }
 }
@@ -1091,7 +1091,7 @@ function showDiv293Breakdown(personKey){
         <td style="padding:5px 0;color:var(--text2)">Taxable contributions (lower of excess or total CC)</td>
         <td style="text-align:right;color:var(--text)">${n2l(taxableCC)}</td>
       </tr>
-      <tr style="font-weight:700;background:rgba(255,71,87,.08)">
+      <tr style="font-weight:700;background:rgba(255,77,77,.08)">
         <td style="padding:6px 0;color:var(--red)">Division 293 Tax (15% × ${n2l(taxableCC)})</td>
         <td style="text-align:right;color:var(--red)">${n2l(t.div293)}</td>
       </tr>

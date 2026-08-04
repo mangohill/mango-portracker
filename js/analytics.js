@@ -220,14 +220,14 @@ function mkChart(id, cfg){
 }
 
 // ── CHART DEFAULTS ────────────────────────────────────────────────────
-Chart.defaults.color = '#8899aa';
-Chart.defaults.borderColor = '#1f2733';
+Chart.defaults.color = '#87a598';
+Chart.defaults.borderColor = '#1c2b23';
 if(typeof Chart !== 'undefined' && Chart.defaults && Chart.defaults.font){
   Chart.defaults.font.family = "'IBM Plex Mono','Menlo','Consolas','Courier New',monospace";
   Chart.defaults.font.size = 11;
 }
 
-const PALETTE = ['#3d9cf0','#00d68f','#f5a623','#ff4757','#b47bff','#00d4ff','#ff6b6b','#ffd166','#06d6a0','#118ab2'];
+const PALETTE = ['#38c6ff','#29ffa0','#ffb000','#ff4d4d','#b98bff','#00e5c7','#ff8a5c','#ffe066','#5ee6b0','#4d8fd6'];
 
 // ── DATE HELPERS ──────────────────────────────────────────────────────
 function filterByPeriod(arr, period){
@@ -339,7 +339,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings){
     const data   = h.map(x=>+(prices[priceSymbol(x.symbol)]*x.units).toFixed(2));
     mkChart('an-main-chart',{
       type:'doughnut',
-      data:{ labels, datasets:[{data, backgroundColor:PALETTE, borderColor:'#111418', borderWidth:2}] },
+      data:{ labels, datasets:[{data, backgroundColor:PALETTE, borderColor:'#0e1512', borderWidth:2}] },
       options:{ responsive:true, maintainAspectRatio:false,
         plugins:{ legend:{ position:'right', labels:{color:'#8899aa',font:{size:11}} } } }
     });
@@ -358,8 +358,8 @@ function renderMainChart(filtered, groupBy, chartType, holdings){
     mkChart('an-main-chart',{
       type:'bar',
       data:{ labels, datasets:[
-        {label:'Buy',  data:labels.map(k=>+monthly[k].buy.toFixed(2)),  backgroundColor:'rgba(0,214,143,0.6)', borderColor:'#00d68f', borderWidth:1},
-        {label:'Sell', data:labels.map(k=>+monthly[k].sell.toFixed(2)), backgroundColor:'rgba(255,71,87,0.6)',  borderColor:'#ff4757', borderWidth:1},
+        {label:'Buy',  data:labels.map(k=>+monthly[k].buy.toFixed(2)),  backgroundColor:'rgba(41,255,160,0.6)', borderColor:'#29ffa0', borderWidth:1},
+        {label:'Sell', data:labels.map(k=>+monthly[k].sell.toFixed(2)), backgroundColor:'rgba(255,77,77,0.6)',  borderColor:'#ff4d4d', borderWidth:1},
       ]},
       options:{ responsive:true, maintainAspectRatio:false, scales:{
         x:{ticks:{color:'#4a5568'}},
@@ -475,7 +475,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings){
       interaction:{ mode:'index', intersect:false },
       scales:{
         x:{ ticks:{color:'#4a5568', maxTicksLimit:12} },
-        y:{ ticks:{color:'#4a5568', callback:v=>'$'+v.toLocaleString()}, grid:{color:'#1f2733'} }
+        y:{ ticks:{color:'#4a5568', callback:v=>'$'+v.toLocaleString()}, grid:{color:'#1c2b23'} }
       },
       plugins:{ legend:{display:false},
         tooltip:{ callbacks:{ label:ctx=>' '+ctx.dataset.label+': $'+ctx.parsed.y.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) } }
@@ -492,10 +492,10 @@ function renderAllocChart(holdings){
   });
   const labels = Object.keys(byType);
   const data   = labels.map(k=>+byType[k].toFixed(2));
-  const colors = {crypto:'#f5a623', stock:'#3d9cf0', etf:'#b47bff'};
+  const colors = {crypto:'#ffb000', stock:'#38c6ff', etf:'#b47bff'};
   mkChart('an-alloc-chart',{
     type:'doughnut',
-    data:{ labels, datasets:[{data, backgroundColor:labels.map(l=>colors[l]||PALETTE[0]), borderColor:'#111418', borderWidth:2}] },
+    data:{ labels, datasets:[{data, backgroundColor:labels.map(l=>colors[l]||PALETTE[0]), borderColor:'#0e1512', borderWidth:2}] },
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{position:'bottom', labels:{color:'#8899aa',font:{size:11}}},
         tooltip:{ callbacks:{ label:ctx=>' '+ctx.label+': $'+ctx.parsed.toLocaleString('en-AU',{minimumFractionDigits:2}) } }
@@ -517,13 +517,13 @@ function renderAnnualChart(){
   mkChart('an-annual-chart',{
     type:'bar',
     data:{ labels:years, datasets:[
-      {label:'Cumulative Invested', data:invested, backgroundColor:'rgba(61,156,240,0.5)', borderColor:'#3d9cf0', borderWidth:1, yAxisID:'y'},
-      {label:'Dividends (year)',    data:divByYear, backgroundColor:'rgba(0,214,143,0.7)', borderColor:'#00d68f', borderWidth:1, yAxisID:'y'},
+      {label:'Cumulative Invested', data:invested, backgroundColor:'rgba(56,198,255,0.5)', borderColor:'#38c6ff', borderWidth:1, yAxisID:'y'},
+      {label:'Dividends (year)',    data:divByYear, backgroundColor:'rgba(41,255,160,0.7)', borderColor:'#29ffa0', borderWidth:1, yAxisID:'y'},
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       scales:{
         x:{ticks:{color:'#4a5568'}},
-        y:{ticks:{color:'#4a5568', callback:v=>'$'+v.toLocaleString()}, grid:{color:'#1f2733'}}
+        y:{ticks:{color:'#4a5568', callback:v=>'$'+v.toLocaleString()}, grid:{color:'#1c2b23'}}
       },
       plugins:{legend:{labels:{color:'#8899aa'}}}
     }

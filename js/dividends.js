@@ -908,14 +908,14 @@ function renderDivCharts(){
     type:'bar',
     data:{ labels:fyLabels.length?fyLabels:['No data'], datasets:[{
       label:'Cash Dividend (AUD)', data:fyData.length?fyData:[0],
-      backgroundColor:'rgba(0,214,143,0.6)', borderColor:'#00d68f', borderWidth:1
+      backgroundColor:'rgba(41,255,160,0.6)', borderColor:'#29ffa0', borderWidth:1
     },{
       label:'Grossed-up (incl. Franking Credits)', data:fyDataGross.length?fyDataGross:[0],
       backgroundColor:'rgba(96,165,250,0.35)', borderColor:'#60a5fa', borderWidth:1,
       borderDash:[4,3]
     }]},
     options:{ responsive:true, maintainAspectRatio:false,
-      scales:{ x:{ticks:{color:'#4a5568'}}, y:{ticks:{color:'#4a5568',callback:v=>'$'+v.toLocaleString()}, grid:{color:'#1f2733'}} },
+      scales:{ x:{ticks:{color:'#4a5568'}}, y:{ticks:{color:'#4a5568',callback:v=>'$'+v.toLocaleString()}, grid:{color:'#1c2b23'}} },
       plugins:{legend:{labels:{color:'#8899aa'}}}
     }
   });
@@ -929,7 +929,7 @@ function renderDivCharts(){
     type:'doughnut',
     data:{ labels:symLabels.length?symLabels:['No data'], datasets:[{
       data:symData.length?symData:[1],
-      backgroundColor:PALETTE, borderColor:'#111418', borderWidth:2
+      backgroundColor:PALETTE, borderColor:'#0e1512', borderWidth:2
     }]},
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{position:'bottom',labels:{color:'#8899aa',font:{size:10}}},
@@ -1014,7 +1014,7 @@ function renderDividends(){
 
   const TYPES = ['dividend','distribution','drp','interest','staking','airdrop'];
   const TYPE_LABEL = {dividend:'Dividend',distribution:'Distribution',interest:'Interest',staking:'Staking',airdrop:'Airdrop',drp:'DRP'};
-  const EDIT_BTN = `cursor:pointer;background:#1a2f4a;color:#3d9cf0;border:1px solid #3d9cf0;border-radius:4px;padding:3px 8px;font-size:11px;margin-right:4px`;
+  const EDIT_BTN = `cursor:pointer;background:#1a2f4a;color:#38c6ff;border:1px solid #38c6ff;border-radius:4px;padding:3px 8px;font-size:11px;margin-right:4px`;
 
   $('dv-body').innerHTML = filtered.map(d=>{
     if(editingDivId != null && String(editingDivId) === String(d.id)){

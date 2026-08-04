@@ -666,7 +666,7 @@ function renderSuperAccounts(){
     const bf = calcBringForwardPeriod(contrib, CUR_FY);
     const bfPeriodBlock = bf ? `
         <div style="padding:12px;border-radius:6px;margin-bottom:14px;
-          background:${bf.isExpired?'rgba(74,85,104,0.15)':bf.isActive?'rgba(16,185,129,0.1)':'rgba(245,166,35,0.1)'};
+          background:${bf.isExpired?'rgba(74,85,104,0.15)':bf.isActive?'rgba(16,185,129,0.1)':'rgba(255,176,0,0.1)'};
           border:1px solid ${bf.isExpired?'var(--border2)':bf.isActive?'var(--green)':'var(--gold)'}">
           <div style="font-family:var(--mono);font-size:11px;letter-spacing:.05em;margin-bottom:8px;
             color:${bf.isExpired?'var(--text3)':bf.isActive?'var(--green)':'var(--gold)'}">
@@ -697,7 +697,7 @@ function renderSuperAccounts(){
             (${n2(nc.tsb)})
           </div>` : ''}
         ${(priorTSBRaw==null||priorTSBRaw==='') ? `
-          <div style="padding:10px;background:rgba(245,166,35,0.1);border-radius:6px;
+          <div style="padding:10px;background:rgba(255,176,0,0.1);border-radius:6px;
             color:var(--gold);font-size:12px;margin-bottom:12px">
             Enter "Super Balance at 30 Jun FY${PREV_FY}" above to determine bring-forward eligibility.
             Showing the standard annual cap for now.
