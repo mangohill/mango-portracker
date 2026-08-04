@@ -1,7 +1,7 @@
 // ── trades.js ─────────────────────────────────────────────
 
 function renderR(){
-  const man=[...trades].filter(t=>t.source==='manual').reverse().slice(0,8);
+  const man=[...trades].filter(t=>t.source==='manual').sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
   $('re').style.display=man.length?'none':'';
   const im={}; trades.forEach((t,i)=>im[t.id]=i);
   $('rb').innerHTML=man.map(t=>`<tr>

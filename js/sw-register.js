@@ -289,9 +289,11 @@ function renderDivCheckResults(results, showAll) {
 
   // Hidden by default: already-recorded rows and rows you've explicitly dismissed.
   // Toggle reveals the full list (recorded shown faded ✓, skipped shown with ↩ Restore).
+  // Sorted A→Z by symbol since that's the table's first column.
+  const bySymbol = (a,b) => a.symbol.localeCompare(b.symbol) || a.date.localeCompare(b.date);
   const rows = showAll
-    ? [...missing, ...found].sort((a,b) => a.date.localeCompare(b.date))
-    : visibleMissing.sort((a,b) => a.date.localeCompare(b.date));
+    ? [...missing, ...found].sort(bySymbol)
+    : visibleMissing.sort(bySymbol);
 
   const hiddenCount = found.length + skippedMissing.length;
 

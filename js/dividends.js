@@ -987,12 +987,11 @@ function renderDividends(){
     return true;
   });
 
-  // Sort
+  // Sort — default to most-recent-first by date whenever nothing's been explicitly chosen
+  if(!getSort('dv-body').col) SORT_STATE['dv-body'] = {col:'date', dir:-1};
   const {col, dir} = getSort('dv-body');
   if(col){
     filtered = sortRows(filtered, col, dir, 'type', 'symbol');
-  } else {
-    filtered = filtered.reverse();
   }
 
   $('dv-empty').style.display = filtered.length ? 'none' : '';

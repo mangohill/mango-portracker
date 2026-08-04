@@ -607,7 +607,7 @@ function hdSort(key){ hdSortKey=key; $('hd-sort').value=key; renderHD(); }
 
 function renderHD(){
   // Sync dropdown -> SORT_STATE on entry, then header clicks update SORT_STATE
-  const dropVal = ($('hd-sort')?.value) || 'value_desc';
+  const dropVal = ($('hd-sort')?.value) || 'symbol';
   const search  = ($('hd-search').value||'').toLowerCase();
   const typeF   = $('hd-type').value;
   const showF   = $('hd-show').value;

@@ -354,15 +354,14 @@ function renderT(){
     (!s||(t.symbol||'').toLowerCase().includes(s))&&(!si||t.type===si)&&(!so||(t.source||'')=== so)
     &&(!ownerF_t || getSymbolOwner(t.symbol) === ownerF_t));
 
-  // Sort — default newest first if no sort set
+  // Sort — default to most-recent-first by date whenever nothing's been explicitly chosen
+  if(!getSort('tb').col) SORT_STATE['tb'] = {col:'date', dir:-1};
   const {col, dir} = getSort('tb');
   if(col){
     f = sortRows(f.map(t=>{
       const g=+t.units * +t.price;
       return {...t, _gross:g, _net:t.type==='buy'?g+(+t.fees||0):g-(+t.fees||0)};
     }), col, dir, 'assetType', 'symbol');
-  } else {
-    f = f.reverse(); // default: newest first
   }
 
   $('tc').textContent=f.length;

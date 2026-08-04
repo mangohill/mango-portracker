@@ -108,7 +108,7 @@ let anHiddenGroups = new Set();
 let anPerfFilter = 'all'; // asset type filter for performers // groups hidden in analytics chart // 0=All, 1=Stocks, 2=Crypto
 let propRepayAnnual = false; // true=annual, false=monthly
 let editingDivId    = null;
-let hdSortKey = 'value_desc';
+let hdSortKey = 'symbol'; // matches the "Name A→Z" default shown in the hd-sort dropdown
 let dvFYFilter = 'ALL';
 
 // CoinGecko symbol→id
