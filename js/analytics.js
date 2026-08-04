@@ -636,6 +636,8 @@ function renderHD(){
   // Map dropdown value to sort col/dir for initial load
   if(!SORT_STATE['hd-body'] || !SORT_STATE['hd-body'].col){
     const dropMap = {
+      'symbol':      {col:'symbol', dir:1},
+      'symbol_desc': {col:'symbol', dir:-1},
       'value_desc':  {col:'mkt',  dir:-1},
       'value_asc':   {col:'mkt',  dir:1},
       'pnl_desc':    {col:'pnl',  dir:-1},
@@ -644,10 +646,10 @@ function renderHD(){
       'pnlpct_asc':  {col:'pct',  dir:1},
       'cost_desc':   {col:'costBasis', dir:-1},
       'cost_asc':    {col:'costBasis', dir:1},
-      'name_asc':    {col:'symbol', dir:1},
-      'name_desc':   {col:'symbol', dir:-1},
+      'units_desc':  {col:'units', dir:-1},
+      'alloc_desc':  {col:'alloc', dir:-1},
     };
-    if(dropMap[dropVal]) SORT_STATE['hd-body'] = dropMap[dropVal];
+    SORT_STATE['hd-body'] = dropMap[dropVal] || {col:'symbol', dir:1};
   }
 
   const holdings = calcH();
