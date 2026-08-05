@@ -1782,47 +1782,113 @@ function showDRTotalBreakdown(propId){
       <button onclick="document.getElementById('dr-total-popup').remove()"
         style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
     </div>
-    <table style="width:100%;border-collapse:collapse">
-      <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:5px 0 2px;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase" colspan="2">Investment Amount</td>
-      </tr>
-      <tr>
-        <td style="padding:3px 0 3px 10px;color:var(--text2)">Buy Orders</td>
-        <td style="text-align:right;color:var(--text)">${n2(t.buyOnly)}</td>
-      </tr>
-      <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:3px 0 5px 10px;color:var(--text2)">DRP Orders</td>
-        <td style="text-align:right;color:var(--text)">${n2(t.drpAmount)}</td>
-      </tr>
-      <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:5px 0;color:var(--text2);font-weight:600">= Investment Amount</td>
-        <td style="text-align:right;color:var(--text);font-weight:600">${n2(t.invested)}</td>
-      </tr>
-      <tr style="border-bottom:2px solid var(--border2)">
-        <td style="padding:5px 0;color:var(--text2)">Capital Gain <span style="color:var(--text3)">(unrealised, lifetime, buy+DRP units)</span></td>
-        <td style="text-align:right;color:${t.capitalGain>=0?'var(--green)':'var(--red)'}">${n2(t.capitalGain)}</td>
-      </tr>
-      <tr style="font-weight:700">
-        <td style="padding:6px 0;color:var(--text)">Total Investment</td>
-        <td style="text-align:right;color:var(--text)">${n2(t.total)}</td>
-      </tr>
-      <tr>
-        <td style="padding:10px 0 5px;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase" colspan="2">Not included in total</td>
-      </tr>
-      <tr style="background:var(--gold-dim)">
-        <td style="padding:5px 8px;color:var(--gold)">Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></td>
-        <td style="text-align:right;color:var(--gold);padding:5px 8px">${n2(t.dividends)}</td>
-      </tr>
-    </table>
+    <div style="display:flex;flex-direction:column">
+      <details style="border-bottom:1px solid var(--border);padding:5px 0">
+        <summary style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;color:var(--text2);font-weight:600">
+          <span>Invested Amount</span>
+          <span style="color:var(--text);font-weight:600">${n2(t.invested)}</span>
+        </summary>
+        <div style="padding:6px 0 2px 14px;display:flex;flex-direction:column;gap:3px">
+          <div style="display:flex;justify-content:space-between;color:var(--text2)">
+            <span>Buy Orders</span><span style="color:var(--text)">${n2(t.buyOnly)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;color:var(--text2)">
+            <span>DRP Orders</span><span style="color:var(--text)">${n2(t.drpAmount)}</span>
+          </div>
+        </div>
+      </details>
+      <div style="display:flex;justify-content:space-between;border-bottom:2px solid var(--border2);padding:5px 0">
+        <span style="color:var(--text2)">Capital Gain <span style="color:var(--text3)">(unrealised, lifetime, buy+DRP units)</span></span>
+        <span style="color:${t.capitalGain>=0?'var(--green)':'var(--red)'}">${n2(t.capitalGain)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-weight:700">
+        <span style="color:var(--text)">Total Investment</span>
+        <span style="color:var(--text)">${n2(t.total)}</span>
+      </div>
+      <div style="padding:10px 0 5px;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase">Not included in total</div>
+      <div style="display:flex;justify-content:space-between;background:var(--gold-dim);padding:5px 8px;border-radius:4px">
+        <span style="color:var(--gold)">Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></span>
+        <span style="color:var(--gold)">${n2(t.dividends)}</span>
+      </div>
+    </div>
     <div style="margin-top:12px;font-size:10px;color:var(--text3)">
-      Total Investment = Investment Amount (Buy + DRP orders) + Capital Gain.<br>
+      Total Investment = Invested Amount (Buy + DRP orders) + Capital Gain.<br>
       Dividend Income is shown for reference only — DRP-reinvested amounts are already
-      counted in Investment Amount, so adding it in would double-count.
+      counted in Invested Amount, so adding it in would double-count.
     </div>`;
 
   popup.addEventListener('click', e => e.stopPropagation());
   // Defer attaching the outside-click listener — otherwise the click that
   // opened the popup is still bubbling to document and would close it instantly.
+  setTimeout(()=>{
+    document.addEventListener('click', function dismiss(){
+      popup.remove();
+      document.removeEventListener('click', dismiss);
+    });
+  }, 0);
+
+  document.body.appendChild(popup);
+}
+
+// ── DEBT RECYCLING — Total Gain breakdown popup ────────────────────────
+function showDRGainBreakdown(propId){
+  const t = (window.__drGainBreakdown||{})[propId];
+  if(!t){ notify('Breakdown not available — re-open Property tab.','err'); return; }
+  const existing = document.getElementById('dr-gain-popup');
+  if(existing){ existing.remove(); return; }
+
+  const popup = document.createElement('div');
+  popup.id = 'dr-gain-popup';
+  popup.style.cssText = [
+    'position:fixed','top:50%','left:50%',
+    'transform:translate(-50%,-50%)',
+    'background:var(--surface)','border:1px solid var(--border)',
+    'border-radius:10px','padding:20px 24px',
+    'z-index:9999','min-width:320px','max-width:95vw',
+    'box-shadow:0 8px 32px rgba(0,0,0,.5)',
+    'font-family:var(--mono)','font-size:12px',
+  ].join(';');
+
+  popup.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:700;color:var(--text)">Total Gain — ${escHtml(t.propName)}</div>
+      <button onclick="document.getElementById('dr-gain-popup').remove()"
+        style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase">
+        <span>Capital Gain calc</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0 3px 10px;color:var(--text2)">
+        <span>Current Value <span style="color:var(--text3)">(linked holdings, today)</span></span>
+        <span style="color:var(--text)">${n2(t.currentValue)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0 5px 10px;color:var(--text2);border-bottom:1px solid var(--border)">
+        <span>− Invested Amount <span style="color:var(--text3)">(cost basis)</span></span>
+        <span style="color:var(--text)">${n2(t.invested)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:2px solid var(--border2)">
+        <span style="color:var(--text2);font-weight:600">= Capital Gain <span style="color:var(--text3);font-weight:400">(unrealised, lifetime)</span></span>
+        <span style="color:${t.capitalGain>=0?'var(--green)':'var(--red)'};font-weight:600">${n2(t.capitalGain)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:2px solid var(--border2)">
+        <span style="color:var(--text2)">+ Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></span>
+        <span style="color:var(--gold)">${n2(t.dividends)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-weight:700">
+        <span style="color:var(--text)">= Total Gain</span>
+        <span style="color:${t.total>=0?'var(--green)':'var(--red)'}">${n2(t.total)}</span>
+      </div>
+    </div>
+    <div style="margin-top:12px;font-size:10px;color:var(--text3)">
+      Total Gain = (Current Value − Invested Amount) + Dividend Income.<br>
+      This isn't double-counting: DRP dividends raise Invested Amount (via the reinvested
+      units' cost base), which lowers Capital Gain by that same amount — adding Dividend
+      Income back nets it out, leaving the true return versus actual cash you put in
+      (buy orders) plus every dollar of dividends the strategy has paid, reinvested or not.
+    </div>`;
+
+  popup.addEventListener('click', e => e.stopPropagation());
   setTimeout(()=>{
     document.addEventListener('click', function dismiss(){
       popup.remove();
@@ -1923,6 +1989,7 @@ function renderProperties(){
     return;
   }
   window.__drBreakdown = {};
+  window.__drGainBreakdown = {};
   wrap.innerHTML = properties.map(p=>{
     const m = propMetrics(p);
     const typeLabel = PROP_TYPE_LABEL[p.propType]||p.propType;
@@ -2056,7 +2123,7 @@ function renderProperties(){
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
             ${(()=>{
-              // Total Investment = Investment Amount (Buy orders + DRP orders,
+              // Total Investment = Invested Amount (Buy orders + DRP orders,
               // i.e. full cost basis of currently held units) + Capital Gain.
               // Dividend Income is displayed for reference only and is NOT
               // added in, since DRP amounts are already inside Investment Amount.
@@ -2073,7 +2140,19 @@ function renderProperties(){
                 <div class="${clr(totalInv)}" style="font-family:var(--mono);font-size:13px;font-weight:600">${n2(totalInv)}</div>
               </div>`;
             })()}
-            ${stat('Total Gain (Capital + Dividends)', n2(drCap.lifetimeUnrealised + drDivs.lifetimeIncome), clr(drCap.lifetimeUnrealised + drDivs.lifetimeIncome))}
+            ${(()=>{
+              const capGain = drCap.lifetimeUnrealised;
+              const divs    = drDivs.lifetimeIncome;
+              const totalGain = capGain + divs;
+              window.__drGainBreakdown[p.id] = {
+                propName: p.name, currentValue: drCap.currentValue, invested: drCap.costBasis,
+                capitalGain: capGain, dividends: divs, total: totalGain,
+              };
+              return `<div style="cursor:pointer" onclick="showDRGainBreakdown('${p.id}')" title="Click for breakdown">
+                <div style="font-size:10px;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:2px">Total Gain (Capital + Dividends) <span style="text-decoration:underline">ⓘ</span></div>
+                <div class="${clr(totalGain)}" style="font-family:var(--mono);font-size:13px;font-weight:600">${n2(totalGain)}</div>
+              </div>`;
+            })()}
             ${stat('ROI %', (drCap.costBasis>0 ? ((drCap.lifetimeUnrealised+drDivs.lifetimeIncome)/drCap.costBasis*100) : 0).toFixed(2)+'%', clr(drCap.lifetimeUnrealised + drDivs.lifetimeIncome))}
             ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(plainSymbol(s))).join(', ') : '—')}
           </div>
