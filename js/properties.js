@@ -1752,6 +1752,62 @@ function toggleDRSymbol(sym){
   calcPropPreview();
 }
 
+// ── DEBT RECYCLING — Total Investment breakdown popup ─────────────────
+function showDRTotalBreakdown(propId){
+  const t = (window.__drBreakdown||{})[propId];
+  if(!t){ notify('Breakdown not available — re-open Property tab.','err'); return; }
+  const existing = document.getElementById('dr-total-popup');
+  if(existing){ existing.remove(); return; }
+
+  const popup = document.createElement('div');
+  popup.id = 'dr-total-popup';
+  popup.style.cssText = [
+    'position:fixed','top:50%','left:50%',
+    'transform:translate(-50%,-50%)',
+    'background:var(--surface)','border:1px solid var(--border)',
+    'border-radius:10px','padding:20px 24px',
+    'z-index:9999','min-width:320px','max-width:95vw',
+    'box-shadow:0 8px 32px rgba(0,0,0,.5)',
+    'font-family:var(--mono)','font-size:12px',
+  ].join(';');
+
+  popup.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:700;color:var(--text)">Total Investment — ${escHtml(t.propName)}</div>
+      <button onclick="document.getElementById('dr-total-popup').remove()"
+        style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 0;color:var(--text2)">Invested Amount <span style="color:var(--text3)">(cost basis, currently held)</span></td>
+        <td style="text-align:right;color:var(--text)">${n2(t.invested)}</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 0;color:var(--text2)">Capital Gain <span style="color:var(--text3)">(unrealised, lifetime)</span></td>
+        <td style="text-align:right;color:${t.capitalGain>=0?'var(--green)':'var(--red)'}">${n2(t.capitalGain)}</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 0;color:var(--text2)">Dividend Income <span style="color:var(--text3)">(lifetime)</span></td>
+        <td style="text-align:right;color:var(--green)">${n2(t.dividends)}</td>
+      </tr>
+      <tr style="font-weight:700;border-top:2px solid var(--border2)">
+        <td style="padding:6px 0;color:var(--text)">Total Investment</td>
+        <td style="text-align:right;color:var(--text)">${n2(t.total)}</td>
+      </tr>
+    </table>
+    <div style="margin-top:12px;font-size:10px;color:var(--text3)">
+      Total Investment = Invested Amount + Capital Gain + Dividend Income
+    </div>`;
+
+  popup.addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', function dismiss(){
+    popup.remove();
+    document.removeEventListener('click', dismiss);
+  });
+
+  document.body.appendChild(popup);
+}
+
 function togglePropSoldFields(){
   const box = $('pf-sold');
   const wrap = $('pf-sold-fields');
@@ -1841,6 +1897,7 @@ function renderProperties(){
     wrap.innerHTML='<div class="empty"><div class="empty-icon">🏠</div>No properties added yet. Fill in the form above.</div>';
     return;
   }
+  window.__drBreakdown = {};
   wrap.innerHTML = properties.map(p=>{
     const m = propMetrics(p);
     const typeLabel = PROP_TYPE_LABEL[p.propType]||p.propType;
@@ -1973,6 +2030,18 @@ function renderProperties(){
             ${stat(fyLabel(drDivs.curFY)+' Dividend Income',  n2(drDivs.curFYIncome),  'pos')}
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
+            ${(()=>{
+              const totalInv = drCap.costBasis + drCap.lifetimeUnrealised + drDivs.lifetimeIncome;
+              window.__drBreakdown[p.id] = {
+                propName: p.name, invested: drCap.costBasis,
+                capitalGain: drCap.lifetimeUnrealised, dividends: drDivs.lifetimeIncome,
+                total: totalInv,
+              };
+              return `<div style="cursor:pointer" onclick="showDRTotalBreakdown('${p.id}')" title="Click for breakdown">
+                <div style="font-size:10px;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:2px">Total Investment <span style="text-decoration:underline">ⓘ</span></div>
+                <div class="${clr(totalInv)}" style="font-family:var(--mono);font-size:13px;font-weight:600">${n2(totalInv)}</div>
+              </div>`;
+            })()}
             ${stat('Total Gain (Capital + Dividends)', n2(drCap.lifetimeUnrealised + drDivs.lifetimeIncome), clr(drCap.lifetimeUnrealised + drDivs.lifetimeIncome))}
             ${stat('ROI %', (drCap.costBasis>0 ? ((drCap.lifetimeUnrealised+drDivs.lifetimeIncome)/drCap.costBasis*100) : 0).toFixed(2)+'%', clr(drCap.lifetimeUnrealised + drDivs.lifetimeIncome))}
             ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(plainSymbol(s))).join(', ') : '—')}
