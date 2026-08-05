@@ -1399,6 +1399,11 @@ function calcDRDividendStats(p){
   if(syms.size){
     dividends.forEach(d=>{
       if(!syms.has((d.symbol||'').toUpperCase())) return;
+      // DRP-reinvested dividends are never received as cash — they're already
+      // reflected in cost basis via the matching 'drp' buy trade. Counting them
+      // here too would double-count that amount in Total Investment / ROI /
+      // Net Cash Flow, so only true cash dividends are summed.
+      if(d.type==='drp') return;
       lifetime += +d.amount||0;
       const fy = dateToFY(d.date);
       if(fy===curFY)       cur  += +d.amount||0;
