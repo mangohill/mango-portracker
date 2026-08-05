@@ -1399,11 +1399,6 @@ function calcDRDividendStats(p){
   if(syms.size){
     dividends.forEach(d=>{
       if(!syms.has((d.symbol||'').toUpperCase())) return;
-      // DRP-reinvested dividends are never received as cash — they're already
-      // reflected in cost basis via the matching 'drp' buy trade. Counting them
-      // here too would double-count that amount in Total Investment / ROI /
-      // Net Cash Flow, so only true cash dividends are summed.
-      if(d.type==='drp') return;
       lifetime += +d.amount||0;
       const fy = dateToFY(d.date);
       if(fy===curFY)       cur  += +d.amount||0;
@@ -1787,21 +1782,26 @@ function showDRTotalBreakdown(propId){
         <td style="padding:5px 0;color:var(--text2)">Invested Amount <span style="color:var(--text3)">(cost basis, currently held)</span></td>
         <td style="text-align:right;color:var(--text)">${n2(t.invested)}</td>
       </tr>
-      <tr style="border-bottom:1px solid var(--border)">
+      <tr style="border-bottom:2px solid var(--border2)">
         <td style="padding:5px 0;color:var(--text2)">Capital Gain <span style="color:var(--text3)">(unrealised, lifetime)</span></td>
         <td style="text-align:right;color:${t.capitalGain>=0?'var(--green)':'var(--red)'}">${n2(t.capitalGain)}</td>
       </tr>
-      <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:5px 0;color:var(--text2)">Dividend Income <span style="color:var(--text3)">(lifetime)</span></td>
-        <td style="text-align:right;color:var(--green)">${n2(t.dividends)}</td>
-      </tr>
-      <tr style="font-weight:700;border-top:2px solid var(--border2)">
+      <tr style="font-weight:700">
         <td style="padding:6px 0;color:var(--text)">Total Investment</td>
         <td style="text-align:right;color:var(--text)">${n2(t.total)}</td>
       </tr>
+      <tr>
+        <td style="padding:10px 0 5px;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase" colspan="2">Not included in total (for reference)</td>
+      </tr>
+      <tr>
+        <td style="padding:5px 0;color:var(--text2)">Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></td>
+        <td style="text-align:right;color:var(--green)">${n2(t.dividends)}</td>
+      </tr>
     </table>
     <div style="margin-top:12px;font-size:10px;color:var(--text3)">
-      Total Investment = Invested Amount + Capital Gain + Dividend Income
+      Total Investment = Invested Amount + Capital Gain.<br>
+      Dividend Income is shown for reference only — DRP-reinvested dividends are already
+      reflected in Invested Amount (as extra units purchased), so adding it in would double-count.
     </div>`;
 
   popup.addEventListener('click', e => e.stopPropagation());
@@ -2040,7 +2040,11 @@ function renderProperties(){
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
             ${(()=>{
-              const totalInv = drCap.costBasis + drCap.lifetimeUnrealised + drDivs.lifetimeIncome;
+              // Total Investment = Cost Basis + Capital Gain only. Dividend Income
+              // (incl. DRP) is shown in the breakdown popup for reference but is
+              // NOT added in — DRP amounts are already reflected in Cost Basis via
+              // their 'drp' buy trades, so summing dividends here would double-count.
+              const totalInv = drCap.costBasis + drCap.lifetimeUnrealised;
               window.__drBreakdown[p.id] = {
                 propName: p.name, invested: drCap.costBasis,
                 capitalGain: drCap.lifetimeUnrealised, dividends: drDivs.lifetimeIncome,
