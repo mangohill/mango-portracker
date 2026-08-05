@@ -1800,10 +1800,14 @@ function showDRTotalBreakdown(propId){
     </div>`;
 
   popup.addEventListener('click', e => e.stopPropagation());
-  document.addEventListener('click', function dismiss(){
-    popup.remove();
-    document.removeEventListener('click', dismiss);
-  });
+  // Defer attaching the outside-click listener — otherwise the click that
+  // opened the popup is still bubbling to document and would close it instantly.
+  setTimeout(()=>{
+    document.addEventListener('click', function dismiss(){
+      popup.remove();
+      document.removeEventListener('click', dismiss);
+    });
+  }, 0);
 
   document.body.appendChild(popup);
 }
