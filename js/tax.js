@@ -916,13 +916,13 @@ ${(()=>{
           </td>
           <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
             ${lumTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
-            onclick='${lumTax.div293>0?'showDiv293Breakdown(\'lumia\')':''}'
+            onclick='${lumTax.div293>0?"showDiv293Breakdown(\"lumia\")":""}'
             title='${lumTax.div293>0?'Click to see calculation':''}'>
             ${lumTax.div293>0?n2(lumTax.div293):'—'}
           </td>
           <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
             ${chiTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
-            onclick='${chiTax.div293>0?'showDiv293Breakdown(\'chilli\')':''}'
+            onclick='${chiTax.div293>0?"showDiv293Breakdown(\"chilli\")":""}'
             title='${chiTax.div293>0?'Click to see calculation':''}'>
             ${chiTax.div293>0?n2(chiTax.div293):'—'}
           </td>
