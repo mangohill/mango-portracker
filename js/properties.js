@@ -1418,7 +1418,7 @@ function calcDRCapitalGains(p){
   const now = new Date();
   const curFY  = now.getMonth() >= 6 ? now.getFullYear()+1 : now.getFullYear();
   const prevFY = curFY - 1;
-  const empty = { lifetimeUnrealised:0, currentValue:0, lifetimeRealised:0, curFYRealised:0, prevFYRealised:0, curFY, prevFY };
+  const empty = { lifetimeUnrealised:0, currentValue:0, costBasis:0, lifetimeRealised:0, curFYRealised:0, prevFYRealised:0, curFY, prevFY };
   if(!syms.size || typeof buildDisposals!=='function') return empty;
 
   const { disposals, openParcels } = buildDisposals();
@@ -1432,7 +1432,7 @@ function calcDRCapitalGains(p){
     else if(fy===prevFY) prevFYRealised += d.gain;
   });
 
-  let lifetimeUnrealised = 0, currentValue = 0;
+  let lifetimeUnrealised = 0, currentValue = 0, costBasis = 0;
   syms.forEach(sym=>{
     const list  = (openParcels[sym]||[]).filter(pc=>pc.units>0.000001);
     const units = list.reduce((s,pc)=>s+pc.units,0);
@@ -1440,12 +1440,14 @@ function calcDRCapitalGains(p){
     const price = prices[priceSymbol(sym)]||0;
     const value = units*price;
     currentValue       += value;
+    costBasis           += cost;
     lifetimeUnrealised  += value - cost;
   });
 
   return {
     lifetimeUnrealised: +lifetimeUnrealised.toFixed(2),
     currentValue:        +currentValue.toFixed(2),
+    costBasis:            +costBasis.toFixed(2),
     lifetimeRealised:   +lifetimeRealised.toFixed(2),
     curFYRealised:       +curFYRealised.toFixed(2),
     prevFYRealised:      +prevFYRealised.toFixed(2),
@@ -1971,8 +1973,8 @@ function renderProperties(){
             ${stat(fyLabel(drDivs.curFY)+' Dividend Income',  n2(drDivs.curFYIncome),  'pos')}
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
-            ${stat('Lifetime Unrealised Gain', n2(drCap.lifetimeUnrealised), clr(drCap.lifetimeUnrealised))}
-            ${stat('Total Current Investment', n2(drCap.currentValue + drDivs.lifetimeIncome), 'pos')}
+            ${stat('Total Gain (Capital + Dividends)', n2(drCap.lifetimeUnrealised + drDivs.lifetimeIncome), clr(drCap.lifetimeUnrealised + drDivs.lifetimeIncome))}
+            ${stat('ROI %', (drCap.costBasis>0 ? ((drCap.lifetimeUnrealised+drDivs.lifetimeIncome)/drCap.costBasis*100) : 0).toFixed(2)+'%', clr(drCap.lifetimeUnrealised + drDivs.lifetimeIncome))}
             ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(plainSymbol(s))).join(', ') : '—')}
           </div>
         </div>`:`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;display:flex;align-items:center;justify-content:center">
