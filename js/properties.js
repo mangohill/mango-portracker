@@ -1335,6 +1335,7 @@ function propMetrics(p){
 
   let monthlyInterest=0, interestSaved=0, annualInterest=0, repay=0;
   let investmentAnnualInterest = 0, personalAnnualInterest = 0;
+  let drBalance = 0, drOffset = 0;
   splits.forEach(sp=>{
     const bal  = +sp.balance||0;
     const off  = +sp.offset||0;
@@ -1350,7 +1351,11 @@ function propMetrics(p){
     interestSaved   += saved;
     annualInterest  += moInt*12;
     repay           += +(+sp.repay || autoR);
-    if(purpose==='investment') investmentAnnualInterest += moInt*12;
+    if(purpose==='investment'){
+      investmentAnnualInterest += moInt*12;
+      drBalance += bal;
+      drOffset  += off;
+    }
     if(purpose==='personal')   personalAnnualInterest   += moInt*12;
   });
   monthlyInterest = +monthlyInterest.toFixed(2);
@@ -1373,10 +1378,33 @@ function propMetrics(p){
   const netYield      = cval>0?(annualNetRent/cval)*100:0;
   const principalRepaid = loanInit - loanCur;
 
+  const drEffectiveBalance = Math.max(0, drBalance - drOffset);
+
   return { cval,pprice,pcosts,loanCur,loanInit,effectiveLoan,investmentAnnualInterest,personalAnnualInterest,
     monthlyInterest,interestSaved,annualInterest,
     equity,gainRaw,gainPct,lvr,annualRent,annualNetRent,
-    grossYield,netYield,repay,principalRepaid,wtRate,splits };
+    grossYield,netYield,repay,principalRepaid,wtRate,splits,
+    drBalance,drOffset,drEffectiveBalance,drAnnualInterest:investmentAnnualInterest };
+}
+
+// ── DEBT RECYCLING — linked-stock dividend income ─────────────────────
+// Sums dividends for a property's linked symbols, split into current FY
+// (AU, Jul–Jun) vs the prior FY, for side-by-side comparison in the panel.
+function calcDRDividendStats(p){
+  const syms = new Set((p.drSymbols||[]).map(s=>priceSymbol(s)));
+  const now = new Date();
+  const curFY  = now.getMonth() >= 6 ? now.getFullYear()+1 : now.getFullYear();
+  const prevFY = curFY - 1;
+  let cur = 0, prev = 0;
+  if(syms.size){
+    dividends.forEach(d=>{
+      if(!syms.has(priceSymbol(d.symbol))) return;
+      const fy = dateToFY(d.date);
+      if(fy===curFY)       cur  += +d.amount||0;
+      else if(fy===prevFY) prev += +d.amount||0;
+    });
+  }
+  return { curFY, prevFY, curFYIncome:+cur.toFixed(2), prevFYIncome:+prev.toFixed(2) };
 }
 
 // ── LIVE PREVIEW ──────────────────────────────────────────────────────
@@ -1441,6 +1469,8 @@ function readPropForm(){
     salePrice:     parseFloat($('pf-sprice')?.value)||0,
     sellingCosts:  parseFloat($('pf-scosts')?.value)||0,
     mainResExempt: $('pf-mainres')?.checked || false,
+    debtRecycling: ($('pf-type').value==='ppor' && $('pf-dr')?.checked) || false,
+    drSymbols:     (()=>{ try{ return JSON.parse($('pf-dr-symbols')?.dataset.selected||'[]'); }catch(e){ return []; } })(),
   };
 }
 
@@ -1623,6 +1653,49 @@ function togglePropForm(forceOpen){
   toggle.style.color   = open ? 'var(--blue)' : 'var(--text3)';
 }
 
+// ── DEBT RECYCLING — form UI ────────────────────────────────────────────
+function togglePropDRVisibility(){
+  const wrap = $('pf-dr-wrap');
+  if(!wrap) return;
+  const isPpor = $('pf-type').value === 'ppor';
+  wrap.style.display = isPpor ? '' : 'none';
+  if(!isPpor && $('pf-dr')){
+    // Debt recycling only applies to the PPOR — clear it for other types
+    $('pf-dr').checked = false;
+    togglePropDRFields();
+  }
+}
+function togglePropDRFields(){
+  const box = $('pf-dr'), fields = $('pf-dr-fields');
+  if(!box || !fields) return;
+  fields.style.display = box.checked ? '' : 'none';
+  if(box.checked) renderDRSymbolChips();
+}
+function renderDRSymbolChips(selectedSyms){
+  const wrap = $('pf-dr-symbols');
+  if(!wrap) return;
+  const selected = selectedSyms
+    ? [...new Set(selectedSyms.map(s=>priceSymbol(s)))]
+    : JSON.parse(wrap.dataset.selected||'[]');
+  wrap.dataset.selected = JSON.stringify(selected);
+  const heldSyms = [...new Set(calcH().filter(h=>h.units>0.00000001).map(h=>priceSymbol(h.symbol)))].sort();
+  if(!heldSyms.length){
+    wrap.innerHTML = '<div style="font-size:11px;color:var(--text3)">No current holdings found — add trades first.</div>';
+    return;
+  }
+  wrap.innerHTML = heldSyms.map(sym=>
+    `<span class="ca-pill${selected.includes(sym)?' active':''}" style="font-family:var(--mono)" onclick="toggleDRSymbol('${sym}')">${sym}</span>`
+  ).join('');
+}
+function toggleDRSymbol(sym){
+  const wrap = $('pf-dr-symbols');
+  if(!wrap) return;
+  let selected = JSON.parse(wrap.dataset.selected||'[]');
+  selected = selected.includes(sym) ? selected.filter(s=>s!==sym) : [...selected, sym];
+  renderDRSymbolChips(selected);
+  calcPropPreview();
+}
+
 function togglePropSoldFields(){
   const box = $('pf-sold');
   const wrap = $('pf-sold-fields');
@@ -1637,6 +1710,10 @@ function clearPropForm(){
   if($('pf-sold')) $('pf-sold').checked=false;
   if($('pf-mainres')) $('pf-mainres').checked=false;
   togglePropSoldFields();
+  if($('pf-dr')) $('pf-dr').checked=false;
+  if($('pf-dr-symbols')) $('pf-dr-symbols').dataset.selected='[]';
+  togglePropDRVisibility();
+  togglePropDRFields();
   $('pf-edit-id').textContent=''; $('pf-edit-id').dataset.id='';
   $('prop-form-title-text').textContent='Add Property';
   renderSplitRows([]);
@@ -1674,6 +1751,12 @@ function editProperty(btn){
     $('pf-mainres').checked= !!p.mainResExempt;
     togglePropSoldFields();
   }
+  togglePropDRVisibility();
+  if($('pf-dr')){
+    $('pf-dr').checked = !!p.debtRecycling;
+    renderDRSymbolChips(p.drSymbols||[]);
+    togglePropDRFields();
+  }
   $('pf-edit-id').dataset.id = p.id;
   renderSplitRows(normaliseSplits(p));
   $('prop-form-title-text').textContent = 'Edit Property — '+p.name;
@@ -1706,6 +1789,8 @@ function renderProperties(){
     const m = propMetrics(p);
     const typeLabel = PROP_TYPE_LABEL[p.propType]||p.propType;
     const lvrClass = m.lvr>80?'neg':m.lvr>60?'':'pos';
+    const isDR = p.propType==='ppor' && p.debtRecycling;
+    const drDivs = isDR ? calcDRDividendStats(p) : null;
 
     const stat = (label,val,cls='neu') =>
       `<div><div style="font-size:10px;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:2px">${label}</div>
@@ -1823,9 +1908,21 @@ function renderProperties(){
             ${stat('Net Yield',        m.netYield.toFixed(2)+'%',   clr(m.netYield))}
             ${stat('Manager',          p.hasManager==='yes'?'Yes':'Self')}
           </div>
+        </div>`:(isDR?`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">DEBT RECYCLING</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            ${stat('DR Loan Balance',    n2(m.drBalance))}
+            ${m.drOffset>0 ? stat('DR Offset',           n2(m.drOffset), 'pos') : ''}
+            ${stat('Effective DR Balance', n2(m.drEffectiveBalance))}
+            ${stat('Annual Interest (📈 deductible)', n2(m.drAnnualInterest), 'neg')}
+            ${stat(fyLabel(drDivs.curFY)+' Dividend Income',  n2(drDivs.curFYIncome),  'pos')}
+            ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
+            ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
+            ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(priceSymbol(s))).join(', ') : '—')}
+          </div>
         </div>`:`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;display:flex;align-items:center;justify-content:center">
           <div style="text-align:center;color:var(--text3);font-family:var(--mono);font-size:12px">🏠<br>Primary Residence<br>No rental income</div>
-        </div>`}
+        </div>`)}
       </div>
     </div>`;
   }).join('');

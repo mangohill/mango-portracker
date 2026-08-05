@@ -16,7 +16,7 @@ function switchTab(name,el){
   if(name==='spending'){ initSpending(); }
   if(name==='super'){ renderSuperAccounts(); renderSuperCards(); renderSuperChart(); syncSuperColorPickers(); }
   if(name==='cgt'){ renderCGT(); }
-  if(name==='property'){ renderProperties(); renderPropCards(); if($('pf-splits-wrap')&&!$('pf-splits-wrap').children.length) renderSplitRows([]); }
+  if(name==='property'){ renderProperties(); renderPropCards(); if($('pf-splits-wrap')&&!$('pf-splits-wrap').children.length) renderSplitRows([]); if(typeof togglePropDRVisibility==='function') togglePropDRVisibility(); }
   if(name==='settings'){ renderPrices(); loadCFUrl(); syncInitUI(); renderOwnershipGrid(); }
   if(name==='tax'){ renderTax(); }
 }
