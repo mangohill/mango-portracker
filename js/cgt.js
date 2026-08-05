@@ -117,7 +117,7 @@ function buildDisposals(){
 
     if(t.type === 'buy' || t.type === 'drp'){
       const buyCost = (+t.units * +t.price) + (+t.fees||0);
-      ensure(sym).push({ id:'p'+(seq++), units:+t.units, cost:buyCost, originalCost:buyCost, amitTotal:0, date:t.date });
+      ensure(sym).push({ id:'p'+(seq++), units:+t.units, cost:buyCost, originalCost:buyCost, amitTotal:0, date:t.date, source:t.type });
 
     } else if(t.type === 'sell'){
       let unitsToSell = +t.units;
@@ -163,19 +163,19 @@ function buildDisposals(){
         const destList = ensure(sym);
         if(t.overrideCostBasis){
           const earliest = stash.length ? stash.reduce((a,b)=> a.date < b.date ? a : b).date : t.date;
-          destList.push({ id:'p'+(seq++), units:+t.units, cost:+t.overrideCostBasis, originalCost:+t.overrideCostBasis, amitTotal:0, date:earliest });
+          destList.push({ id:'p'+(seq++), units:+t.units, cost:+t.overrideCostBasis, originalCost:+t.overrideCostBasis, amitTotal:0, date:earliest, source:'buy' });
         } else if(sub === 'spinoff_to'){
           const stashUnits = stash.reduce((s,p)=>s+p.units,0) || 1;
           stash.forEach(p=>{
             destList.push({ id:'p'+(seq++), units: p.units*(+t.units/stashUnits), cost: p.cost*allocPct,
-                            originalCost:(p.originalCost||p.cost)*allocPct, amitTotal:(p.amitTotal||0)*allocPct, date:p.date });
+                            originalCost:(p.originalCost||p.cost)*allocPct, amitTotal:(p.amitTotal||0)*allocPct, date:p.date, source:p.source });
           });
         } else {
           const stashUnits = stash.reduce((s,p)=>s+p.units,0) || 1;
           const ratioUnits = +t.units / stashUnits;
           stash.forEach(p=>{
             destList.push({ id:'p'+(seq++), units: p.units*ratioUnits, cost: p.cost,
-                            originalCost:(p.originalCost!=null?p.originalCost:p.cost), amitTotal:(p.amitTotal||0), date:p.date });
+                            originalCost:(p.originalCost!=null?p.originalCost:p.cost), amitTotal:(p.amitTotal||0), date:p.date, source:p.source });
           });
         }
         if(sub === 'spinoff_to'){

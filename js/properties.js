@@ -1418,7 +1418,7 @@ function calcDRCapitalGains(p){
   const now = new Date();
   const curFY  = now.getMonth() >= 6 ? now.getFullYear()+1 : now.getFullYear();
   const prevFY = curFY - 1;
-  const empty = { lifetimeUnrealised:0, currentValue:0, costBasis:0, lifetimeRealised:0, curFYRealised:0, prevFYRealised:0, curFY, prevFY };
+  const empty = { lifetimeUnrealised:0, currentValue:0, costBasis:0, investedBuyOnly:0, lifetimeRealised:0, curFYRealised:0, prevFYRealised:0, curFY, prevFY };
   if(!syms.size || typeof buildDisposals!=='function') return empty;
 
   const { disposals, openParcels } = buildDisposals();
@@ -1432,15 +1432,19 @@ function calcDRCapitalGains(p){
     else if(fy===prevFY) prevFYRealised += d.gain;
   });
 
-  let lifetimeUnrealised = 0, currentValue = 0, costBasis = 0;
+  let lifetimeUnrealised = 0, currentValue = 0, costBasis = 0, investedBuyOnly = 0;
   syms.forEach(sym=>{
     const list  = (openParcels[sym]||[]).filter(pc=>pc.units>0.000001);
     const units = list.reduce((s,pc)=>s+pc.units,0);
     const cost  = list.reduce((s,pc)=>s+pc.cost,0);
+    // "Buy orders only" — excludes units acquired via DRP reinvestment, so
+    // Invested Amount reflects actual cash put in, not reinvested dividends.
+    const buyCost = list.filter(pc=>pc.source!=='drp').reduce((s,pc)=>s+pc.cost,0);
     const price = prices[priceSymbol(sym)]||0;
     const value = units*price;
     currentValue       += value;
     costBasis           += cost;
+    investedBuyOnly     += buyCost;
     lifetimeUnrealised  += value - cost;
   });
 
@@ -1448,6 +1452,7 @@ function calcDRCapitalGains(p){
     lifetimeUnrealised: +lifetimeUnrealised.toFixed(2),
     currentValue:        +currentValue.toFixed(2),
     costBasis:            +costBasis.toFixed(2),
+    investedBuyOnly:      +investedBuyOnly.toFixed(2),
     lifetimeRealised:   +lifetimeRealised.toFixed(2),
     curFYRealised:       +curFYRealised.toFixed(2),
     prevFYRealised:      +prevFYRealised.toFixed(2),
@@ -1779,29 +1784,26 @@ function showDRTotalBreakdown(propId){
     </div>
     <table style="width:100%;border-collapse:collapse">
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:5px 0;color:var(--text2)">Invested Amount <span style="color:var(--text3)">(cost basis, currently held)</span></td>
+        <td style="padding:5px 0;color:var(--text2)">Invested Amount <span style="color:var(--text3)">(buy orders only, currently held — excl. DRP)</span></td>
         <td style="text-align:right;color:var(--text)">${n2(t.invested)}</td>
       </tr>
-      <tr style="border-bottom:2px solid var(--border2)">
-        <td style="padding:5px 0;color:var(--text2)">Capital Gain <span style="color:var(--text3)">(unrealised, lifetime)</span></td>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 0;color:var(--text2)">Capital Gain <span style="color:var(--text3)">(unrealised, lifetime, buy+DRP units)</span></td>
         <td style="text-align:right;color:${t.capitalGain>=0?'var(--green)':'var(--red)'}">${n2(t.capitalGain)}</td>
+      </tr>
+      <tr style="border-bottom:2px solid var(--border2)">
+        <td style="padding:5px 0;color:var(--text2)">Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></td>
+        <td style="text-align:right;color:var(--green)">${n2(t.dividends)}</td>
       </tr>
       <tr style="font-weight:700">
         <td style="padding:6px 0;color:var(--text)">Total Investment</td>
         <td style="text-align:right;color:var(--text)">${n2(t.total)}</td>
       </tr>
-      <tr>
-        <td style="padding:10px 0 5px;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase" colspan="2">Not included in total (for reference)</td>
-      </tr>
-      <tr>
-        <td style="padding:5px 0;color:var(--text2)">Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></td>
-        <td style="text-align:right;color:var(--green)">${n2(t.dividends)}</td>
-      </tr>
     </table>
     <div style="margin-top:12px;font-size:10px;color:var(--text3)">
-      Total Investment = Invested Amount + Capital Gain.<br>
-      Dividend Income is shown for reference only — DRP-reinvested dividends are already
-      reflected in Invested Amount (as extra units purchased), so adding it in would double-count.
+      Total Investment = Invested Amount (buy orders only) + Capital Gain + Dividend Income.<br>
+      Invested Amount excludes DRP-acquired units, since those units are the product of
+      reinvested Dividend Income — already counted separately below.
     </div>`;
 
   popup.addEventListener('click', e => e.stopPropagation());
@@ -2040,13 +2042,13 @@ function renderProperties(){
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
             ${(()=>{
-              // Total Investment = Cost Basis + Capital Gain only. Dividend Income
-              // (incl. DRP) is shown in the breakdown popup for reference but is
-              // NOT added in — DRP amounts are already reflected in Cost Basis via
-              // their 'drp' buy trades, so summing dividends here would double-count.
-              const totalInv = drCap.costBasis + drCap.lifetimeUnrealised;
+              // Total Investment = Invested Amount (Buy orders only — DRP-acquired
+              // units excluded, since those units are already the product of
+              // reinvested Dividend Income) + Capital Gain (all held units, Buy+DRP)
+              // + Dividend Income (incl. DRP).
+              const totalInv = drCap.investedBuyOnly + drCap.lifetimeUnrealised + drDivs.lifetimeIncome;
               window.__drBreakdown[p.id] = {
-                propName: p.name, invested: drCap.costBasis,
+                propName: p.name, invested: drCap.investedBuyOnly,
                 capitalGain: drCap.lifetimeUnrealised, dividends: drDivs.lifetimeIncome,
                 total: totalInv,
               };
