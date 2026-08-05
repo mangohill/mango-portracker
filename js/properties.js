@@ -1784,26 +1784,40 @@ function showDRTotalBreakdown(propId){
     </div>
     <table style="width:100%;border-collapse:collapse">
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:5px 0;color:var(--text2)">Invested Amount <span style="color:var(--text3)">(buy orders only, currently held — excl. DRP)</span></td>
-        <td style="text-align:right;color:var(--text)">${n2(t.invested)}</td>
+        <td style="padding:5px 0 2px;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase" colspan="2">Investment Amount</td>
+      </tr>
+      <tr>
+        <td style="padding:3px 0 3px 10px;color:var(--text2)">Buy Orders</td>
+        <td style="text-align:right;color:var(--text)">${n2(t.buyOnly)}</td>
       </tr>
       <tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:5px 0;color:var(--text2)">Capital Gain <span style="color:var(--text3)">(unrealised, lifetime, buy+DRP units)</span></td>
-        <td style="text-align:right;color:${t.capitalGain>=0?'var(--green)':'var(--red)'}">${n2(t.capitalGain)}</td>
+        <td style="padding:3px 0 5px 10px;color:var(--text2)">DRP Orders</td>
+        <td style="text-align:right;color:var(--text)">${n2(t.drpAmount)}</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:5px 0;color:var(--text2);font-weight:600">= Investment Amount</td>
+        <td style="text-align:right;color:var(--text);font-weight:600">${n2(t.invested)}</td>
       </tr>
       <tr style="border-bottom:2px solid var(--border2)">
-        <td style="padding:5px 0;color:var(--text2)">Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></td>
-        <td style="text-align:right;color:var(--green)">${n2(t.dividends)}</td>
+        <td style="padding:5px 0;color:var(--text2)">Capital Gain <span style="color:var(--text3)">(unrealised, lifetime, buy+DRP units)</span></td>
+        <td style="text-align:right;color:${t.capitalGain>=0?'var(--green)':'var(--red)'}">${n2(t.capitalGain)}</td>
       </tr>
       <tr style="font-weight:700">
         <td style="padding:6px 0;color:var(--text)">Total Investment</td>
         <td style="text-align:right;color:var(--text)">${n2(t.total)}</td>
       </tr>
+      <tr>
+        <td style="padding:10px 0 5px;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase" colspan="2">Not included in total</td>
+      </tr>
+      <tr style="background:var(--gold-dim)">
+        <td style="padding:5px 8px;color:var(--gold)">Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></td>
+        <td style="text-align:right;color:var(--gold);padding:5px 8px">${n2(t.dividends)}</td>
+      </tr>
     </table>
     <div style="margin-top:12px;font-size:10px;color:var(--text3)">
-      Total Investment = Invested Amount (buy orders only) + Capital Gain + Dividend Income.<br>
-      Invested Amount excludes DRP-acquired units, since those units are the product of
-      reinvested Dividend Income — already counted separately below.
+      Total Investment = Investment Amount (Buy + DRP orders) + Capital Gain.<br>
+      Dividend Income is shown for reference only — DRP-reinvested amounts are already
+      counted in Investment Amount, so adding it in would double-count.
     </div>`;
 
   popup.addEventListener('click', e => e.stopPropagation());
@@ -2042,13 +2056,15 @@ function renderProperties(){
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
             ${(()=>{
-              // Total Investment = Invested Amount (Buy orders only — DRP-acquired
-              // units excluded, since those units are already the product of
-              // reinvested Dividend Income) + Capital Gain (all held units, Buy+DRP)
-              // + Dividend Income (incl. DRP).
-              const totalInv = drCap.investedBuyOnly + drCap.lifetimeUnrealised + drDivs.lifetimeIncome;
+              // Total Investment = Investment Amount (Buy orders + DRP orders,
+              // i.e. full cost basis of currently held units) + Capital Gain.
+              // Dividend Income is displayed for reference only and is NOT
+              // added in, since DRP amounts are already inside Investment Amount.
+              const drpAmount = drCap.costBasis - drCap.investedBuyOnly;
+              const totalInv = drCap.costBasis + drCap.lifetimeUnrealised;
               window.__drBreakdown[p.id] = {
-                propName: p.name, invested: drCap.investedBuyOnly,
+                propName: p.name, buyOnly: drCap.investedBuyOnly, drpAmount,
+                invested: drCap.costBasis,
                 capitalGain: drCap.lifetimeUnrealised, dividends: drDivs.lifetimeIncome,
                 total: totalInv,
               };
