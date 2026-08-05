@@ -1407,6 +1407,48 @@ function calcDRDividendStats(p){
   return { curFY, prevFY, curFYIncome:+cur.toFixed(2), prevFYIncome:+prev.toFixed(2) };
 }
 
+// Capital gain on a property's linked DR stocks. Reuses the CGT engine
+// (FIFO parcels + realised disposals) so figures match the CGT tab exactly.
+// Unrealised is "as of today" only — the app doesn't store historical
+// prices, so a per-FY unrealised split isn't possible; only realised gain
+// (from actual sells) can be split by FY.
+function calcDRCapitalGains(p){
+  const syms = new Set((p.drSymbols||[]).map(s=>s.toUpperCase()));
+  const now = new Date();
+  const curFY  = now.getMonth() >= 6 ? now.getFullYear()+1 : now.getFullYear();
+  const prevFY = curFY - 1;
+  const empty = { lifetimeUnrealised:0, lifetimeRealised:0, curFYRealised:0, prevFYRealised:0, curFY, prevFY };
+  if(!syms.size || typeof buildDisposals!=='function') return empty;
+
+  const { disposals, openParcels } = buildDisposals();
+
+  let lifetimeRealised=0, curFYRealised=0, prevFYRealised=0;
+  disposals.forEach(d=>{
+    if(!syms.has((d.symbol||'').toUpperCase())) return;
+    lifetimeRealised += d.gain;
+    const fy = dateToFY(d.saleDate);
+    if(fy===curFY)       curFYRealised  += d.gain;
+    else if(fy===prevFY) prevFYRealised += d.gain;
+  });
+
+  let lifetimeUnrealised = 0;
+  syms.forEach(sym=>{
+    const list  = (openParcels[sym]||[]).filter(pc=>pc.units>0.000001);
+    const units = list.reduce((s,pc)=>s+pc.units,0);
+    const cost  = list.reduce((s,pc)=>s+pc.cost,0);
+    const price = prices[priceSymbol(sym)]||0;
+    lifetimeUnrealised += (units*price) - cost;
+  });
+
+  return {
+    lifetimeUnrealised: +lifetimeUnrealised.toFixed(2),
+    lifetimeRealised:   +lifetimeRealised.toFixed(2),
+    curFYRealised:       +curFYRealised.toFixed(2),
+    prevFYRealised:      +prevFYRealised.toFixed(2),
+    curFY, prevFY,
+  };
+}
+
 // ── LIVE PREVIEW ──────────────────────────────────────────────────────
 function calcPropPreview(){
   const p = readPropForm();
@@ -1799,6 +1841,7 @@ function renderProperties(){
     const lvrClass = m.lvr>80?'neg':m.lvr>60?'':'pos';
     const isDR = p.propType==='ppor' && p.debtRecycling;
     const drDivs = isDR ? calcDRDividendStats(p) : null;
+    const drCap  = isDR ? calcDRCapitalGains(p)   : null;
 
     const stat = (label,val,cls='neu') =>
       `<div><div style="font-size:10px;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:2px">${label}</div>
@@ -1926,6 +1969,10 @@ function renderProperties(){
             ${stat(fyLabel(drDivs.curFY)+' Dividend Income',  n2(drDivs.curFYIncome),  'pos')}
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
+            ${stat('Lifetime Unrealised Gain', n2(drCap.lifetimeUnrealised), clr(drCap.lifetimeUnrealised))}
+            ${stat('Lifetime Realised Gain',   n2(drCap.lifetimeRealised),   clr(drCap.lifetimeRealised))}
+            ${stat(fyLabel(drCap.curFY)+' Realised Gain',  n2(drCap.curFYRealised),  clr(drCap.curFYRealised))}
+            ${stat(fyLabel(drCap.prevFY)+' Realised Gain', n2(drCap.prevFYRealised), clr(drCap.prevFYRealised))}
             ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(plainSymbol(s))).join(', ') : '—')}
           </div>
         </div>`:`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;display:flex;align-items:center;justify-content:center">
