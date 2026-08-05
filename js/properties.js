@@ -1395,16 +1395,17 @@ function calcDRDividendStats(p){
   const now = new Date();
   const curFY  = now.getMonth() >= 6 ? now.getFullYear()+1 : now.getFullYear();
   const prevFY = curFY - 1;
-  let cur = 0, prev = 0;
+  let cur = 0, prev = 0, lifetime = 0;
   if(syms.size){
     dividends.forEach(d=>{
       if(!syms.has((d.symbol||'').toUpperCase())) return;
+      lifetime += +d.amount||0;
       const fy = dateToFY(d.date);
       if(fy===curFY)       cur  += +d.amount||0;
       else if(fy===prevFY) prev += +d.amount||0;
     });
   }
-  return { curFY, prevFY, curFYIncome:+cur.toFixed(2), prevFYIncome:+prev.toFixed(2) };
+  return { curFY, prevFY, curFYIncome:+cur.toFixed(2), prevFYIncome:+prev.toFixed(2), lifetimeIncome:+lifetime.toFixed(2) };
 }
 
 // Capital gain on a property's linked DR stocks. Reuses the CGT engine
@@ -1417,7 +1418,7 @@ function calcDRCapitalGains(p){
   const now = new Date();
   const curFY  = now.getMonth() >= 6 ? now.getFullYear()+1 : now.getFullYear();
   const prevFY = curFY - 1;
-  const empty = { lifetimeUnrealised:0, lifetimeRealised:0, curFYRealised:0, prevFYRealised:0, curFY, prevFY };
+  const empty = { lifetimeUnrealised:0, currentValue:0, lifetimeRealised:0, curFYRealised:0, prevFYRealised:0, curFY, prevFY };
   if(!syms.size || typeof buildDisposals!=='function') return empty;
 
   const { disposals, openParcels } = buildDisposals();
@@ -1431,17 +1432,20 @@ function calcDRCapitalGains(p){
     else if(fy===prevFY) prevFYRealised += d.gain;
   });
 
-  let lifetimeUnrealised = 0;
+  let lifetimeUnrealised = 0, currentValue = 0;
   syms.forEach(sym=>{
     const list  = (openParcels[sym]||[]).filter(pc=>pc.units>0.000001);
     const units = list.reduce((s,pc)=>s+pc.units,0);
     const cost  = list.reduce((s,pc)=>s+pc.cost,0);
     const price = prices[priceSymbol(sym)]||0;
-    lifetimeUnrealised += (units*price) - cost;
+    const value = units*price;
+    currentValue       += value;
+    lifetimeUnrealised  += value - cost;
   });
 
   return {
     lifetimeUnrealised: +lifetimeUnrealised.toFixed(2),
+    currentValue:        +currentValue.toFixed(2),
     lifetimeRealised:   +lifetimeRealised.toFixed(2),
     curFYRealised:       +curFYRealised.toFixed(2),
     prevFYRealised:      +prevFYRealised.toFixed(2),
@@ -1962,17 +1966,13 @@ function renderProperties(){
         </div>`:(isDR?`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px">
           <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">DEBT RECYCLING</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            ${stat('DR Loan Balance',    n2(m.drBalance))}
-            ${m.drOffset>0 ? stat('DR Offset',           n2(m.drOffset), 'pos') : ''}
             ${stat('Effective DR Balance', n2(m.drEffectiveBalance))}
             ${stat('Annual Interest (📈 deductible)', n2(m.drAnnualInterest), 'neg')}
             ${stat(fyLabel(drDivs.curFY)+' Dividend Income',  n2(drDivs.curFYIncome),  'pos')}
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
             ${stat('Lifetime Unrealised Gain', n2(drCap.lifetimeUnrealised), clr(drCap.lifetimeUnrealised))}
-            ${stat('Lifetime Realised Gain',   n2(drCap.lifetimeRealised),   clr(drCap.lifetimeRealised))}
-            ${stat(fyLabel(drCap.curFY)+' Realised Gain',  n2(drCap.curFYRealised),  clr(drCap.curFYRealised))}
-            ${stat(fyLabel(drCap.prevFY)+' Realised Gain', n2(drCap.prevFYRealised), clr(drCap.prevFYRealised))}
+            ${stat('Total Current Investment', n2(drCap.currentValue + drDivs.lifetimeIncome), 'pos')}
             ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(plainSymbol(s))).join(', ') : '—')}
           </div>
         </div>`:`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;display:flex;align-items:center;justify-content:center">
