@@ -1391,14 +1391,14 @@ function propMetrics(p){
 // Sums dividends for a property's linked symbols, split into current FY
 // (AU, Jul–Jun) vs the prior FY, for side-by-side comparison in the panel.
 function calcDRDividendStats(p){
-  const syms = new Set((p.drSymbols||[]).map(s=>priceSymbol(s)));
+  const syms = new Set((p.drSymbols||[]).map(s=>s.toUpperCase()));
   const now = new Date();
   const curFY  = now.getMonth() >= 6 ? now.getFullYear()+1 : now.getFullYear();
   const prevFY = curFY - 1;
   let cur = 0, prev = 0;
   if(syms.size){
     dividends.forEach(d=>{
-      if(!syms.has(priceSymbol(d.symbol))) return;
+      if(!syms.has((d.symbol||'').toUpperCase())) return;
       const fy = dateToFY(d.date);
       if(fy===curFY)       cur  += +d.amount||0;
       else if(fy===prevFY) prev += +d.amount||0;
@@ -1675,17 +1675,25 @@ function renderDRSymbolChips(selectedSyms){
   const wrap = $('pf-dr-symbols');
   if(!wrap) return;
   const selected = selectedSyms
-    ? [...new Set(selectedSyms.map(s=>priceSymbol(s)))]
+    ? [...new Set(selectedSyms.map(s=>s.toUpperCase()))]
     : JSON.parse(wrap.dataset.selected||'[]');
   wrap.dataset.selected = JSON.stringify(selected);
-  const heldSyms = [...new Set(calcH().filter(h=>h.units>0.00000001).map(h=>priceSymbol(h.symbol)))].sort();
+  // Keep broker-suffixed symbols (DHHF:AU vs DHHF:CMC) distinct — they're
+  // separate parcels, often with different owners, not the same holding.
+  const heldSyms = [...new Set(calcH().filter(h=>h.units>0.00000001).map(h=>h.symbol.toUpperCase()))].sort();
   if(!heldSyms.length){
     wrap.innerHTML = '<div style="font-size:11px;color:var(--text3)">No current holdings found — add trades first.</div>';
     return;
   }
-  wrap.innerHTML = heldSyms.map(sym=>
-    `<span class="ca-pill${selected.includes(sym)?' active':''}" style="font-family:var(--mono)" onclick="toggleDRSymbol('${sym}')">${sym}</span>`
-  ).join('');
+  wrap.innerHTML = heldSyms.map(sym=>{
+    const owner = getSymbolOwner(sym);
+    const oc = getPersonColour(owner);
+    const active = selected.includes(sym);
+    return `<span class="ca-pill${active?' active':''}" style="font-family:var(--mono);display:inline-flex;align-items:center;gap:5px" onclick="toggleDRSymbol('${sym}')">
+      ${plainSymbol(sym)}
+      <span style="width:7px;height:7px;border-radius:50%;background:${oc};box-shadow:0 0 4px ${oc}" title="${getPersonLabel(owner)}"></span>
+    </span>`;
+  }).join('');
 }
 function toggleDRSymbol(sym){
   const wrap = $('pf-dr-symbols');
@@ -1918,7 +1926,7 @@ function renderProperties(){
             ${stat(fyLabel(drDivs.curFY)+' Dividend Income',  n2(drDivs.curFYIncome),  'pos')}
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
-            ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(priceSymbol(s))).join(', ') : '—')}
+            ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(plainSymbol(s))).join(', ') : '—')}
           </div>
         </div>`:`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;display:flex;align-items:center;justify-content:center">
           <div style="text-align:center;color:var(--text3);font-family:var(--mono);font-size:12px">🏠<br>Primary Residence<br>No rental income</div>
