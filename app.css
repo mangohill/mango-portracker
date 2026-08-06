@@ -147,6 +147,22 @@
 
   @media(max-width:680px){.main{padding:12px;}.cards{grid-template-columns:1fr 1fr;}.tab{padding:11px 10px;font-size:11px;}}
 
+  /* ── Responsive tables — phones + tablet portrait (iPad is 768–834px,
+     wider than the breakpoint above, so it needs its own handling) ──── */
+  .rtbl-hide{ display:none !important; }
+  .rtbl-row{ cursor:pointer; }
+  .rtbl-row td:first-child{ position:relative; padding-left:20px; }
+  .rtbl-row td:first-child::before{
+    content:'▸'; position:absolute; left:6px; top:50%; transform:translateY(-50%);
+    color:var(--text3); font-size:9px; transition:transform .15s;
+  }
+  .rtbl-row.rtbl-open td:first-child::before{ content:'▾'; color:var(--blue); }
+  .rtbl-detail td{ background:var(--surface2); padding:10px 13px 10px 20px !important; white-space:normal; }
+  .rtbl-detail-row{ display:flex; justify-content:space-between; gap:14px; padding:4px 0; border-bottom:1px solid var(--border); font-size:11px; }
+  .rtbl-detail-row:last-child{ border-bottom:none; }
+  .rtbl-detail-label{ color:var(--text3); white-space:nowrap; }
+
+
   /* ── Corporate Action pills ──────────────────────────────────────── */
   .ca-pill {
     padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;

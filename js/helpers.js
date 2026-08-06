@@ -307,4 +307,112 @@ function closeHudPopup(id){
   if(backdrop) backdrop.remove();
 }
 
+// ── RESPONSIVE TABLES (phones + tablet portrait) ───────────────────────
+// iPad portrait is 768–834px — wider than the old 680px mobile breakpoint,
+// so it was getting zero responsive handling and just overflowing.
+// This auto-retrofits EVERY data table in the app: on narrow viewports it
+// hides lower-priority columns and lets tapping a row reveal them as
+// label:value pairs underneath. No changes needed in individual render
+// functions — a MutationObserver picks up every table re-render.
+const RTBL_BREAKPOINT = 900; // px — covers iPad portrait + phones
+
+function rtblBudget(){
+  const w = window.innerWidth;
+  if(w <= 420) return 3;
+  if(w <= 680) return 4;
+  if(w <= RTBL_BREAKPOINT) return 5;
+  return Infinity; // desktop / landscape tablet — no hiding
+}
+
+function enhanceResponsiveTables(){
+  const budget = rtblBudget();
+  document.querySelectorAll('.ovx table, table.tbl').forEach(table=>{
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+    if(!thead || !tbody) return;
+    const ths = [...thead.querySelectorAll('th')];
+    const total = ths.length;
+    if(!total) return;
+    // Column show-order: explicit data-pri hints where present (lower =
+    // shown first), else natural left-to-right order as the default.
+    const order = ths.map((th,i)=>({i, pri: th.dataset.pri!=null ? +th.dataset.pri : i}))
+                      .sort((a,b)=>a.pri-b.pri);
+    const visible = new Set(order.slice(0, Math.min(budget, total)).map(o=>o.i));
+    visible.add(0); visible.add(total-1); // identifier col + trailing action col always shown
+    const headers = ths.map(th=>th.textContent.trim());
+
+    [...tbody.querySelectorAll(':scope > tr')].forEach(row=>{
+      if(row.classList.contains('rtbl-detail')) return;
+      const cells = [...row.children];
+      if(cells.length !== total) return; // foreign/mismatched row shape, leave untouched
+
+      const hiddenIdx = [];
+      cells.forEach((td,i)=>{ if(!visible.has(i)) hiddenIdx.push(i); });
+
+      // Skip entirely if this row is already correctly enhanced for the
+      // current budget — avoids rewriting the DOM (and re-triggering the
+      // MutationObserver) on every pass once things have settled.
+      const sig = budget+':'+hiddenIdx.join(',');
+      if(row.dataset.rtblSig === sig) return;
+      row.dataset.rtblSig = sig;
+
+      const oldDetail = row.nextElementSibling;
+      if(oldDetail && oldDetail.classList && oldDetail.classList.contains('rtbl-detail')) oldDetail.remove();
+      cells.forEach(td=>td.classList.remove('rtbl-hide'));
+      row.classList.remove('rtbl-row','rtbl-open');
+      row.onclick = null;
+      if(!hiddenIdx.length) return; // fits within budget as-is
+
+      cells.forEach((td,i)=>{ if(hiddenIdx.includes(i)) td.classList.add('rtbl-hide'); });
+      row.classList.add('rtbl-row');
+      const detail = document.createElement('tr');
+      detail.className = 'rtbl-detail';
+      detail.style.display = 'none';
+      const dtd = document.createElement('td');
+      dtd.colSpan = total;
+      dtd.innerHTML = hiddenIdx.map(i=>
+        `<div class="rtbl-detail-row"><span class="rtbl-detail-label">${escHtml(headers[i]||'')}</span><span>${cells[i].innerHTML}</span></div>`
+      ).join('');
+      detail.appendChild(dtd);
+      row.after(detail);
+
+      row.onclick = e=>{
+        if(e.target.closest('button,a,select,input,.del-btn,.owner-select')) return;
+        const open = detail.style.display !== 'none';
+        detail.style.display = open ? 'none' : '';
+        row.classList.toggle('rtbl-open', !open);
+      };
+    });
+  });
+}
+
+function disableResponsiveTables(){
+  document.querySelectorAll('.rtbl-detail').forEach(el=>el.remove());
+  document.querySelectorAll('.rtbl-hide').forEach(el=>el.classList.remove('rtbl-hide'));
+  document.querySelectorAll('.rtbl-row').forEach(el=>{
+    el.classList.remove('rtbl-row','rtbl-open'); el.onclick=null; delete el.dataset.rtblSig;
+  });
+}
+
+let _rtblWasNarrow = false;
+function refreshResponsiveTables(){
+  const narrow = window.innerWidth <= RTBL_BREAKPOINT;
+  if(narrow) enhanceResponsiveTables();
+  else if(_rtblWasNarrow) disableResponsiveTables();
+  _rtblWasNarrow = narrow;
+}
+
+(function initResponsiveTables(){
+  let timer = null;
+  const debounced = ()=>{ clearTimeout(timer); timer = setTimeout(refreshResponsiveTables, 80); };
+  const start = ()=>{
+    refreshResponsiveTables();
+    new MutationObserver(debounced).observe(document.body, {childList:true, subtree:true});
+    window.addEventListener('resize', ()=>{ clearTimeout(timer); timer = setTimeout(refreshResponsiveTables, 150); });
+    window.addEventListener('orientationchange', debounced);
+  };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+
 // ── CSV PARSE ────────────────────────────────────────────────────────
