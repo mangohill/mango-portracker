@@ -1761,25 +1761,11 @@ function toggleDRSymbol(sym){
 function showDRTotalBreakdown(propId){
   const t = (window.__drBreakdown||{})[propId];
   if(!t){ notify('Breakdown not available — re-open Property tab.','err'); return; }
-  const existing = document.getElementById('dr-total-popup');
-  if(existing){ existing.remove(); return; }
 
-  const popup = document.createElement('div');
-  popup.id = 'dr-total-popup';
-  popup.style.cssText = [
-    'position:fixed','top:50%','left:50%',
-    'transform:translate(-50%,-50%)',
-    'background:var(--surface)','border:1px solid var(--border)',
-    'border-radius:10px','padding:20px 24px',
-    'z-index:9999','min-width:320px','max-width:95vw',
-    'box-shadow:0 8px 32px rgba(0,0,0,.5)',
-    'font-family:var(--mono)','font-size:12px',
-  ].join(';');
-
-  popup.innerHTML = `
+  openHudPopup('dr-total-popup', `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="font-size:14px;font-weight:700;color:var(--text)">Total Investment — ${escHtml(t.propName)}</div>
-      <button onclick="document.getElementById('dr-total-popup').remove()"
+      <button onclick="closeHudPopup('dr-total-popup')"
         style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
     </div>
     <div style="display:flex;flex-direction:column">
@@ -1815,44 +1801,18 @@ function showDRTotalBreakdown(propId){
       Total Investment = Invested Amount (Buy + DRP orders) + Capital Gain.<br>
       Dividend Income is shown for reference only — DRP-reinvested amounts are already
       counted in Invested Amount, so adding it in would double-count.
-    </div>`;
-
-  popup.addEventListener('click', e => e.stopPropagation());
-  // Defer attaching the outside-click listener — otherwise the click that
-  // opened the popup is still bubbling to document and would close it instantly.
-  setTimeout(()=>{
-    document.addEventListener('click', function dismiss(){
-      popup.remove();
-      document.removeEventListener('click', dismiss);
-    });
-  }, 0);
-
-  document.body.appendChild(popup);
+    </div>`);
 }
 
 // ── DEBT RECYCLING — Total Gain breakdown popup ────────────────────────
 function showDRGainBreakdown(propId){
   const t = (window.__drGainBreakdown||{})[propId];
   if(!t){ notify('Breakdown not available — re-open Property tab.','err'); return; }
-  const existing = document.getElementById('dr-gain-popup');
-  if(existing){ existing.remove(); return; }
 
-  const popup = document.createElement('div');
-  popup.id = 'dr-gain-popup';
-  popup.style.cssText = [
-    'position:fixed','top:50%','left:50%',
-    'transform:translate(-50%,-50%)',
-    'background:var(--surface)','border:1px solid var(--border)',
-    'border-radius:10px','padding:20px 24px',
-    'z-index:9999','min-width:320px','max-width:95vw',
-    'box-shadow:0 8px 32px rgba(0,0,0,.5)',
-    'font-family:var(--mono)','font-size:12px',
-  ].join(';');
-
-  popup.innerHTML = `
+  openHudPopup('dr-gain-popup', `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="font-size:14px;font-weight:700;color:var(--text)">Total Gain — ${escHtml(t.propName)}</div>
-      <button onclick="document.getElementById('dr-gain-popup').remove()"
+      <button onclick="closeHudPopup('dr-gain-popup')"
         style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
     </div>
     <div style="display:flex;flex-direction:column">
@@ -1886,17 +1846,7 @@ function showDRGainBreakdown(propId){
       units' cost base), which lowers Capital Gain by that same amount — adding Dividend
       Income back nets it out, leaving the true return versus actual cash you put in
       (buy orders) plus every dollar of dividends the strategy has paid, reinvested or not.
-    </div>`;
-
-  popup.addEventListener('click', e => e.stopPropagation());
-  setTimeout(()=>{
-    document.addEventListener('click', function dismiss(){
-      popup.remove();
-      document.removeEventListener('click', dismiss);
-    });
-  }, 0);
-
-  document.body.appendChild(popup);
+    </div>`);
 }
 
 function togglePropSoldFields(){

@@ -257,4 +257,54 @@ function nd(s){
   return datePart.slice(0,10);
 }
 
+// ── HUD-STYLE POPUP HELPER ─────────────────────────────────────────────
+// Shared by breakdown popups (Div293, Debt Recycling) so they all read as
+// a floating cockpit overlay — dark backdrop scrim + blue-glow instrument
+// panel — rather than blending into the surface colour behind them.
+function openHudPopup(id, innerHtml, opts){
+  opts = opts || {};
+  // Acts as a toggle: clicking the same trigger again closes it
+  if(document.getElementById(id)){ closeHudPopup(id); return null; }
+
+  const backdrop = document.createElement('div');
+  backdrop.id = id+'-backdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998';
+  backdrop.addEventListener('click', ()=>closeHudPopup(id));
+
+  const panel = document.createElement('div');
+  panel.id = id;
+  panel.style.cssText = [
+    'position:fixed','top:50%','left:50%',
+    'transform:translate(-50%,-50%)',
+    'background:linear-gradient(165deg,#132029 0%,#0a1319 100%)',
+    'border:1px solid var(--blue)',
+    'border-radius:10px','padding:20px 24px',
+    'z-index:9999',`min-width:${opts.minWidth||'320px'}`,'max-width:95vw',
+    'box-shadow:0 12px 40px rgba(0,0,0,.7), 0 0 30px var(--blue-glow)',
+    'font-family:var(--mono)','font-size:12px',
+  ].join(';');
+  panel.innerHTML = innerHtml;
+  panel.addEventListener('click', e => e.stopPropagation());
+
+  document.body.appendChild(backdrop);
+  document.body.appendChild(panel);
+
+  // Defer the outside-click dismiss listener — otherwise the click that
+  // opened this popup is still bubbling to document and would close it instantly.
+  setTimeout(()=>{
+    document.addEventListener('click', function dismiss(){
+      closeHudPopup(id);
+      document.removeEventListener('click', dismiss);
+    });
+  }, 0);
+
+  return panel;
+}
+function closeHudPopup(id){
+  const panel = document.getElementById(id);
+  const backdrop = document.getElementById(id+'-backdrop');
+  if(panel) panel.remove();
+  if(backdrop) backdrop.remove();
+}
+
 // ── CSV PARSE ────────────────────────────────────────────────────────

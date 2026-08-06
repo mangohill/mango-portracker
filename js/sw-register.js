@@ -1022,9 +1022,6 @@ function taxDrillDividends(personKey, fy){
 function showDiv293Breakdown(personKey){
   const t = (window.__div293 || {})[personKey];
   if(!t){ notify('Div293 data not available — re-open Tax tab.','err'); return; }
-  // Remove any existing popup
-  const existing = document.getElementById('div293-popup');
-  if(existing){ existing.remove(); return; }
 
   const n2l = v => '$' + Number(v).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   const pct  = v => (v*100).toFixed(1) + '%';
@@ -1036,22 +1033,10 @@ function showDiv293Breakdown(personKey){
   const excessAmt  = Math.max(0, t.div293Income - t.div293Threshold);
   const taxableCC  = Math.min(t.totalConcess, excessAmt);
 
-  const popup = document.createElement('div');
-  popup.id = 'div293-popup';
-  popup.style.cssText = [
-    'position:fixed','top:50%','left:50%',
-    'transform:translate(-50%,-50%)',
-    'background:var(--surface)','border:1px solid var(--border)',
-    'border-radius:10px','padding:20px 24px',
-    'z-index:9999','min-width:340px','max-width:95vw',
-    'box-shadow:0 8px 32px rgba(0,0,0,.5)',
-    'font-family:var(--mono)','font-size:12px',
-  ].join(';');
-
-  popup.innerHTML = `
+  openHudPopup('div293-popup', `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="font-size:14px;font-weight:700;color:var(--text)">Division 293 Calculation — ${escHtml(t.personLabel)}</div>
-      <button onclick="document.getElementById('div293-popup').remove()"
+      <button onclick="closeHudPopup('div293-popup')"
         style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
     </div>
     <table style="width:100%;border-collapse:collapse">
@@ -1100,18 +1085,5 @@ function showDiv293Breakdown(personKey){
     </table>
     <div style="margin-top:12px;font-size:10px;color:var(--text3)">
       Div293 = 15% × min(total concessional contributions, income over $250k threshold)
-    </div>`;
-
-  // Dismiss on outside click
-  popup.addEventListener('click', e => e.stopPropagation());
-  // Defer attaching the outside-click listener — otherwise the click that
-  // opened the popup is still bubbling to document and would close it instantly.
-  setTimeout(()=>{
-    document.addEventListener('click', function dismiss(){
-      popup.remove();
-      document.removeEventListener('click', dismiss);
-    });
-  }, 0);
-
-  document.body.appendChild(popup);
+    </div>`, {minWidth:'340px'});
 }
