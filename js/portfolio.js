@@ -140,9 +140,10 @@ function sortArrow(tableId, col){
     : '<span style="color:var(--gold);font-size:10px;margin-left:3px">▼</span>';
 }
 
-function sortTh(tableId, col, label, renderFnName, extraStyle){
+function sortTh(tableId, col, label, renderFnName, extraStyle, pri){
   const sty = 'cursor:pointer;user-select:none' + (extraStyle ? ';'+extraStyle : '');
-  return '<th style="' + sty + '" onclick="toggleSort(\'' + tableId + '\',\'' + col + '\',\'' + renderFnName + '\')">'
+  const priAttr = pri!=null ? ' data-pri="'+pri+'"' : '';
+  return '<th style="' + sty + '"' + priAttr + ' onclick="toggleSort(\'' + tableId + '\',\'' + col + '\',\'' + renderFnName + '\')">'
     + label + sortArrow(tableId, col) + '</th>';
 }
 
@@ -247,19 +248,25 @@ function renderH(){
   }
 
   const TID='hb';
-  const th=(col,label,sty)=>sortTh(TID,col,label,'renderH',sty);
+  const th=(col,label,sty,pri)=>sortTh(TID,col,label,'renderH',sty,pri);
+  // data-pri controls which columns survive on narrow screens (lower = kept
+  // longer). Symbol (index 0) and Source (last index) are always shown by
+  // the responsive-table logic regardless of pri, so the numbers below just
+  // rank the 9 columns in between: Units/Mkt Value/Cost Basis/P&L% stay
+  // visible longest; Owner/Type/Avg Cost/Cur Price/P&L $ drop into the
+  // tap-to-reveal detail row first.
   $('hb').closest('table').querySelector('thead tr').innerHTML =
-    th('symbol','Symbol') +
-    '<th>Owner</th>' +
-    th('assetType','Type') +
-    th('units','Units','text-align:right') +
-    th('_avg','Avg Cost','text-align:right') +
-    th('_cur','Cur Price','text-align:right') +
-    th('_mv','Mkt Value','text-align:right') +
-    th('costBasis','Cost Basis','text-align:right') +
-    th('_pl','P&L $','text-align:right') +
-    th('_pp','P&L %','text-align:right') +
-    th('source','Source');
+    th('symbol','Symbol',null,0) +
+    '<th data-pri="9">Owner</th>' +
+    th('assetType','Type',null,8) +
+    th('units','Units','text-align:right',1) +
+    th('_avg','Avg Cost','text-align:right',10) +
+    th('_cur','Cur Price','text-align:right',7) +
+    th('_mv','Mkt Value','text-align:right',2) +
+    th('costBasis','Cost Basis','text-align:right',3) +
+    th('_pl','P&L $','text-align:right',6) +
+    th('_pp','P&L %','text-align:right',4) +
+    th('source','Source',null,5);
 
   $('hb').innerHTML = f.map(h=>{
     const cur=h._cur,mv=h._mv,pl=h._pl,pp=h._pp,avg=h._avg;
