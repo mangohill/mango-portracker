@@ -341,6 +341,13 @@ function enhanceResponsiveTables(){
     visible.add(0); visible.add(total-1); // identifier col + trailing action col always shown
     const headers = ths.map(th=>th.textContent.trim());
 
+    // Hide the SAME columns in the header row. A display:none cell is
+    // removed from that row's column sequence entirely — if only the body
+    // cells were hidden, the header would keep all its columns while data
+    // rows have fewer, and everything after the first hidden column would
+    // shift left and land under the wrong header.
+    ths.forEach((th,i)=> th.classList.toggle('rtbl-hide', !visible.has(i)));
+
     [...tbody.querySelectorAll(':scope > tr')].forEach(row=>{
       if(row.classList.contains('rtbl-detail')) return;
       const cells = [...row.children];
@@ -369,7 +376,7 @@ function enhanceResponsiveTables(){
       detail.className = 'rtbl-detail';
       detail.style.display = 'none';
       const dtd = document.createElement('td');
-      dtd.colSpan = total;
+      dtd.colSpan = visible.size;
       dtd.innerHTML = hiddenIdx.map(i=>
         `<div class="rtbl-detail-row"><span class="rtbl-detail-label">${escHtml(headers[i]||'')}</span><span>${cells[i].innerHTML}</span></div>`
       ).join('');
