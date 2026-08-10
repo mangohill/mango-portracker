@@ -18,7 +18,12 @@ const BROKER_SUFFIX = {
     'CS':'CommSec'
   };
 
-// Returns display label e.g. "DHHF:AU" -> "DHHF (Betashares)", "DHHF" -> "DHHF"
+// Betashares suffixes get a compact "SYMBOL:SUFFIX" label instead of the
+// verbose "SYMBOL (Betashares)" — it eats far less table width. Other
+// brokers keep the full "(Broker Name)" format.
+const COMPACT_SUFFIXES = new Set(['AU','BS']);
+
+// Returns display label e.g. "DHHF:AU" -> "DHHF:AU", "DHHF:CMC" -> "DHHF (CMC)", "DHHF" -> "DHHF"
 function plainSymbol(sym){
   // Plain text version of displaySymbol — no HTML spans
   sym = (sym||'').trim();
@@ -27,6 +32,7 @@ function plainSymbol(sym){
   if(!m) return sym.toUpperCase();
   const base   = m[1].toUpperCase();
   const suffix = m[2].toUpperCase();
+  if(COMPACT_SUFFIXES.has(suffix)) return base + ':' + suffix;
   const broker = BROKER_SUFFIX[suffix] || suffix;
   return base + ' (' + broker + ')';
 }
@@ -37,6 +43,7 @@ function displaySymbol(sym){ sym = escHtml(sym||'');
   if(!m) return sym.toUpperCase();
   const base   = m[1].toUpperCase();
   const suffix = m[2].toUpperCase();
+  if(COMPACT_SUFFIXES.has(suffix)) return base + ':' + suffix;
   const broker = BROKER_SUFFIX[suffix] || suffix;
   return base + ' <span style="font-size:10px;color:var(--text3);font-weight:normal">(' + broker + ')</span>';
 }
