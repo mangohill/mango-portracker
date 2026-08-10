@@ -378,12 +378,13 @@ function enhanceResponsiveTables(){
       const dtd = document.createElement('td');
       dtd.colSpan = visible.size;
       // Carry the cell's own class (pos/neg/neu colour coding etc.) onto the
-      // value span — the td's class doesn't travel with innerHTML alone, so
-      // without this, colour-coded values (P&L $, P&L %, etc.) render as
-      // plain text once tucked into the detail row.
-      dtd.innerHTML = hiddenIdx.map(i=>
-        `<div class="rtbl-detail-row"><span class="rtbl-detail-label">${escHtml(headers[i]||'')}</span><span class="${cells[i].className||''}">${cells[i].innerHTML}</span></div>`
-      ).join('');
+      // value span — but strip 'rtbl-hide' itself, since we just added that
+      // to these same cells above; copying it verbatim would make the detail
+      // row's value spans display:none too (label visible, value invisible).
+      dtd.innerHTML = hiddenIdx.map(i=>{
+        const valCls = (cells[i].className||'').split(/\s+/).filter(c=>c && c!=='rtbl-hide').join(' ');
+        return `<div class="rtbl-detail-row"><span class="rtbl-detail-label">${escHtml(headers[i]||'')}</span><span class="${valCls}">${cells[i].innerHTML}</span></div>`;
+      }).join('');
       detail.appendChild(dtd);
       row.after(detail);
 
