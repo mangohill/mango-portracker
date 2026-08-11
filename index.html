@@ -46,6 +46,13 @@
     <div class="card"><div class="card-label">Positions</div><div class="card-value neu" id="cpos">0</div><div class="card-sub" id="cs-pos">Open</div></div>
     <div class="card"><div class="card-label">Total Trades</div><div class="card-value neu" id="ctrd">0</div><div class="card-sub" id="cpt">Prices not loaded</div></div>
   </div>
+  <div class="tw" id="pf-change-wrap" style="display:none">
+    <div class="th">
+      <span class="tt">PORTFOLIO CHANGE</span>
+      <span id="pf-change-sub" style="font-family:var(--mono);font-size:10px;color:var(--text3)"></span>
+    </div>
+    <div id="pf-change-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:10px;padding:16px 18px"></div>
+  </div>
   <div class="tw">
     <div class="th">
       <span class="tt" id="hb-title">HOLDINGS</span>
@@ -66,13 +73,6 @@
       </tr></thead><tbody id="hb"></tbody></table>
     </div>
     <div class="empty" id="he"><div class="empty-icon">📊</div>No holdings yet — add trades or import a CSV.</div>
-  </div>
-  <div class="tw" id="pf-change-wrap" style="display:none">
-    <div class="th">
-      <span class="tt">PORTFOLIO CHANGE</span>
-      <span id="pf-change-sub" style="font-family:var(--mono);font-size:10px;color:var(--text3)"></span>
-    </div>
-    <div id="pf-change-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:10px;padding:16px 18px"></div>
   </div>
 </div>
 
