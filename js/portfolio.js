@@ -347,7 +347,107 @@ function renderH(){
   if($('cpt')) $('cpt').textContent = noPriceCount>0
     ? noPriceCount+' price'+(noPriceCount>1?'s':'')+' missing'
     : 'All prices loaded';
+
+  snapshotPortfolioValue(allH);
+  renderPortfolioChange();
 }
+
+// ── PORTFOLIO CHANGE (1D/5D/1M/6M/1Y/5Y/ALL) ───────────────────────────
+// Records today's total market value (split by All/Stocks/Crypto) once per
+// render. Overwriting the same day's entry repeatedly is fine — we only
+// ever care about the latest value recorded for "today". Skipped entirely
+// if no prices are loaded yet, so we never pollute history with a $0 day.
+function snapshotPortfolioValue(allH){
+  const today = new Date().toISOString().slice(0,10);
+  const valFor = filterFn => {
+    let tv = 0, any = false;
+    allH.filter(filterFn).forEach(h=>{
+      const cur = prices[priceSymbol(h.symbol)];
+      if(cur!=null){ tv += cur*h.units; any = true; }
+    });
+    return any ? +tv.toFixed(2) : null;
+  };
+  const all    = valFor(()=>true);
+  const stocks = valFor(h=>h.assetType!=='crypto');
+  const crypto = valFor(h=>h.assetType==='crypto');
+  if(all==null && stocks==null && crypto==null) return; // no prices yet — don't record
+  pfSnapshots[today] = { all, stocks, crypto };
+  savePfSnapshots();
+}
+
+const PF_CHANGE_RANGES = [
+  {key:'1d',  label:'1D',  days:1},
+  {key:'5d',  label:'5D',  days:5},
+  {key:'1m',  label:'1M',  months:1},
+  {key:'6m',  label:'6M',  months:6},
+  {key:'1y',  label:'1Y',  years:1},
+  {key:'5y',  label:'5Y',  years:5},
+  {key:'all', label:'ALL'},
+];
+
+// Latest snapshot date on or before targetStr that has a non-null value for viewKey
+function findSnapshotOnOrBefore(targetStr, viewKey){
+  let found = null;
+  for(const d of Object.keys(pfSnapshots)){
+    if(pfSnapshots[d][viewKey]==null) continue;
+    if(d<=targetStr && (!found || d>found)) found = d;
+  }
+  return found ? { date:found, value:pfSnapshots[found][viewKey] } : null;
+}
+
+function calcPortfolioChange(viewKey){
+  const dates = Object.keys(pfSnapshots).filter(d=>pfSnapshots[d][viewKey]!=null).sort();
+  if(!dates.length) return null;
+  const todayStr = dates[dates.length-1];
+  const curVal   = pfSnapshots[todayStr][viewKey];
+  const today    = new Date(todayStr+'T00:00:00');
+
+  const rows = PF_CHANGE_RANGES.map(r=>{
+    if(r.key==='all'){
+      const firstStr = dates[0];
+      if(firstStr===todayStr) return { label:r.label, pct:null, amt:null };
+      const fv = pfSnapshots[firstStr][viewKey];
+      return { label:r.label, pct: fv>0?((curVal-fv)/fv*100):null, amt: curVal-fv, from:firstStr };
+    }
+    const target = new Date(today);
+    if(r.days)   target.setDate(target.getDate()-r.days);
+    if(r.months) target.setMonth(target.getMonth()-r.months);
+    if(r.years)  target.setFullYear(target.getFullYear()-r.years);
+    const snap = findSnapshotOnOrBefore(target.toISOString().slice(0,10), viewKey);
+    if(!snap) return { label:r.label, pct:null, amt:null };
+    return { label:r.label, pct: snap.value>0?((curVal-snap.value)/snap.value*100):null, amt: curVal-snap.value, from:snap.date };
+  });
+  return { asOf:todayStr, rows };
+}
+
+function renderPortfolioChange(){
+  const wrap = $('pf-change-wrap');
+  if(!wrap) return;
+  const viewKey = portfolioView===1 ? 'stocks' : portfolioView===2 ? 'crypto' : 'all';
+  const result  = calcPortfolioChange(viewKey);
+  if(!result){ wrap.style.display='none'; return; }
+  wrap.style.display = '';
+
+  const sub = $('pf-change-sub');
+  if(sub) sub.textContent = 'As of '+result.asOf+(portfolioView!==0?' · '+(portfolioView===1?'Stocks':'Crypto')+' only':'');
+
+  $('pf-change-row').innerHTML = result.rows.map(r=>{
+    if(r.pct==null){
+      return `<div style="text-align:center">
+        <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
+        <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text3)">—</div>
+        <div style="font-size:9px;color:var(--text3);margin-top:2px">Not enough history yet</div>
+      </div>`;
+    }
+    const cls = r.pct>=0?'pos':'neg';
+    return `<div style="text-align:center">
+      <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
+      <div class="${cls}" style="font-family:var(--mono);font-size:15px;font-weight:600">${r.pct>=0?'+':''}${r.pct.toFixed(2)}%</div>
+      <div class="${cls}" style="font-size:9px;margin-top:2px">${r.amt>=0?'+':''}${n2(r.amt)}</div>
+    </div>`;
+  }).join('');
+}
+
 function cyclePortfolioView(){
   portfolioView = (portfolioView + 1) % 3;
   renderH();
