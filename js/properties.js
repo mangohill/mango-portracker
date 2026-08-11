@@ -547,9 +547,11 @@ function renderSuperAccounts(){
     const empCC_cur  = +contrib.empCC_cur  || 0;
     const perCC_cur  = +contrib.perCC_cur  || 0;
     const ncc_cur    = +contrib.ncc_cur    || 0;
+    const sgc_cur    = +contrib.sgc_cur    || 0;
     const empCC_prev = +contrib.empCC_prev || 0;
     const perCC_prev = +contrib.perCC_prev || 0;
     const ncc_prev   = +contrib.ncc_prev   || 0;
+    const sgc_prev   = +contrib.sgc_prev   || 0;
 
     const roi_cur  = prevBal  !== null ? calcROI(prevBal,  curBal,  empCC_cur,  perCC_cur)  : null;
     const roi_prev = prev2Bal !== null ? calcROI(prev2Bal, prevBal, empCC_prev, perCC_prev) : null;
@@ -559,9 +561,13 @@ function renderSuperAccounts(){
     const fmtGain = r => r === null ? '—'
       : `<span class="${r.gain>=0?'pos':'neg'}">${r.gain>=0?'+':''}${n2(r.gain)}</span>`;
 
+    // SGC (super guarantee charge paid via the ATO after a late/missed employer
+    // payment) is NOT a concessional contribution for cap purposes — it's shown
+    // for reference only and deliberately excluded from contribCur/contribPrev
+    // and therefore from calcCarryForward()'s cap-usage calc.
     const contribCur  = empCC_cur  + perCC_cur;
     const contribPrev = empCC_prev + perCC_prev;
-    const hasContrib  = contribCur || contribPrev || ncc_cur || ncc_prev;
+    const hasContrib  = contribCur || contribPrev || ncc_cur || ncc_prev || sgc_cur || sgc_prev;
 
     // ── CONTRIBUTIONS panel ─────────────────────────────────────
     const contribBody = hasContrib ? `
@@ -574,6 +580,7 @@ function renderSuperAccounts(){
                 ${stat('Total CC',        contribCur ? n2(contribCur)         : '—')}
                 ${stat('After-tax (85%)', contribCur ? n2(contribCur*0.85)    : '—', 'pos')}
                 ${ncc_cur  ? stat('Non-Concessional', n2(ncc_cur))            : ''}
+                ${sgc_cur  ? stat('SGC (excl. from cap)', n2(sgc_cur), 'neu', 'Not a concessional contribution') : ''}
               </div>
             </div>
             <div>
@@ -584,6 +591,7 @@ function renderSuperAccounts(){
                 ${stat('Total CC',        contribPrev ? n2(contribPrev)        : '—')}
                 ${stat('After-tax (85%)', contribPrev ? n2(contribPrev*0.85)   : '—', 'pos')}
                 ${ncc_prev ? stat('Non-Concessional', n2(ncc_prev))            : ''}
+                ${sgc_prev ? stat('SGC (excl. from cap)', n2(sgc_prev), 'neu', 'Not a concessional contribution') : ''}
               </div>
             </div>
           </div>` :
@@ -1761,11 +1769,25 @@ function toggleDRSymbol(sym){
 function showDRTotalBreakdown(propId){
   const t = (window.__drBreakdown||{})[propId];
   if(!t){ notify('Breakdown not available — re-open Property tab.','err'); return; }
+  const existing = document.getElementById('dr-total-popup');
+  if(existing){ existing.remove(); return; }
 
-  openHudPopup('dr-total-popup', `
+  const popup = document.createElement('div');
+  popup.id = 'dr-total-popup';
+  popup.style.cssText = [
+    'position:fixed','top:50%','left:50%',
+    'transform:translate(-50%,-50%)',
+    'background:var(--surface)','border:1px solid var(--border)',
+    'border-radius:10px','padding:20px 24px',
+    'z-index:9999','min-width:320px','max-width:95vw',
+    'box-shadow:0 8px 32px rgba(0,0,0,.5)',
+    'font-family:var(--mono)','font-size:12px',
+  ].join(';');
+
+  popup.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="font-size:14px;font-weight:700;color:var(--text)">Total Investment — ${escHtml(t.propName)}</div>
-      <button onclick="closeHudPopup('dr-total-popup')"
+      <button onclick="document.getElementById('dr-total-popup').remove()"
         style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
     </div>
     <div style="display:flex;flex-direction:column">
@@ -1801,18 +1823,44 @@ function showDRTotalBreakdown(propId){
       Total Investment = Invested Amount (Buy + DRP orders) + Capital Gain.<br>
       Dividend Income is shown for reference only — DRP-reinvested amounts are already
       counted in Invested Amount, so adding it in would double-count.
-    </div>`);
+    </div>`;
+
+  popup.addEventListener('click', e => e.stopPropagation());
+  // Defer attaching the outside-click listener — otherwise the click that
+  // opened the popup is still bubbling to document and would close it instantly.
+  setTimeout(()=>{
+    document.addEventListener('click', function dismiss(){
+      popup.remove();
+      document.removeEventListener('click', dismiss);
+    });
+  }, 0);
+
+  document.body.appendChild(popup);
 }
 
 // ── DEBT RECYCLING — Total Gain breakdown popup ────────────────────────
 function showDRGainBreakdown(propId){
   const t = (window.__drGainBreakdown||{})[propId];
   if(!t){ notify('Breakdown not available — re-open Property tab.','err'); return; }
+  const existing = document.getElementById('dr-gain-popup');
+  if(existing){ existing.remove(); return; }
 
-  openHudPopup('dr-gain-popup', `
+  const popup = document.createElement('div');
+  popup.id = 'dr-gain-popup';
+  popup.style.cssText = [
+    'position:fixed','top:50%','left:50%',
+    'transform:translate(-50%,-50%)',
+    'background:var(--surface)','border:1px solid var(--border)',
+    'border-radius:10px','padding:20px 24px',
+    'z-index:9999','min-width:320px','max-width:95vw',
+    'box-shadow:0 8px 32px rgba(0,0,0,.5)',
+    'font-family:var(--mono)','font-size:12px',
+  ].join(';');
+
+  popup.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="font-size:14px;font-weight:700;color:var(--text)">Total Gain — ${escHtml(t.propName)}</div>
-      <button onclick="closeHudPopup('dr-gain-popup')"
+      <button onclick="document.getElementById('dr-gain-popup').remove()"
         style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
     </div>
     <div style="display:flex;flex-direction:column">
@@ -1846,7 +1894,17 @@ function showDRGainBreakdown(propId){
       units' cost base), which lowers Capital Gain by that same amount — adding Dividend
       Income back nets it out, leaving the true return versus actual cash you put in
       (buy orders) plus every dollar of dividends the strategy has paid, reinvested or not.
-    </div>`);
+    </div>`;
+
+  popup.addEventListener('click', e => e.stopPropagation());
+  setTimeout(()=>{
+    document.addEventListener('click', function dismiss(){
+      popup.remove();
+      document.removeEventListener('click', dismiss);
+    });
+  }, 0);
+
+  document.body.appendChild(popup);
 }
 
 function togglePropSoldFields(){
