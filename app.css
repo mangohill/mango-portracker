@@ -159,6 +159,13 @@
     #portfolio-cards .card-value, #div-cards .card-value{ font-size:16px; }
     #portfolio-cards .card-label, #div-cards .card-label{ font-size:9px; }
     #portfolio-cards .card-sub, #div-cards .card-sub{ font-size:10px; }
+
+    /* Holdings Detail filter bar — 6 controls (Search, Sort, Show, Type,
+       Owner, Source) overflow one flex row at tablet widths, leaving
+       "All Sources" stranded alone on a 2nd row. Force an even 3-column
+       grid instead, so it settles into two full rows (3+3). */
+    #hd-filter-row{ display:grid; grid-template-columns:repeat(3,1fr); }
+    #hd-filter-row > *{ width:100%; }
   }
 
   /* ── Responsive tables — phones + tablet portrait (iPad is 768–834px,
