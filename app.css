@@ -147,6 +147,20 @@
 
   @media(max-width:680px){.main{padding:12px;}.cards{grid-template-columns:1fr 1fr;}.tab{padding:11px 10px;font-size:11px;}}
 
+  /* ── Portfolio & Dividends dashboards — 5 cards each ──────────────────
+     The generic .cards rule (repeat(auto-fit,minmax(180px,1fr))) doesn't
+     divide evenly into tablet widths (e.g. iPad portrait ~768–834px), so
+     the 5th card ("Total Trades" / "Payments") wraps onto its own row.
+     Force exactly 5 equal columns in the tablet range so nothing wraps,
+     with slightly smaller type so the numbers still fit each column. ── */
+  @media(min-width:681px) and (max-width:1024px){
+    #portfolio-cards, #div-cards{ grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
+    #portfolio-cards .card, #div-cards .card{ padding:12px 10px; }
+    #portfolio-cards .card-value, #div-cards .card-value{ font-size:16px; }
+    #portfolio-cards .card-label, #div-cards .card-label{ font-size:9px; }
+    #portfolio-cards .card-sub, #div-cards .card-sub{ font-size:10px; }
+  }
+
   /* ── Responsive tables — phones + tablet portrait (iPad is 768–834px,
      wider than the breakpoint above, so it needs its own handling) ──── */
   .rtbl-hide{ display:none !important; }
