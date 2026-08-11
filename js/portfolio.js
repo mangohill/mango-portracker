@@ -349,7 +349,7 @@ function renderH(){
     : 'All prices loaded';
 
   snapshotPortfolioValue(allH);
-  renderPortfolioChange();
+  renderPortfolioChange(allH);
 }
 
 // ── PORTFOLIO CHANGE (1D/5D/1M/6M/1Y/5Y/ALL) ───────────────────────────
@@ -395,20 +395,23 @@ function findSnapshotOnOrBefore(targetStr, viewKey){
   return found ? { date:found, value:pfSnapshots[found][viewKey] } : null;
 }
 
-function calcPortfolioChange(viewKey){
+// allTime = { amt, pct } — true all-time gain (current value vs cost basis),
+// the same figure shown on the Unrealised P&L card. The ALL column uses this
+// directly rather than "earliest snapshot on record", since snapshot history
+// only goes back as far as this feature has been switched on — "ALL" should
+// mean since you started investing, not since we started recording.
+function calcPortfolioChange(viewKey, allTime){
   const dates = Object.keys(pfSnapshots).filter(d=>pfSnapshots[d][viewKey]!=null).sort();
-  if(!dates.length) return null;
-  const todayStr = dates[dates.length-1];
-  const curVal   = pfSnapshots[todayStr][viewKey];
+  const todayStr = dates.length ? dates[dates.length-1] : new Date().toISOString().slice(0,10);
+  const curVal   = dates.length ? pfSnapshots[todayStr][viewKey] : null;
   const today    = new Date(todayStr+'T00:00:00');
 
   const rows = PF_CHANGE_RANGES.map(r=>{
     if(r.key==='all'){
-      const firstStr = dates[0];
-      if(firstStr===todayStr) return { label:r.label, pct:null, amt:null };
-      const fv = pfSnapshots[firstStr][viewKey];
-      return { label:r.label, pct: fv>0?((curVal-fv)/fv*100):null, amt: curVal-fv, from:firstStr };
+      if(!allTime || allTime.pct==null) return { label:r.label, pct:null, amt:null };
+      return { label:r.label, pct:allTime.pct, amt:allTime.amt };
     }
+    if(curVal==null) return { label:r.label, pct:null, amt:null };
     const target = new Date(today);
     if(r.days)   target.setDate(target.getDate()-r.days);
     if(r.months) target.setMonth(target.getMonth()-r.months);
@@ -420,12 +423,26 @@ function calcPortfolioChange(viewKey){
   return { asOf:todayStr, rows };
 }
 
-function renderPortfolioChange(){
+function renderPortfolioChange(allH){
   const wrap = $('pf-change-wrap');
   if(!wrap) return;
   const viewKey = portfolioView===1 ? 'stocks' : portfolioView===2 ? 'crypto' : 'all';
-  const result  = calcPortfolioChange(viewKey);
-  if(!result){ wrap.style.display='none'; return; }
+
+  // True all-time gain for this view — current value vs cost basis, exactly
+  // matching the Unrealised P&L card's figure (filtered the same way).
+  const viewFilter = portfolioView===1 ? h=>h.assetType!=='crypto'
+                    : portfolioView===2 ? h=>h.assetType==='crypto'
+                    : ()=>true;
+  let tv=0, tc=0, any=false;
+  allH.filter(viewFilter).forEach(h=>{
+    const cur = prices[priceSymbol(h.symbol)];
+    if(cur!=null){ tv += cur*h.units; any = true; }
+    tc += h.costBasis;
+  });
+  const allTime = (any && tc>0) ? { amt: tv-tc, pct: (tv-tc)/tc*100 } : null;
+
+  const result = calcPortfolioChange(viewKey, allTime);
+  if(!result || (!allTime && result.rows.every(r=>r.pct==null))){ wrap.style.display='none'; return; }
   wrap.style.display = '';
 
   const sub = $('pf-change-sub');
