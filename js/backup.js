@@ -697,6 +697,7 @@ refreshAllBrokerSelects();
 renderH(); renderT(); renderR();
 const wcBox = $('worker-code-box');
 setTimeout(syncAutoLoad, 800); // auto-pull on page open if configured
+setTimeout(()=>{ syncHoldingsToWorker(); backfillPortfolioHistory(); }, 1200); // pick up any 5pm snapshots recorded while the app was closed
 if(wcBox) wcBox.value = Array.isArray(WORKER_CODE) ? WORKER_CODE.join('\n') : WORKER_CODE;
 
 // ── Pure-JS PDF extractor (no CDN, replaces PDF.js) ─────────────────────

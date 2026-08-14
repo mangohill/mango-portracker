@@ -50,10 +50,12 @@ function displaySymbol(sym){ sym = escHtml(sym||'');
 
 // Plain text version (no HTML) for exports/search
 
-function calcH(){
+function calcH(asOfDate){
   const map={};
   // Sort trades by date so corporate actions apply in correct order
-  const sorted = [...trades].sort((a,b)=>{
+  const sorted = [...trades]
+    .filter(t=> !asOfDate || t.date<=asOfDate)
+    .sort((a,b)=>{
     const dateD = a.date.localeCompare(b.date);
     if(dateD!==0) return dateD;
     // Same date: ensure _from subtypes always process before _to

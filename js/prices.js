@@ -191,6 +191,87 @@ async function refreshPrices(){
   const statusEl = $('price-refresh-status');
   if(statusEl) statusEl.textContent = total > 0 ? `✓ ${total} updated · ${now}` : `Updated ${now}`;
   if(total > 0) notify(`${total} prices updated ✓`,'ok');
+
+  syncHoldingsToWorker();
+  backfillPortfolioHistory();
+}
+
+// ── DAILY 5PM AUTO-SNAPSHOT (via Cloudflare Worker Cron Trigger) ──────
+// The worker prices your held symbols itself, once daily, whether or not
+// you ever open the app. These two functions keep it informed of what to
+// price, and pull down whatever it recorded while you were away.
+
+// Tell the worker which symbols to price at its next scheduled run.
+async function syncHoldingsToWorker(){
+  const workerURL = getWorkerURL();
+  if(!workerURL) return;
+  const h = calcH();
+  const unlistedSyms = new Set(['MAIF','MAAT']);
+  const asx = [...new Set(
+    h.filter(x => x.assetType!=='crypto' && !unlistedSyms.has(priceSymbol(x.symbol)))
+     .map(x => priceSymbol(x.symbol)+'.AX')
+  )];
+  const crypto = [...new Set(
+    h.filter(x => x.assetType==='crypto')
+     .map(x => CG[priceSymbol(x.symbol)])
+     .filter(Boolean)
+  )];
+  if(!asx.length && !crypto.length) return;
+  try{
+    await fetch(`${workerURL}?syncHoldings=1&asx=${encodeURIComponent(asx.join(','))}&crypto=${encodeURIComponent(crypto.join(','))}`);
+  }catch(e){ console.warn('syncHoldingsToWorker failed:', e); }
+}
+
+// Pull any daily price snapshots the worker recorded since our last known
+// day, and reconstruct real historical portfolio values from them — using
+// the actual holdings as of each date (not today's holdings), so this is a
+// genuine mark-to-market history rather than an approximation.
+async function backfillPortfolioHistory(){
+  const workerURL = getWorkerURL();
+  if(!workerURL) return;
+
+  // Once per calendar day is plenty — avoids hammering the worker's KV
+  // list endpoint on every single price refresh.
+  const todayStr = new Date().toISOString().slice(0,10);
+  if(localStorage.getItem('pt_pf_backfill_date') === todayStr) return;
+
+  const knownDates = Object.keys(pfSnapshots).sort();
+  const since = knownDates.length
+    ? new Date(new Date(knownDates[knownDates.length-1]+'T00:00:00').getTime()+86400000).toISOString().slice(0,10)
+    : '1970-01-01';
+
+  let history;
+  try{
+    const r = await fetch(`${workerURL}?priceHistory=1&since=${since}`);
+    if(!r.ok) return;
+    history = await r.json();
+  }catch(e){ console.warn('backfillPortfolioHistory fetch failed:', e); return; }
+
+  const unlistedSyms = new Set(['MAIF','MAAT']);
+  let filled = 0;
+  for(const dateKey of Object.keys(history).sort()){
+    if(pfSnapshots[dateKey]) continue; // never overwrite a day we already have
+    const dayPrices = history[dateKey];
+    const holdingsAsOf = calcH(dateKey);
+    const valFor = filterFn => {
+      let tv = 0, any = false;
+      holdingsAsOf.filter(filterFn).forEach(h=>{
+        if(unlistedSyms.has(priceSymbol(h.symbol))) return; // worker can't price these
+        const sym = h.assetType==='crypto' ? CG[priceSymbol(h.symbol)] : priceSymbol(h.symbol)+'.AX';
+        const p = sym ? dayPrices[sym] : null;
+        if(p!=null){ tv += p*h.units; any = true; }
+      });
+      return any ? +tv.toFixed(2) : null;
+    };
+    const all    = valFor(()=>true);
+    const stocks = valFor(h=>h.assetType!=='crypto');
+    const crypto = valFor(h=>h.assetType==='crypto');
+    if(all==null && stocks==null && crypto==null) continue;
+    pfSnapshots[dateKey] = { all, stocks, crypto };
+    filled++;
+  }
+  if(filled){ savePfSnapshots(); renderPortfolioChange(calcH()); }
+  localStorage.setItem('pt_pf_backfill_date', todayStr);
 }
 
 // Manual price override
