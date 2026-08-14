@@ -313,17 +313,22 @@ function renderH(){
   const tpl = tv ? tv-tc : null;
   const tpp = tpl&&tc ? (tpl/tc*100) : null;
 
-  // Labels
+  // Labels — keep both card labels short and constant so they never wrap
+  // onto a 2nd line at narrow widths (that's what was pushing the dollar
+  // figures out of alignment with the other cards in the row). The
+  // Stocks/Crypto view indicator lives in each card's sub-line instead.
   const viewLabel = portfolioView===1 ? 'Stocks' : portfolioView===2 ? 'Crypto' : '';
-  const mvLabel   = viewLabel ? viewLabel+' — Market Value' : 'Market Value';
-  const cbLabel   = viewLabel ? viewLabel+' — Cost Basis'   : 'Cost Basis';
+  const mvLabel   = 'Market Value';
+  const cbLabel   = 'Cost Basis';
   const mvSub     = portfolioView===0 ? 'AUD · all assets ↻'
                   : portfolioView===1 ? 'Stocks only ↻'
                   : 'Crypto only ↻';
+  const cbSub     = portfolioView===0 ? 'Total invested' : viewLabel+' only';
 
   if($('cl-mv')) $('cl-mv').textContent = mvLabel;
   if($('cl-cb')) $('cl-cb').textContent = cbLabel;
   if($('cs-mv')) $('cs-mv').textContent = mvSub;
+  if($('cs-cb')) $('cs-cb').textContent = cbSub;
   if($('cs-pos')) $('cs-pos').textContent = viewLabel ? viewLabel+' positions' : 'Open';
 
   // Highlight cards wrapper to show active filter
