@@ -527,12 +527,12 @@ function renderSuperAccounts(){
      ${sub?`<div style="font-size:10px;color:var(--text3);margin-top:1px">${sub}</div>`:''}</div>`;
 
   // Collapsible section helper
-  const collapsible = (title, body) => `
+  const collapsible = (title, body, startCollapsed=false) => `
       <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-top:12px">
         <div onclick="toggleSuperSection(this)" style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:0;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
-          ${title}<span style="font-size:16px;color:var(--blue);line-height:1;font-weight:300">−</span>
+          ${title}<span style="font-size:16px;color:${startCollapsed?'var(--text3)':'var(--blue)'};line-height:1;font-weight:300">${startCollapsed?'+':'−'}</span>
         </div>
-        <div class="su-section-body" style="margin-top:12px">
+        <div class="su-section-body" style="margin-top:${startCollapsed?'0':'12px'};display:${startCollapsed?'none':''}">
           ${body}
         </div>
       </div>`;
@@ -662,7 +662,7 @@ function renderSuperAccounts(){
           ATO caps: FY2022–FY2024 = $27,500/yr · FY2025–FY2026 = $30,000/yr · FY2027+ = $32,500/yr
         </div>
       </div>`;
-    const cfPanel = collapsible('CARRY-FORWARD CC', cfBody);
+    const cfPanel = collapsible('CARRY-FORWARD CC', cfBody, true);
 
     // ── NON-CONCESSIONAL panel ──────────────────────────────────
     const priorTSBRaw = contrib.bal_prevyr;
@@ -729,7 +729,7 @@ function renderSuperAccounts(){
       </div>`;
 
     const ncBody = bfPeriodBlock + standaloneBlock;
-    const ncPanel = collapsible('NON-CONCESSIONAL CONTRIBUTIONS', ncBody);
+    const ncPanel = collapsible('NON-CONCESSIONAL CONTRIBUTIONS', ncBody, true);
 
     // ── INVESTMENT RETURN panel ──────────────────────────────────
     const needsFYData = prevBal === null;
