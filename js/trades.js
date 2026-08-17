@@ -101,8 +101,10 @@ function caAutoFillUnits(){
 }
 
 function caPreview(){
-  const fromSym  = $('ca-from-sym').value.trim();
-  const toSym    = caType==='split' ? fromSym : $('ca-to-sym').value.trim();
+  const fromSymRaw = $('ca-from-sym').value.trim();
+  const toSymRaw   = caType==='split' ? fromSymRaw : $('ca-to-sym').value.trim();
+  const fromSym  = escHtml(fromSymRaw);
+  const toSym    = escHtml(toSymRaw);
   const fromUnits= parseFloat($('ca-from-units').value)||0;
   const ratio    = parseFloat($('ca-ratio').value)||0;
   const toUnits  = caType==='spinoff'
@@ -111,9 +113,9 @@ function caPreview(){
     : (fromUnits * ratio);
   const alloc    = parseFloat($('ca-alloc').value)||0;
 
-  if(!fromSym){ $('ca-preview').style.display='none'; return; }
+  if(!fromSymRaw){ $('ca-preview').style.display='none'; return; }
 
-  const h = calcH().find(x=>x.symbol===fromSym);
+  const h = calcH().find(x=>x.symbol===fromSymRaw);
   const costBasis = h ? h.costBasis : 0;
   const newCostBasis = caType==='spinoff' ? costBasis*(alloc/100) : costBasis;
   const remainCost   = caType==='spinoff' ? costBasis*(1-alloc/100) : 0;
@@ -143,6 +145,12 @@ function caPreview(){
     lines = [
       `<b>${fromSym}</b> keeps ${(100-alloc).toFixed(1)}% of cost basis → ${n2(remainCost)}`,
       `<b>${toSym}</b> receives ${nN(toUnits,4)} units + ${alloc.toFixed(1)}% cost basis → ${n2(newCostBasis)}`,
+    ];
+  } else if(caType==='worthless'){
+    const units = fromUnits || (h ? h.units : 0);
+    lines = [
+      `<b>${fromSym}</b> — ${nN(units,4)} units → <span style="color:var(--neg)">written off at $0</span>`,
+      `Capital loss crystallised: ${n2(costBasis)}`,
     ];
   }
   $('ca-preview-text').innerHTML = lines.join('<br>');

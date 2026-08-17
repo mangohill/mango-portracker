@@ -24,10 +24,10 @@ function exportXLSX(){
     const tradeRows = tradeSorted.map(t => {
       const g   = +t.units * +t.price;
       const net = (t.type==='buy'||t.type==='drp') ? g+(+t.fees||0) : g-(+t.fees||0);
-      return [t.date, t.type.toUpperCase(), t.symbol, t.assetType,
+      return [t.date, t.type.toUpperCase(), csvSafe(t.symbol), t.assetType,
               fmt4(t.units), fmt4(t.price), fmt2(g), fmt2(t.fees||0), fmt2(net),
-              t.source||'', t.notes||'',
-              t.subtype||'', t.caLabel||'', t.fromSymbol||''];
+              t.source||'', csvSafe(t.notes||''),
+              t.subtype||'', t.caLabel||'', csvSafe(t.fromSymbol||'')];
     });
     const wsAll = makeSheet(TRADE_HDR, tradeRows);
     wsAll['!cols'] = [12,8,12,14,14,14,14,12,14,12,24,16,18,14].map(w=>({wch:w}));
@@ -39,9 +39,9 @@ function exportXLSX(){
       const rows = tradeSorted.filter(t=>t.assetType===at && t.type!=='corporate_action').map(t=>{
         const g = +t.units * +t.price;
         const net = (t.type==='buy'||t.type==='drp') ? g+(+t.fees||0) : g-(+t.fees||0);
-        return [t.date, t.type.toUpperCase(), t.symbol,
+        return [t.date, t.type.toUpperCase(), csvSafe(t.symbol),
                 fmt4(t.units), fmt4(t.price), fmt2(g), fmt2(t.fees||0), fmt2(net),
-                t.source||'', t.notes||''];
+                t.source||'', csvSafe(t.notes||'')];
       });
       if(!rows.length) continue;
       const HDR = ['Date','Side','Symbol','Units','Price (AUD)','Gross (AUD)','Fees (AUD)','Net (AUD)','Source','Notes'];
@@ -57,8 +57,8 @@ function exportXLSX(){
     if(caRows.length){
       const CA_HDR = ['Date','Symbol','Subtype','CA Label','From Symbol','Units','Price','Notes'];
       const ws = makeSheet(CA_HDR, caRows.map(t=>[
-        t.date, t.symbol, t.subtype||'', t.caLabel||'', t.fromSymbol||'',
-        fmt4(t.units), fmt4(t.price||0), t.notes||''
+        t.date, csvSafe(t.symbol), t.subtype||'', t.caLabel||'', csvSafe(t.fromSymbol||''),
+        fmt4(t.units), fmt4(t.price||0), csvSafe(t.notes||'')
       ]));
       ws['!cols'] = [12,12,16,20,14,14,14,30].map(w=>({wch:w}));
       XLSX.utils.book_append_sheet(wb, ws, 'Corporate Actions');
@@ -102,7 +102,7 @@ function exportXLSX(){
       const divRows = divSorted.map(d=>[
         d.date,
         dateToFY ? 'FY'+dateToFY(d.date) : '',
-        d.symbol, d.type, fmt2(d.amount), d.notes||''
+        csvSafe(d.symbol), d.type, fmt2(d.amount), csvSafe(d.notes||'')
       ]);
       // Summary by symbol
       const bySymbol = {};
@@ -111,7 +111,7 @@ function exportXLSX(){
       divRows.push([],[' — SUMMARY BY SYMBOL —','','','','']);
       divRows.push(['Symbol','','','','Total (AUD)','']);
       Object.entries(bySymbol).sort((a,b)=>b[1]-a[1]).forEach(([sym,amt])=>{
-        divRows.push([sym,'','','',fmt2(amt),'']);
+        divRows.push([csvSafe(sym),'','','',fmt2(amt),'']);
       });
       divRows.push(['TOTAL','','','',fmt2(total),'']);
       const wsDiv = makeSheet(DIV_HDR, divRows);
@@ -131,12 +131,12 @@ function exportXLSX(){
         const totInit = spl.reduce((s,sp)=>s+(+sp.initial||0),0);
         const wRate   = totBal>0 ? spl.reduce((s,sp)=>s+((+sp.balance||0)/totBal)*(+sp.rate||0),0) : 0;
         return [
-          p.name, p.propType||'', p.purchaseDate||'',
+          csvSafe(p.name), p.propType||'', p.purchaseDate||'',
           +p.purchasePrice, +(p.purchaseCosts||0), +p.currentValue,
           +totInit.toFixed(2), +totBal.toFixed(2), +wRate.toFixed(4),
           JSON.stringify(spl),
           +(p.weeklyRent||0), +(p.annualExpenses||0),
-          p.hasManager||'no', p.notes||''
+          p.hasManager||'no', csvSafe(p.notes||'')
         ];
       });
       const wsProp = makeSheet(PROP_HDR, propRows);
@@ -155,7 +155,7 @@ function exportXLSX(){
           s.category.startsWith('__')?
             ({'__TRANSFERS__':'Internal Transfer','__REFUND__':'Refund','__OTHER_INCOME__':'Other Income'}[s.category]||s.category)
             :s.category,
-          s.merchant, s.details
+          csvSafe(s.merchant), csvSafe(s.details)
         ]);
       const wsSp = makeSheet(SP_HDR, spRows);
       wsSp['!cols'] = [12,8,14,10,28,24,40].map(w=>({wch:w}));

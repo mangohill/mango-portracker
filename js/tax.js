@@ -143,48 +143,123 @@ function getTaxRecord(fy){
 }
 
 // ATO FY2025/26 tax brackets (Stage 3 cuts)
-function calcTax(taxable){
+function calcTax(taxable, fy){
+  // taxable: numeric income
+  // fy: optional fiscal year (FY as integer, e.g. 2027 for FY2026-27). If omitted, use current FY.
+  taxable = +taxable || 0;
   if(taxable <= 0) return 0;
+  let targetFY;
+  if(fy) targetFY = +fy;
+  else if(typeof dateToFY === 'function') targetFY = dateToFY(new Date().toISOString().slice(0,10));
+  else { const d = new Date(); targetFY = d.getMonth() >= 6 ? d.getFullYear()+1 : d.getFullYear(); }
+
   let tax = 0;
-  const brackets = [
-    [18200,   0],
-    [45000,   0.16],
-    [135000,  0.30],
-    [190000,  0.37],
-    [Infinity, 0.45],
-  ];
-  let prev = 0;
-  for(const [limit, rate] of brackets){
-    if(taxable <= prev) break;
-    const slice = Math.min(taxable, limit) - prev;
-    tax += slice * rate;
-    prev = limit;
+  // Use ATO resident rates by FY (covers FY2023–24 → FY2026–27). Default fallbacks kept conservative.
+  if(targetFY >= 2027){
+    // FY2026-27
+    if(taxable <= 18200) tax = 0;
+    else if(taxable <= 45000) tax = (taxable - 18200) * 0.15;
+    else if(taxable <= 135000) tax = 4020 + (taxable - 45000) * 0.30;
+    else if(taxable <= 190000) tax = 31020 + (taxable - 135000) * 0.37;
+    else tax = 51370 + (taxable - 190000) * 0.45;
+  } else if(targetFY === 2026 || targetFY === 2025){
+    // FY2024-25 and FY2025-26 (user-supplied same structure)
+    // 18,201–45,000: 16c; 45,001–135,000: $4,288 + 30c; 135,001–190,000: $31,288 + 37c; 190,001+: $51,638 + 45c
+    if(taxable <= 18200) tax = 0;
+    else if(taxable <= 45000) tax = (taxable - 18200) * 0.16;
+    else if(taxable <= 135000) tax = 4288 + (taxable - 45000) * 0.30;
+    else if(taxable <= 190000) tax = 31288 + (taxable - 135000) * 0.37;
+    else tax = 51638 + (taxable - 190000) * 0.45;
+  } else if(targetFY === 2024){
+    // FY2023-24
+    if(taxable <= 18200) tax = 0;
+    else if(taxable <= 45000) tax = (taxable - 18200) * 0.19;
+    else if(taxable <= 120000) tax = 5092 + (taxable - 45000) * 0.325;
+    else if(taxable <= 180000) tax = 29467 + (taxable - 120000) * 0.37;
+    else tax = 51667 + (taxable - 180000) * 0.45;
+  } else {
+    // conservative default: FY2026-27 style
+    if(taxable <= 18200) tax = 0;
+    else if(taxable <= 45000) tax = (taxable - 18200) * 0.15;
+    else if(taxable <= 135000) tax = 4020 + (taxable - 45000) * 0.30;
+    else if(taxable <= 190000) tax = 31020 + (taxable - 135000) * 0.37;
+    else tax = 51370 + (taxable - 190000) * 0.45;
   }
-  // Medicare levy 2% (simplified — full levy above $26,000)
-  if(taxable > 26000) tax += taxable * 0.02;
+
+  // Medicare levy 2%, with the ATO's low-income shade-in applied instead of
+  // a hard cliff at the threshold — see calcMedicareLevy() below.
+  tax += calcMedicareLevy(taxable);
   return Math.round(tax * 100) / 100;
+}
+
+// Medicare levy 2%, with the ATO's low-income shade-in applied instead of
+// a hard cliff at the threshold. Below the lower threshold: no levy.
+// Between lower and upper (~1.1x lower): levy phases in at 10c per dollar
+// over the lower threshold. Above upper: full 2% on all taxable income.
+// NOTE: $26,000 is carried over from the original single-threshold figure
+// already in this file — verify it's the correct FY figure against the
+// ATO's published Medicare levy low-income thresholds for the target year.
+// Shared by calcTax() (baked into the tax figure) and the standalone
+// medicareLevy display line in buildPersonTax(), so the two can't diverge.
+function calcMedicareLevy(taxable){
+  taxable = Math.max(0, +taxable || 0);
+  const ML_LOWER = 26000;
+  const ML_UPPER = ML_LOWER * 1.1;
+  if(taxable > ML_UPPER) return Math.round(taxable * 0.02 * 100) / 100;
+  if(taxable > ML_LOWER) return Math.round((taxable - ML_LOWER) * 0.10 * 100) / 100;
+  return 0;
 }
 
 // Grossed-up dividend = cash / (1 - 0.30) * frankingPct/100
 
 // HECS-HELP repayment rates FY2025/26
-function calcHECS(income, hecsDebt){
+function calcHECS(income, hecsDebt, fy){
   income = +income || 0;  // guard NaN
   if(!hecsDebt || hecsDebt <= 0) return 0;
-  // HECS repayment thresholds FY2025/26
-  const tiers = [
-    [54435,  0.010], [62851,  0.020], [66621,  0.025], [70619,  0.030],
-    [74856,  0.035], [79347,  0.040], [84068,  0.045], [89155,  0.050],
-    [94503,  0.055], [100174, 0.060], [106185, 0.065], [112556, 0.070],
-    [119310, 0.075], [126468, 0.080], [134048, 0.085], [142054, 0.090],
-    [150529, 0.095], [Infinity, 0.100],
-  ];
-  const tier = tiers.find(([limit]) => income < limit);
-  const rate = tier ? tier[1] : 0.10;
-  if(income < 54435) return 0;
-  const repayment = Math.round(income * rate);
+  if(income <= 0) return 0;
+
+  // From FY2025-26, compulsory HELP/HECS repayments switched to a MARGINAL
+  // system: the repayment rate applies only to the income above each
+  // threshold (like income tax brackets), not as a single flat rate on the
+  // whole income the way it worked pre-reform. See ATO "Study and training
+  // loans – what's new". The final bracket is the one exception — it's a
+  // flat 10% of TOTAL repayment income, not stacked on top of the brackets
+  // below it (this matches the ATO's own published tables, including the
+  // small discontinuity at the top threshold).
+  let targetFY;
+  if(fy) targetFY = +fy;
+  else if(typeof dateToFY === 'function') targetFY = dateToFY(new Date().toISOString().slice(0,10));
+  else { const d = new Date(); targetFY = d.getMonth() >= 6 ? d.getFullYear()+1 : d.getFullYear(); }
+
+  let brackets;
+  if(targetFY >= 2027){
+    // Table 1: 2026–27 repayment thresholds and rates
+    brackets = [
+      { to: 69528,     base: 0,    from: 0,      rate: 0    },
+      { to: 129717,    base: 0,    from: 69528,  rate: 0.15 },
+      { to: 186050,    base: 9028, from: 129717, rate: 0.17 },
+      { to: Infinity,  flatOnTotal: true,         rate: 0.10 },
+    ];
+  } else {
+    // Table 2: 2025–26 repayment thresholds and rates. Also used as the
+    // fallback for any FY < 2026 — no pre-reform (pre-marginal) table is
+    // wired up here since this app previously only ever carried one set of
+    // figures; verify against the ATO if you need an older year's numbers.
+    brackets = [
+      { to: 67000,     base: 0,    from: 0,      rate: 0    },
+      { to: 125000,    base: 0,    from: 67000,  rate: 0.15 },
+      { to: 179285,    base: 8700, from: 125000, rate: 0.17 },
+      { to: Infinity,  flatOnTotal: true,         rate: 0.10 },
+    ];
+  }
+
+  const b = brackets.find(x => income <= x.to);
+  const repayment = b.rate === 0 ? 0
+    : b.flatOnTotal ? income * b.rate
+    : b.base + (income - b.from) * b.rate;
+
   // ATO caps repayment at remaining debt balance
-  return Math.min(repayment, hecsDebt);
+  return Math.min(Math.round(repayment), hecsDebt);
 }
 
 // Medicare Levy Surcharge (MLS) — applies if NO private hospital cover
@@ -242,36 +317,15 @@ function frankingCredit(amount, frankingPct){
   return Math.round((grossed - amount * (frankingPct/100)) * 100) / 100;
 }
 
-function calcHECSRate(income){
-  // ATO HECS-HELP repayment rates FY2025/26
-  // https://www.ato.gov.au/individuals-and-families/study-and-training-support-loans
-  const thresholds = [
-    [54435,  0],       // below threshold — no repayment
-    [62739,  0.010],
-    [66153,  0.020],
-    [70908,  0.025],
-    [75424,  0.030],
-    [80257,  0.035],
-    [85352,  0.040],
-    [90751,  0.045],
-    [96549,  0.050],
-    [102800, 0.055],
-    [109309, 0.060],
-    [116432, 0.065],
-    [123766, 0.070],
-    [131608, 0.075],
-    [140028, 0.080],
-    [148949, 0.085],
-    [158560, 0.090],
-    [168660, 0.095],
-    [179467, 0.100],
-    [Infinity, 0.100],
-  ];
-  for(const [limit, rate] of thresholds){
-    if(income < limit) return rate;
-  }
-  return 0.100;
-}
+// NOTE: calcHECSRate() (a single-flat-rate-by-threshold lookup) used to
+// live here but was dead code — confirmed unused anywhere in the app —
+// and carried a third, different, now-obsolete set of thresholds left over
+// from the pre-FY2025-26 flat-rate HECS system. Since the ATO switched to
+// a marginal-bracket system from FY2025-26 (see calcHECS() above), a
+// single "rate for this income" function doesn't really map onto the
+// current rules, so it's been removed rather than updated. If you need a
+// per-dollar marginal rate for display purposes, derive it from the same
+// `brackets` table calcHECS() uses instead of resurrecting this.
 
 
 function renamePerson(key){
@@ -417,30 +471,23 @@ function renderTax(){
   const fyEnd   = new Date(fy+'-06-30');
   function inFY(d){ const dt=new Date(d); return dt>=fyStart&&dt<=fyEnd; }
 
-  // Realised sells in this FY
-  const sells = trades.filter(t=>t.type==='sell'&&inFY(t.date));
-
-  // For each sell: find cost basis (match buys chronologically) — delegates
-  // to the shared engine in cgt.js so AMIT cost-base adjustments and the
-  // Capital Gains tab stay consistent with this estimate.
-  function calcCGT(personSells){
-    const events = calcCGTEvents(personSells);
-    const s = summarizeCGTEvents(events);
-    return { shortGain: s.shortGain, longGain: s.longGain, totalLoss: s.totalLoss, netGain: s.netGain };
-  }
-
-  // CGT attributed by stock ownership — each person only pays CGT on THEIR sells
+  // CGT per person for this FY — pulled directly from computeCGTSummary()
+  // in cgt.js, the same engine that powers the Capital Gains tab: FIFO
+  // parcel matching, AMIT cost-base adjustments, corporate-action
+  // rollovers, property CGT, ownership split, and the correct ATO
+  // ordering (losses offset short-term gains before long-term, discount
+  // applied after). This keeps the Tax tab's estimate identical to the
+  // Capital Gains tab for the same person + FY. Guard if the CGT engine
+  // isn't available (avoid hard errors when files are missing or failed
+  // to execute due to runtime issues).
   function personCGT(personKey) {
-    const personSells = sells
-      .filter(s => {
-        const own = getSymbolOwner(s.symbol);
-        return own === personKey || own === 'joint';
-      })
-      .map(s => ({
-        ...s,
-        _share: getSymbolOwner(s.symbol) === 'joint' ? 0.5 : 1.0
-      }));
-    return calcCGT(personSells);
+    if(typeof computeCGTSummary !== 'function'){
+      console.warn('CGT engine not available; returning empty CGT summary');
+      return { shortGain:0, longGain:0, totalLoss:0, netGain:0 };
+    }
+    const r = ((computeCGTSummary().result||{})[personKey]||{})[fy];
+    if(!r) return { shortGain:0, longGain:0, totalLoss:0, netGain:0 };
+    return { shortGain: r.netShort, longGain: r.discountedLong, totalLoss: r.losses, netGain: r.netCapitalGain };
   }
   // Shared CGT summary (for display totals) — sum of both persons' attributed gains
   const lumCGT = personCGT('lumia');
@@ -542,9 +589,8 @@ function renderTax(){
     const investInterestDeduction = propPnLResult.investInterest || 0;
     const taxableIncome = (salary - sacrifice) + myDiv + myFrank - investInterestDeduction + netPropGain - netPropLoss + myCGT;
     const grossTax  = calcTax(Math.max(0, taxableIncome));
-    // Medicare levy (2% — already baked into calcTax, extracted here for display)
-    const medicareLevy = Math.max(0, taxableIncome) > 26000
-      ? Math.round(Math.max(0, taxableIncome) * 0.02 * 100) / 100 : 0;
+    // Medicare levy (2% w/ shade-in — already baked into calcTax, extracted here for display)
+    const medicareLevy = calcMedicareLevy(Math.max(0, taxableIncome));
     const hecsRep   = calcHECS(Math.max(0, taxableIncome), hecsDebt);
     // Division 293: extra 15% tax on concessional contributions if income > $250,000
     // Concessional contributions = employer SG (est. 12% of salary) + salary sacrifice

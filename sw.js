@@ -4,7 +4,7 @@
 // Scope: https://mangohill.github.io/mango-portracker/
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'portfolio-tracker-v5';
+const CACHE_NAME = 'portfolio-tracker-v6';
 const BASE       = '/mango-portracker/';
 
 const PRECACHE_URLS = [
@@ -79,6 +79,14 @@ self.addEventListener('fetch', event => {
     url.hostname.includes('monash') ||
     url.hostname.includes('cloudflare');
   if (isApi) return;
+
+  // version.json is polled with a cache-busting ?t= query string by
+  // sw-register.js to detect new deploys. Every poll has a unique URL, so
+  // routing it through Cache Storage (as any other .json would be, via the
+  // cache-first branch below) just piles up one-off entries that are never
+  // reused or cleaned — an unbounded cache leak. Let the browser handle it
+  // directly instead.
+  if (url.pathname.endsWith('/version.json')) return;
 
   if(isNF(event.request.url)){
     event.respondWith(fetch(event.request,{cache:'no-cache'}).then(res=>{

@@ -2073,7 +2073,7 @@ function renderProperties(){
           <div style="font-size:11px;color:var(--text3);margin-top:3px;font-family:var(--mono)">
             <span class="badge b-reit">${typeLabel}</span>
             ${p.purchaseDate?' · Purchased '+p.purchaseDate:''}
-            ${p.notes?' · '+p.notes:''}
+            ${p.notes?' · '+escHtml(p.notes):''}
           </div>
         </div>
         <div style="display:flex;gap:8px">

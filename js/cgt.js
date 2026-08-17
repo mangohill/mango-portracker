@@ -36,6 +36,7 @@
 // ── AMIT COST BASE ADJUSTMENTS ───────────────────────────────────────────
 // Stored per symbol per distribution (record) date, as entered from each
 // fund's annual tax statement.
+try{ console.log('cgt.js: initializing AMIT adjustments'); }catch(e){}
 let amitAdjustments = (()=>{try{return JSON.parse(localStorage.getItem('pt_amit')||'[]');}catch(e){return [];}})();
 
 function saveAmitAdjustments(){ localStorage.setItem('pt_amit', JSON.stringify(amitAdjustments)); }
@@ -71,6 +72,7 @@ function shareForOwner(ownerKey, person){
 // maintaining open parcels per symbol (with continuity through corporate
 // actions), consuming them FIFO on each sell.
 function buildDisposals(){
+  try{ console.log('cgt.js: enter buildDisposals'); }catch(e){}
   const parcels = {};    // symbol -> [{units, cost, date}]
   const disposals = [];  // [{symbol, saleDate, unitsSold, proceeds, costConsumed, gain, lots, shortfallUnits}]
   const amitLog = [];    // [{symbol, date, amount, capped}]
@@ -193,6 +195,7 @@ function buildDisposals(){
 
 // ── PROPERTY CGT ──────────────────────────────────────────────────────────
 function buildPropertyDisposals(){
+  try{ console.log('cgt.js: enter buildPropertyDisposals'); }catch(e){}
   return (typeof properties!=='undefined' ? properties : [])
     .filter(p => p.sold && p.soldDate)
     .map(p=>{
@@ -429,6 +432,8 @@ let cgtCostBaseFilter = 'all'; // 'all' | 'adjusted'
 let cgtAmitCollapsed = false;
 let cgtCostBaseCollapsed = false;
 let cgtAmitSearch = '';
+let cgtLastSim = null;
+let cgtFifoCollapsed = true;
 
 function renderCGT(){
   const panel = $('panel-cgt');
@@ -554,6 +559,35 @@ function renderCGT(){
   // ── CURRENT COST BASE (AMIT-adjusted, per currently-held symbol) ──────
   const costBaseHtml = buildCostBaseHtml(openParcels);
 
+  // FIFO vs LIFO summary (sell now using current prices)
+  const fifoLifoRows = computeFIFOvsLIFOSummary(openParcels);
+  const fifoLifoHtml = fifoLifoRows.length ? `
+    <div class="ovx"><table>
+      <thead><tr>
+        <th>SYMBOL</th>
+        <th style="text-align:right">UNITS</th>
+        <th style="text-align:right">PRICE</th>
+        <th style="text-align:right">FIFO TAXABLE</th>
+        <th style="text-align:right">LIFO TAXABLE</th>
+        <th style="text-align:right">FIFO @30%</th>
+        <th style="text-align:right">LIFO @30%</th>
+        <th style="text-align:right">BETTER</th>
+      </tr></thead>
+      <tbody>
+        ${fifoLifoRows.map(r=>`<tr>
+          <td><b>${escHtml(r.sym)}</b></td>
+          <td style="text-align:right">${nN(r.units,6)}</td>
+          <td style="text-align:right">${n2(r.price)}</td>
+          <td style="text-align:right" class="${clr(r.fifo.taxable)}">${n2(r.fifo.taxable)}</td>
+          <td style="text-align:right" class="${clr(r.lifo.taxable)}">${n2(r.lifo.taxable)}</td>
+          <td style="text-align:right">${n2(r.fifoTax30)}</td>
+          <td style="text-align:right">${n2(r.lifoTax30)}</td>
+          <td style="text-align:right">${r.better}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+  ` : '<div class="empty"><div class="empty-icon">🔁</div>No open holdings to simulate.</div>';
+
   const carryInSettings = getCGTLossCarryIn();
   const carryInHtml = persons.map(person=>{
     const c = carryInSettings[person] || {};
@@ -624,6 +658,66 @@ function renderCGT(){
     </div>
 
     ${propsHtml}
+
+    <div class="fs" style="margin-top:16px">
+      <div class="fst" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="cgtFifoCollapsed=!cgtFifoCollapsed;renderCGT()">
+        <span>FIFO vs LIFO — SELL NOW (uses current prices)</span>
+        <span style="color:var(--text3);font-size:10px">${cgtFifoCollapsed?'▼ show':'▲ hide'}</span>
+      </div>
+      ${cgtFifoCollapsed ? '' : `
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:8px">
+        Estimates only. 50% discount applies to long-term gains up to 30/06/2027. Post-2027 portions are inferred and treated using indexation + 30% minimum where applicable.
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:end">
+        <div class="fgi" style="flex:0 0 160px"><label class="fl">Symbol</label>
+          <select class="fi" id="cgt-sim-symbol" onchange="cgtUpdateSlider()">${symbolsInUse.map(sym=>`<option value="${sym}">${sym}</option>`).join('')}</select></div>
+        <div class="fgi" style="flex:0 0 200px"><label class="fl">Sell by</label>
+          <div style="display:flex;gap:6px">
+            <select class="fi" id="cgt-sim-mode" style="flex:0 0 120px" onchange="cgtUpdateSlider()">
+              <option value="units">Units</option>
+              <option value="dollars">Dollars</option>
+            </select>
+            <input class="fi" id="cgt-sim-units" type="number" step="any" placeholder="Blank = all" style="flex:1"
+                   oninput="cgtSyncUnitsFromInput(this)">
+          </div>
+        </div>
+        <div class="fgi" style="flex:0 0 180px"><label class="fl">Sale price / unit ($)</label>
+          <input class="fi" id="cgt-sim-price" type="number" step="any" placeholder="Leave empty = current price" onchange="cgtRunSimulation()"></div>
+        <div class="fgi" style="flex:0 0 220px"><label class="fl">Price on 30/06/2027 ($)</label>
+          <div style="display:flex;gap:6px"><input class="fi" id="cgt-sim-price-20270630" type="number" step="any" placeholder="Optional - stored per symbol" onchange="(function(){ cgtSavePrice20270630(); cgtRunSimulation(); })()">
+          <button class="btn" onclick="cgtFetchPrice20270630()">Fetch</button></div></div>
+        <div class="fgi" style="flex:0 0 180px"><label class="fl">Sell date</label>
+          <input class="fi" type="date" id="cgt-sim-selldate" value="${new Date().toISOString().slice(0,10)}" onchange="cgtUpdateSlider(); cgtRunSimulation();"></div>
+        <div style="width:100%">
+          <input type="range" id="cgt-sim-slider" min="0" max="0" step="1" oninput="cgtSyncSliderChange(this)" disabled>
+          <div style="font-size:11px;color:var(--text3);margin-top:6px">Selected: <span id="cgt-sim-slider-val">—</span></div>
+        </div>
+        <div class="fgi" style="flex:0 0 160px"><label class="fl">Person</label>
+          <select class="fi" id="cgt-sim-person" onchange="cgtOnPersonChange()">${persons.map(p=>`<option value="${p}">${getPersonLabel(p)}</option>`).join('')}</select></div>
+        <div class="fgi" style="flex:0 0 200px"><label class="fl">Person annual taxable income</label>
+          <input class="fi" id="cgt-sim-income" type="number" step="any" placeholder="e.g. 90000" oninput="(function(){ const el=$('cgt-sim-income-note'); if(el) el.textContent=''; })()">
+          <div id="cgt-sim-income-note" style="font-size:11px;color:var(--text3);margin-top:4px"></div>
+        </div>
+        <div class="fgi" style="flex:0 0 140px"><label class="fl">Marginal tax % (override)</label>
+          <input class="fi" id="cgt-sim-marginal-rate" type="number" step="any" placeholder="Auto from prev FY" onchange="cgtRunSimulation()"></div>
+        <div class="fgi" style="flex:0 0 140px"><label class="fl">CPI % (annual) <span title="Annual CPI used to compound from 30/06/2027 to sale when cumulative inflation not provided">ℹ</span></label>
+          <input class="fi" id="cgt-sim-cpi" type="number" step="any" value="2.5" onchange="cgtRunSimulation()"></div>
+        <div class="fgi" style="flex:0 0 220px"><label class="fl">Cumulative inflation (cutoff→sale) % (optional) <span title="Provide the total inflation between 30/06/2027 and the sale (e.g. 8 for 8%). If left blank, the app will compound the annual CPI over the exact period.">ℹ</span></label>
+          <input class="fi" id="cgt-sim-cum-infl" type="number" step="any" placeholder="e.g. 8 for 8% total" onchange="cgtRunSimulation()"></div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-g" onclick="cgtRunSimulation()">Run simulation</button>
+            <select id="cgt-sim-method" class="fi" style="flex:0 0 110px">
+              <option value="FIFO">FIFO</option>
+              <option value="LIFO">LIFO</option>
+            </select>
+            <button class="btn" onclick="cgtShowExportPreview(document.getElementById('cgt-sim-method').value)">Export lots CSV</button>
+          </div>
+      </div>
+
+      <div id="cgt-sim-results">${fifoLifoHtml}</div>
+      `}
+    </div>
 
     <div class="fs" style="margin-top:20px">
       <div class="fst" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="cgtAmitCollapsed=!cgtAmitCollapsed;renderCGT()">
@@ -714,6 +808,10 @@ function renderCGT(){
       <button class="btn btn-g" onclick="cgtSaveCarryIn()">SAVE CARRY-FORWARD</button>
     </div>
   `;
+  // Initialize slider state after DOM is updated
+  setTimeout(cgtUpdateSlider, 0);
+  // Attempt auto-snapshot of prices for 30/06/2027 if that date has been reached
+  try{ setTimeout(cgtAutoSnapshotPrice20270630, 200); }catch(e){}
 }
 
 // ── EDIT EXISTING AMIT ENTRY ─────────────────────────────────────────────
@@ -961,11 +1059,15 @@ function cgtSaveCarryIn(){
 // summarizeCGTEvents() with an older API, and tax.js may still call them
 // for its CGT estimate line. These wrappers preserve that exact call
 // signature and return shape (so nothing crashes or silently changes
-// layout) by adapting the new, corrected engine underneath. NOTE: this
-// still reproduces the OLD (pre-fix) loss-vs-discount ordering for
-// backward compatibility — the Capital Gains tab itself uses the corrected
-// order. If your tax.js references these, treat its CGT figure as an
-// approximation until it's pointed at computeCGTSummary() directly.
+// layout) by adapting the new, corrected engine underneath.
+// summarizeCGTEvents() now applies losses against gains BEFORE the 50%
+// discount (short-term gains offset first, then long-term), matching the
+// order the Capital Gains tab itself uses via computeCGTSummary() — this
+// used to reproduce an older, pre-fix ordering that discounted long-term
+// gains before losses were applied, understating the taxable gain whenever
+// losses exceeded short-term gains. As before, calcCGTEvents() is currently
+// unused (nothing in this app calls it), so this only matters if something
+// starts calling it in future — prefer computeCGTSummary() directly.
 function calcCGTEvents(sellsInput){
   const { disposals } = buildDisposals();
   const bySaleId = {};
@@ -1018,7 +1120,908 @@ function summarizeCGTEvents(events){
       totalLoss += Math.abs(e.grossGain);
     }
   });
-  const longGain = longGainRaw * 0.5; // old (pre-fix) ordering — see note above
-  const netGain  = Math.max(0, shortGain + longGain - totalLoss);
+  // Apply losses against gains before the discount — short-term first,
+  // then long-term — then discount only the long-term gain that survives.
+  let remainingLoss = totalLoss;
+  const shortAfterLoss = Math.max(0, shortGain - remainingLoss);
+  remainingLoss = Math.max(0, remainingLoss - shortGain);
+  const longAfterLoss = Math.max(0, longGainRaw - remainingLoss);
+  const longGain = longAfterLoss * 0.5;
+  const netGain  = shortAfterLoss + longGain;
   return { shortGain, longGainRaw, longGain, totalLoss, netGain, incompleteCount };
+}
+
+// ── FIFO vs LIFO SIMULATION (SELL NOW, USING CURRENT PRICE) ───────────
+function simulateMatchingForSymbol(parcelsList, price, method, sellUnits=null, opts={}){
+  const cutoff = new Date('2027-06-30');
+  const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date();
+  const list = (parcelsList||[]).map(p=>({ units: p.units, cost: p.cost, date: p.date, source: p.source }));
+  let totalAvailable = list.reduce((s,p)=>s+(p.units||0),0);
+  let unitsToSell = sellUnits == null ? totalAvailable : Math.min(sellUnits, totalAvailable);
+  const ordered = method === 'LIFO'
+    ? list.slice().sort((a,b)=>b.date.localeCompare(a.date))
+    : list.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const lots = [];
+  let remaining = unitsToSell;
+
+  while(remaining > 0.000001 && ordered.length){
+    const p = ordered[0];
+    if(!p || p.units <= 0.000001){ ordered.shift(); continue; }
+    const take = Math.min(p.units, remaining);
+    const proceeds = take * price;
+    const costPortion = p.cost * (take / (p.units || take));
+    const heldDays = (saleDate - new Date(p.date)) / 86400000;
+    const gain = proceeds - costPortion;
+    lots.push({ units: take, buyDate: p.date, cost: costPortion, proceeds, gain, heldDays: Math.round(heldDays) });
+    p.units -= take;
+    p.cost -= costPortion;
+    remaining -= take;
+  }
+
+  // shortfall units (no matching buy) treated as cost 0
+  if(remaining > 0.000001){
+    const proceeds = remaining * price;
+    lots.push({ units: remaining, buyDate: null, cost: 0, proceeds, gain: proceeds, heldDays: 0 });
+    remaining = 0;
+  }
+
+  const totalGain = lots.reduce((s,l)=>s+l.gain,0);
+  return { totalGain:+totalGain.toFixed(2), lots };
+}
+
+function australianTaxOnIncome(income){
+  // Wrapper to use `calcTax()` (which selects ATO brackets by fiscal year).
+  // Accepts optional second arg `fy` when callers supply a fiscal year.
+  income = Math.max(0, income || 0);
+  // If caller passed an FY via arguments, forward it to calcTax
+  if(arguments.length >= 2){
+    const fy = arguments[1];
+    return calcTax(income, fy);
+  }
+  return calcTax(income);
+}
+
+function marginalTaxOnGain(gain, baseIncome, fy){
+  const b = Math.max(0, baseIncome || 0);
+  const before = calcTax(b, fy);
+  const after = calcTax(b + Math.max(0, gain), fy);
+  return +(after - before).toFixed(2);
+}
+
+function computeTaxOnLots(lots, opts){
+  // opts: { useDiscountBefore2027:true, cpiRate:0, saleDate:'YYYY-MM-DD', price20270630: number }
+  // Returns breakdown: { taxableTotal, taxablePre, taxablePost }
+  const cutoff = new Date('2027-06-30');
+  const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date();
+  const useDiscountBefore2027 = opts && opts.useDiscountBefore2027 !== false;
+  const priceAtCutoff = opts && (opts.price20270630 != null) ? Number(opts.price20270630) : null;
+  let taxablePre = 0;
+  let taxablePost = 0;
+
+  // If sale is on or before cutoff, treat all as pre-2027
+  if(saleDate <= cutoff){
+    for(const l of lots){
+      const longTerm = l.heldDays > 365;
+      const val = (longTerm && l.gain > 0 && useDiscountBefore2027) ? l.gain * 0.5 : l.gain;
+      taxablePre += val;
+    }
+    return { taxableTotal: +((taxablePre + taxablePost).toFixed(2)), taxablePre: +taxablePre.toFixed(2), taxablePost: +taxablePost.toFixed(2) };
+  }
+
+  for(const l of lots){
+    const buyDate = l.buyDate ? new Date(l.buyDate) : null;
+    if(!buyDate){
+      // unknown buy date -> treat full gain as post-2027
+      taxablePost += l.gain;
+      continue;
+    }
+
+    const boughtBeforeCutoff = buyDate < (new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate()+1));
+    if(!boughtBeforeCutoff){
+      // acquired on/after 1 July 2027 => whole gain is post-2027
+      taxablePost += l.gain;
+      continue;
+    }
+
+    // acquired before cutoff and sold after => split accrual
+    if(boughtBeforeCutoff && saleDate > cutoff){
+      if(priceAtCutoff && priceAtCutoff > 0){
+        const units = l.units || 1;
+        const valueAtCutoff = units * priceAtCutoff;
+        const gainPre = Math.max(0, valueAtCutoff - l.cost);
+        const preHeldDays = Math.max(0, Math.floor((cutoff - buyDate) / 86400000));
+        const longPre = preHeldDays > 365;
+        const tPre = (longPre && gainPre > 0 && useDiscountBefore2027) ? gainPre * 0.5 : gainPre;
+
+        // Index the cutoff value forward to the sale date (cumulative inflation after cutoff)
+        const yearsAfterCutoff = Math.max(0, (saleDate - cutoff) / (365*86400000));
+        let factorAfter;
+        if(opts && opts.cumulativeInflation != null && !isNaN(Number(opts.cumulativeInflation))){
+          factorAfter = 1 + (Number(opts.cumulativeInflation) / 100);
+        } else {
+          factorAfter = Math.pow(1 + ((opts && opts.cpiRate||0)/100), yearsAfterCutoff);
+        }
+        const indexedBase = valueAtCutoff * factorAfter;
+        const tPost = l.proceeds - indexedBase;
+
+        taxablePre += tPre;
+        taxablePost += tPost;
+        continue;
+      }
+
+      // Fallback: apportion by time
+      const totalDays = Math.max(1, (saleDate - buyDate) / 86400000);
+      const preDays = Math.max(0, Math.min((cutoff - buyDate) / 86400000, totalDays));
+      const propPre = preDays / totalDays;
+      const gainPre = Math.max(0, l.gain * propPre);
+      const tPre = (preDays > 365 && gainPre > 0 && useDiscountBefore2027) ? gainPre * 0.5 : gainPre;
+      const tPost = l.gain - gainPre;
+      taxablePre += tPre;
+      taxablePost += tPost;
+      continue;
+    }
+
+    // default: treat as post-2027
+    taxablePost += l.gain;
+  }
+
+  return { taxableTotal: +((taxablePre + taxablePost).toFixed(2)), taxablePre: +taxablePre.toFixed(2), taxablePost: +taxablePost.toFixed(2) };
+}
+
+function computeFIFOvsLIFOSummary(openParcels){
+  return Object.entries(openParcels)
+    .filter(([sym,list])=> !sym.startsWith('_stash_') && list.reduce((s,p)=>s+p.units,0) > 0.000001)
+    .map(([sym,list])=>{
+      const units = list.reduce((s,p)=>s+p.units,0);
+      const price = prices[priceSymbol(sym)] || 0;
+      const fifo = simulateMatchingForSymbol(list, price, 'FIFO');
+      const lifo = simulateMatchingForSymbol(list, price, 'LIFO');
+      // simulateMatchingForSymbol() only returns raw gain (totalGain/lots) — it
+      // doesn't apply the CGT discount. Run each through the same discount-aware
+      // engine used everywhere else so "taxable" here means the same thing it
+      // does in the simulation popup and the exported CSV.
+      const today = new Date().toISOString().slice(0,10);
+      fifo.taxable = computeTaxOnLots(fifo.lots, { saleDate: today }).taxableTotal;
+      lifo.taxable = computeTaxOnLots(lifo.lots, { saleDate: today }).taxableTotal;
+      const fifoTax30 = Math.max(0, fifo.taxable) * 0.30;
+      const lifoTax30 = Math.max(0, lifo.taxable) * 0.30;
+      const better = fifo.taxable < lifo.taxable ? 'FIFO' : (lifo.taxable < fifo.taxable ? 'LIFO' : 'Tie');
+      return { sym, units, price, fifo, lifo, fifoTax30:+fifoTax30.toFixed(2), lifoTax30:+lifoTax30.toFixed(2), better };
+    })
+    .sort((a,b)=>a.sym.localeCompare(b.sym));
+}
+
+// Run the user-facing simulation using selected inputs
+function cgtRunSimulation(){
+  const sym = $('cgt-sim-symbol') ? $('cgt-sim-symbol').value : null;
+  if(!sym){ notify('No symbol selected for simulation','err'); return; }
+  const unitsVal = parseFloat($('cgt-sim-units')?.value);
+  const units = isNaN(unitsVal) ? null : unitsVal;
+  const person = $('cgt-sim-person') ? $('cgt-sim-person').value : null;
+  const incomeEl = $('cgt-sim-income');
+  const incomeStr = incomeEl ? (incomeEl.value||'').toString().trim() : '';
+  const incomeEmpty = incomeStr === '';
+  let income = parseFloat(incomeStr);
+  if(isNaN(income)) income = null;
+  const cpi = parseFloat($('cgt-sim-cpi')?.value) || 0;
+
+  const { openParcels } = computeCGTSummary();
+  const fullList = (openParcels[sym]||[]).filter(p=>p.units>0.000001);
+  // Use owner share: simulate only the selected person's portion of each parcel
+  const share = (typeof ownerShare === 'function') ? ownerShare(sym, person) : (getSymbolOwner(sym)===person?1:(getSymbolOwner(sym)==='joint'?0.5:0));
+  const list = fullList.map(p=>({ ...p, units: p.units * share, cost: p.cost * share }));
+  if(!list.length){ notify('No open parcels for '+sym,'err'); return; }
+  const price = prices[priceSymbol(sym)] || 0;
+  const mode = $('cgt-sim-mode') ? $('cgt-sim-mode').value : 'units';
+  const explicitSalePrice = parseFloat($('cgt-sim-price')?.value);
+  const salePricePerUnit = (!isNaN(explicitSalePrice) && explicitSalePrice>0) ? explicitSalePrice : price;
+  // If user selected dollars mode, interpret the units input as $ amount and convert to units
+  let sellUnits = units;
+  if(mode === 'dollars'){
+    const dollars = units; // units variable holds parsed numeric input
+    if(dollars == null) sellUnits = null; else sellUnits = price > 0 ? (dollars / price) : 0;
+  }
+
+  const sellDateStr = $('cgt-sim-selldate') ? $('cgt-sim-selldate').value : new Date().toISOString().slice(0,10);
+  const explicitPrice2027 = parseFloat($('cgt-sim-price-20270630')?.value);
+  const price20270630 = !isNaN(explicitPrice2027) ? explicitPrice2027 : cgtLoadPrice20270630(sym);
+  const fifo = simulateMatchingForSymbol(list, salePricePerUnit, 'FIFO', sellUnits, { saleDate: sellDateStr });
+  const lifo = simulateMatchingForSymbol(list, salePricePerUnit, 'LIFO', sellUnits, { saleDate: sellDateStr });
+
+  // Compute inferred taxable breakdown (pre/post) based on dates and available price@30/06/2027
+  const cumInflVal = (function(){ const v = parseFloat($('cgt-sim-cum-infl')?.value); return isNaN(v)? null : v; })();
+  const fifoBreak = computeTaxOnLots(fifo.lots, { useDiscountBefore2027:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, price20270630 });
+  const lifoBreak = computeTaxOnLots(lifo.lots, { useDiscountBefore2027:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, price20270630 });
+
+  // If any lot crosses the 30/06/2027 cutoff and no price@30/06/2027 is provided, warn the user
+  const saleDateObj = new Date(sellDateStr);
+  const cutoff = new Date('2027-06-30');
+  const anyCrosses = fifo.lots.concat(lifo.lots).some(l=>{
+    if(!l.buyDate) return false;
+    const bd = new Date(l.buyDate);
+    return bd < (new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate()+1)) && saleDateObj > cutoff;
+  });
+  const needsCutoffPrice = anyCrosses && !(price20270630 != null);
+
+  // If income not provided, try to load previous FY tax record for this person
+  if(income == null){
+    try{
+      const curFY = dateToFY(new Date().toISOString().slice(0,10));
+      const prevFY = curFY - 1;
+      const rec = getTaxRecord(prevFY) || {};
+      const pRec = rec[person] || {};
+      const salaryNet = (+pRec.salary || 0) - (+pRec.sacrifice || 0);
+      // Dividends (grossed-up + franking) for prevFY attributed by ownership
+      const myDivs = dividends.filter(d=>dateToFY(d.date)===prevFY && ['dividend','distribution','drp','interest'].includes(d.type))
+        .reduce((s,d)=>{
+          const own = getSymbolOwner(d.symbol);
+          const share = own===person ? 1 : (own==='joint'?0.5:0);
+          return s + ((+d.amount||0) * share);
+        },0);
+      const myFrank = dividends.filter(d=>dateToFY(d.date)===prevFY && ['dividend','distribution','drp','interest'].includes(d.type))
+        .reduce((s,d)=>{
+          const own = getSymbolOwner(d.symbol);
+          const share = own===person ? 1 : (own==='joint'?0.5:0);
+          return s + frankingCredit((+d.amount||0)*share, d.frankingPct||0);
+        },0);
+      // CGT realised in prevFY for this person
+      const cgts = computeCGTSummary();
+      const myCGT = ((cgts.result||{})[person]||{})[prevFY] ? +(((cgts.result||{})[person]||{})[prevFY].netCapitalGain||0) : 0;
+      // Property P&L for prevFY (approx using rec.props inputs for that FY)
+      let netPropGain = 0, netPropLoss = 0, investInterestDeduction = 0;
+      (properties||[]).forEach(p=>{
+        const pOwner = p.owner || 'lumia';
+        const isOwner = pOwner===person || pOwner==='joint';
+        if(!isOwner) return;
+        const share = pOwner==='joint' ? 0.5 : 1;
+        if(p.propType === 'ppor') return; // PPOR excluded
+        const annualRent = (p.weeklyRent||0)*52*share;
+        const pRec = (rec.props && rec.props[p.id]) ? rec.props[p.id] : {};
+        const splits = normaliseSplits(p);
+        let rentalInterest = 0, invInterest = 0;
+        splits.forEach(sp=>{
+          const purpose = sp.purpose || 'rental';
+          const bal = +sp.balance||0, off = +sp.offset||0, rate = +sp.rate||0;
+          const annInt = Math.max(0, bal - off) * (rate/100);
+          if(purpose === 'investment') invInterest += annInt;
+          else if(purpose === 'rental') rentalInterest += annInt;
+        });
+        investInterestDeduction += invInterest * share;
+        const expenses = share * ((+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+(+pRec.agent||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0)) + rentalInterest*share;
+        if(annualRent - expenses >= 0) netPropGain += (annualRent - expenses); else netPropLoss += (expenses - annualRent);
+      });
+
+      const taxableIncome = salaryNet + myDivs + myFrank - investInterestDeduction + netPropGain - netPropLoss + myCGT;
+      income = taxableIncome || 0;
+      // If the user left the income input empty, auto-fill it and show a note
+      try{
+        if(incomeEmpty && incomeEl){ incomeEl.value = Math.round(income); const noteEl = $('cgt-sim-income-note'); if(noteEl) noteEl.textContent = '(auto-filled)'; }
+      }catch(e){}
+    }catch(e){ income = 0; }
+  } else {
+    // explicit user-provided income — clear any auto-filled note
+    try{ const noteEl = $('cgt-sim-income-note'); if(noteEl) noteEl.textContent = ''; }catch(e){}
+  }
+  // Marginal tax estimates: allow override by explicit marginal rate (%) input
+  const explicitMarginalRate = parseFloat($('cgt-sim-marginal-rate')?.value);
+  function taxByRate(taxable){
+    if(!isFinite(taxable)) return 0;
+    if(!isNaN(explicitMarginalRate)) return +(taxable * (explicitMarginalRate/100)).toFixed(2);
+    // fallback to marginal calculation based on income
+    const saleFY = (typeof dateToFY === 'function') ? dateToFY(sellDateStr) : null;
+    return marginalTaxOnGain(taxable, income, saleFY);
+  }
+
+  const fifoPreTaxPay = taxByRate(fifoBreak.taxablePre);
+  const lifoPreTaxPay = taxByRate(lifoBreak.taxablePre);
+  // For post-2027 portion apply 30% floor when comparing to marginal rate
+  function taxPostPortion(postTaxable){
+    const byRate = taxByRate(postTaxable);
+    const floor = +(postTaxable * 0.30).toFixed(2);
+    return Math.max(byRate, floor);
+  }
+  const fifoPostPay = taxPostPortion(fifoBreak.taxablePost);
+  const lifoPostPay = taxPostPortion(lifoBreak.taxablePost);
+  const fifoTotalPay = +(fifoPreTaxPay + fifoPostPay).toFixed(2);
+  const lifoTotalPay = +(lifoPreTaxPay + lifoPostPay).toFixed(2);
+
+  // Compute full tax estimates using existing tax functions (calcTax, calcHECS, calcMLS)
+  // so the main results table can display authoritative full deltas.
+  let fifoFull = null, lifoFull = null;
+  try{
+    const curFY = dateToFY(new Date().toISOString().slice(0,10));
+    const prevFY = curFY - 1;
+    const taxRec = getTaxRecord(prevFY) || {};
+    const personRec = taxRec[person] || {};
+    const other = person==='lumia' ? 'chilli' : 'lumia';
+    const otherRec = taxRec[other] || {};
+    const baseIncome = income || 0;
+    const otherIncome = (+otherRec.salary||0) - (+otherRec.sacrifice||0);
+    const familyIncome = baseIncome + otherIncome;
+    const hecsDebt = +personRec.hecs || 0;
+    const hasPH = !!(personRec.privateHealth || taxRec.privateHealthFamily);
+    const deps = +(taxRec.dependants||0);
+
+    // Compute full tax delta but honour the post-2027 30% minimum floor.
+    // Accepts pre/post breakdown so we can attribute tax increments correctly.
+    function fullTaxDelta(taxablePre, taxablePost){
+      taxablePre = +taxablePre || 0;
+      taxablePost = +taxablePost || 0;
+      const beforeTax = calcTax(Math.max(0, baseIncome));
+      const beforeHECS = calcHECS(Math.max(0, baseIncome), hecsDebt);
+      const beforeMLS = calcMLS(Math.max(0, baseIncome), Math.max(0, familyIncome), hasPH, deps);
+
+      // Apply pre portion first, then post portion so we can isolate post incremental tax
+      const afterPreIncome = Math.max(0, baseIncome + taxablePre);
+      const afterPreTax = calcTax(afterPreIncome);
+      const afterPreHECS = calcHECS(afterPreIncome, hecsDebt);
+      const afterPreMLS = calcMLS(afterPreIncome, Math.max(0, familyIncome + taxablePre), hasPH, deps);
+
+      const afterFullIncome = Math.max(0, baseIncome + taxablePre + taxablePost);
+      const afterFullTax = calcTax(afterFullIncome);
+      const afterFullHECS = calcHECS(afterFullIncome, hecsDebt);
+      const afterFullMLS = calcMLS(afterFullIncome, Math.max(0, familyIncome + taxablePre + taxablePost), hasPH, deps);
+
+      // Increments attributable to pre and post portions
+      const preInc = (afterPreTax + afterPreHECS + afterPreMLS) - (beforeTax + beforeHECS + beforeMLS);
+      const postIncByRate = (afterFullTax + afterFullHECS + afterFullMLS) - (afterPreTax + afterPreHECS + afterPreMLS);
+
+      // 30% floor applies to post portion only
+      const postFloor = +(taxablePost * 0.30).toFixed(2);
+      const postInc = Math.max(postIncByRate, postFloor);
+
+      const totalDelta = +(preInc + postInc).toFixed(2);
+
+      return {
+        beforeTax, beforeHECS, beforeMLS,
+        afterTax: afterFullTax, afterHECS: afterFullHECS, afterMLS: afterFullMLS,
+        delta: totalDelta,
+        breakdown: { preInc:+preInc.toFixed(2), postInc: +postInc.toFixed(2), postIncByRate:+postIncByRate.toFixed(2) }
+      };
+    }
+
+    fifoFull = fullTaxDelta(fifoBreak.taxablePre, fifoBreak.taxablePost);
+    lifoFull = fullTaxDelta(lifoBreak.taxablePre, lifoBreak.taxablePost);
+  }catch(e){ /* ignore, fallback to table estimate */ }
+
+  // Build results HTML
+  const warningHtml = needsCutoffPrice ? `<div style="background:#fff3cd;border:1px solid #ffeeba;color:#856404;padding:8px;border-radius:4px;margin-bottom:8px">Warning: No price recorded for 30/06/2027 — time‑apportionment fallback used for lots crossing the cutoff; results are approximate.</div>` : '';
+
+  const html = `
+    ${warningHtml}
+    <div style="margin-bottom:8px;font-size:13px"><b>Simulation — ${escHtml(sym)} @ ${n2(price)}</b></div>
+    <div class="ovx"><table>
+        <thead><tr><th>Method</th><th style="text-align:right">Total gain</th>
+          <th style="text-align:right">Taxable (inferred)</th><th style="text-align:right">Est. tax (full delta incl HECS/MLS)</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><button class="btn" onclick="cgtShowMethodDetails('FIFO')">FIFO</button></td>
+          <td style="text-align:right">${n2(fifo.totalGain)}</td>
+          <td style="text-align:right">${n2(fifoBreak.taxableTotal)}</td>
+          <td style="text-align:right">${n2((fifoFull && fifoFull.delta)!=null ? fifoFull.delta : fifoTotalPay)}</td>
+        </tr>
+        <tr>
+          <td><button class="btn" onclick="cgtShowMethodDetails('LIFO')">LIFO</button></td>
+          <td style="text-align:right">${n2(lifo.totalGain)}</td>
+          <td style="text-align:right">${n2(lifoBreak.taxableTotal)}</td>
+          <td style="text-align:right">${n2((lifoFull && lifoFull.delta)!=null ? lifoFull.delta : lifoTotalPay)}</td>
+        </tr>
+      </tbody>
+    </table></div>
+    <div style="margin-top:8px;font-size:12px;color:var(--text3)">
+      Notes: Amounts accrued before 1 July 2027 retain the 50% discount for long‑term gains. Portions accruing from 1 July 2027 use cost‑base indexation and are taxed at the marginal estimate but subject to a 30% minimum floor where applicable.
+    </div>
+  `;
+
+  // Compute full tax estimates using existing tax functions (calcTax, calcHECS, calcMLS)
+  try{
+    const curFY = dateToFY(new Date().toISOString().slice(0,10));
+    const prevFY = curFY - 1;
+    const taxRec = getTaxRecord(prevFY) || {};
+    const personRec = taxRec[person] || {};
+    const other = person==='lumia' ? 'chilli' : 'lumia';
+    const otherRec = taxRec[other] || {};
+    const baseIncome = income || 0;
+    const otherIncome = (+otherRec.salary||0) - (+otherRec.sacrifice||0);
+    const familyIncome = baseIncome + otherIncome;
+    const hecsDebt = +personRec.hecs || 0;
+    const hasPH = !!(personRec.privateHealth || taxRec.privateHealthFamily);
+    const deps = +(taxRec.dependants||0);
+
+    // (duplicate fullTaxDelta / fifoFull/lifoFull definitions removed)
+
+    // Build pre/post breakdown values for clearer display
+    const fifoPostByRate = taxByRate(fifoBreak.taxablePost);
+    const lifoPostByRate = taxByRate(lifoBreak.taxablePost);
+    const fifoPostFloor = +(fifoBreak.taxablePost * 0.30).toFixed(2);
+    const lifoPostFloor = +(lifoBreak.taxablePost * 0.30).toFixed(2);
+    const fifoPostUsed = Math.max(fifoPostByRate, fifoPostFloor);
+    const lifoPostUsed = Math.max(lifoPostByRate, lifoPostFloor);
+    const fifoTableEstimate = +(fifoPreTaxPay + fifoPostUsed).toFixed(2);
+    const lifoTableEstimate = +(lifoPreTaxPay + lifoPostUsed).toFixed(2);
+
+    // Render results and store last simulation (fifoFull/lifoFull already computed above when possible)
+    $('cgt-sim-results').innerHTML = html;
+    cgtLastSim = { sym, person, price: salePricePerUnit, units: sellUnits, fifo, lifo, opts:{cpi, cumulativeInflation: cumInflVal, saleDate: sellDateStr, marginalRate: explicitMarginalRate, price20270630: parseFloat($('cgt-sim-price-20270630')?.value)||cgtLoadPrice20270630(sym)||null}, fifoTaxable: fifoBreak.taxableTotal, lifoTaxable: lifoBreak.taxableTotal, fifoFull, lifoFull };
+  }catch(e){ console.warn('cgtRunSimulation: results render failed', e); }
+}
+
+function cgtExportLotsCSV(method){
+  if(!cgtLastSim){ notify('Run a simulation first','err'); return; }
+  const sim = cgtLastSim;
+  const methodKey = (method||'FIFO').toUpperCase();
+  const lots = methodKey==='LIFO' ? sim.lifo.lots : sim.fifo.lots;
+  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, price20270630: sim.opts.price20270630 };
+  const rows = [];
+  rows.push(['Method','Symbol','Units','BuyDate','Cost','Proceeds','Gain','HeldDays','Taxable']);
+  let totalUnits=0, totalCost=0, totalProceeds=0, totalGain=0, totalTaxable=0;
+  let totalTaxablePre = 0, totalTaxablePost = 0;
+  for(const l of lots){
+    const br = computeTaxOnLots([l], opts);
+    const taxable = br.taxableTotal;
+    rows.push([methodKey, sim.sym, nN(l.units,6), l.buyDate||'', n2(l.cost), n2(l.proceeds), n2(l.gain), l.heldDays||0, n2(taxable)]);
+    totalUnits += (l.units||0);
+    totalCost += (l.cost||0);
+    totalProceeds += (l.proceeds||0);
+    totalGain += (l.gain||0);
+    totalTaxable += taxable||0;
+  }
+  // Totals row
+  rows.push([]);
+  rows.push(['Totals', sim.sym, nN(totalUnits,6), '', n2(totalCost), n2(totalProceeds), n2(totalGain), '', n2(totalTaxable)]);
+  // Summary / net tax change
+  let netDelta = 0;
+  if(methodKey==='FIFO' && sim.fifoFull) netDelta = sim.fifoFull.delta || 0;
+  if(methodKey==='LIFO' && sim.lifoFull) netDelta = sim.lifoFull.delta || 0;
+  rows.push(['Summary','Net tax change', n2(netDelta)]);
+  const csv = rows.map(r=>r.map(c=>typeof c==='string'&&c.includes(',')?`"${c.replace(/"/g,'""')}"`:c).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const filename = `cgt-${sim.sym}-${methodKey}-${new Date().toISOString().slice(0,10)}.csv`;
+  triggerDownload(url, filename);
+}
+
+function cgtShowExportPreview(method){
+  if(!cgtLastSim){ notify('Run a simulation first','err'); return; }
+  const sim = cgtLastSim;
+  const methodKey = (method||'FIFO').toUpperCase();
+  const lots = methodKey==='LIFO' ? sim.lifo.lots : sim.fifo.lots;
+  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, price20270630: sim.opts.price20270630 };
+  let rowsHtml = lots.length ? `<table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)"><th>Units</th><th>Buy Date</th><th>Cost</th><th>Proceeds</th><th>Gain</th><th>HeldDays</th><th>Taxable</th></tr></thead><tbody>` : '<div class="empty">No lots selected</div>';
+  let totalUnits=0, totalCost=0, totalProceeds=0, totalGain=0, totalTaxable=0;
+  for(const l of lots){
+    const br = computeTaxOnLots([l], opts);
+    const taxable = br.taxableTotal;
+    rowsHtml += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px">${nN(l.units,6)}</td><td style="padding:6px">${l.buyDate||''}</td><td style="padding:6px">${n2(l.cost)}</td><td style="padding:6px">${n2(l.proceeds)}</td><td style="padding:6px">${n2(l.gain)}</td><td style="padding:6px">${l.heldDays||0}</td><td style="padding:6px">${n2(taxable)}</td></tr>`;
+    totalUnits += (l.units||0);
+    totalCost += (l.cost||0);
+    totalProceeds += (l.proceeds||0);
+    totalGain += (l.gain||0);
+    totalTaxable += taxable||0;
+  }
+  if(lots.length) rowsHtml += `</tbody></table>`;
+  const netDelta = methodKey==='FIFO' && sim.fifoFull ? sim.fifoFull.delta : (methodKey==='LIFO' && sim.lifoFull ? sim.lifoFull.delta : 0);
+
+  const inner = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-size:14px;font-weight:700">Export preview — ${escHtml(sim.sym)} (${methodKey})</div>
+      <button onclick="closeHudPopup('cgt-export-preview')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">Person: ${getPersonLabel(sim.person)} · Units: ${nN(sim.units||0,6)} · Price: ${n2(sim.price)}</div>
+    <div style="max-height:320px;overflow:auto;margin-bottom:8px">${rowsHtml}</div>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+      <div style="font-weight:700">Totals</div>
+      <div>Units: ${nN(totalUnits,6)}</div>
+      <div>Cost: ${n2(totalCost)}</div>
+      <div>Proceeds: ${n2(totalProceeds)}</div>
+      <div>Gain: ${n2(totalGain)}</div>
+      <div>Taxable: ${n2(totalTaxable)}</div>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Estimated net-tax change if realised: <b>${n2(netDelta)}</b></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" onclick="closeHudPopup('cgt-export-preview')">Cancel</button>
+      <button class="btn btn-g" onclick="(function(){ closeHudPopup('cgt-export-preview'); cgtExportLotsCSV('${methodKey}'); })()">Export CSV</button>
+    </div>
+  `;
+
+  openHudPopup('cgt-export-preview', inner, { minWidth: '640px' });
+}
+
+function cgtShowMethodDetails(method){
+  if(!cgtLastSim){ notify('Run a simulation first','err'); return; }
+  const sim = cgtLastSim;
+  const methodKey = (method||'FIFO').toUpperCase();
+  const lots = methodKey==='LIFO' ? sim.lifo.lots : sim.fifo.lots;
+  const opts = sim.opts || {};
+  const saleDate = opts.saleDate ? new Date(opts.saleDate) : new Date();
+  const marginalRateOverride = (opts.marginalRate != null && !isNaN(opts.marginalRate)) ? opts.marginalRate : null;
+  const priceAt20270630 = opts.price20270630 != null ? opts.price20270630 : null;
+  const cutoff = new Date('2027-06-30');
+  const isPost = (saleDate > cutoff);
+
+  let rowsHtml = lots.length ? `<table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)"><th>Units</th><th>Buy Date</th><th>Cost</th><th>Proceeds</th><th>Gain</th><th>HeldDays</th><th>Calc</th><th>Taxable</th></tr></thead><tbody>` : '<div class="empty">No lots selected</div>';
+  let totalUnits=0, totalCost=0, totalProceeds=0, totalGain=0, totalTaxable=0;
+  let totalTaxablePre = 0, totalTaxablePost = 0;
+  for(const l of lots){
+    const years = (l.heldDays||0)/365;
+    let taxable=0, calcText='';
+    const buyDate = l.buyDate ? new Date(l.buyDate) : null;
+    const boughtBeforeCutoff = buyDate ? (buyDate < new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate()+1)) : false;
+
+    if(!isPost){
+      const longTerm = l.heldDays > 365;
+      if(longTerm && l.gain>0){ taxable = l.gain * 0.5; calcText = `50% discount on ${n2(l.gain)} → ${n2(taxable)}`; }
+      else { taxable = l.gain; calcText = `No discount → ${n2(taxable)}`; }
+
+      rowsHtml += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px">${nN(l.units,6)}</td><td style="padding:6px">${l.buyDate||''}</td><td style="padding:6px">${n2(l.cost)}</td><td style="padding:6px">${n2(l.proceeds)}</td><td style="padding:6px">${n2(l.gain)}</td><td style="padding:6px">${l.heldDays||0}</td><td style="padding:6px">${escHtml(calcText)}</td><td style="padding:6px">${n2(taxable)}</td></tr>`;
+      totalTaxablePre += taxable||0;
+    } else if(boughtBeforeCutoff && saleDate > cutoff){
+      // split into pre/post rows
+      if(priceAt20270630 && priceAt20270630 > 0){
+        const units = l.units || 1;
+        const valueAtCutoff = units * priceAt20270630;
+        const gainPre = Math.max(0, valueAtCutoff - l.cost);
+        const preHeldDays = Math.max(0, Math.floor((cutoff - buyDate) / 86400000));
+        const longPre = preHeldDays > 365;
+        const taxablePre = (longPre && gainPre > 0) ? gainPre * 0.5 : gainPre;
+
+        // Index value@cutoff forward to sale date
+        const yearsAfterCutoff = Math.max(0, (saleDate - cutoff) / (365*86400000));
+        let factorAfter;
+        if(opts && opts.cumulativeInflation != null && !isNaN(Number(opts.cumulativeInflation))){
+          factorAfter = 1 + (Number(opts.cumulativeInflation) / 100);
+        } else {
+          factorAfter = Math.pow(1 + ((opts.cpi||0)/100), yearsAfterCutoff);
+        }
+        const indexedBase = valueAtCutoff * factorAfter;
+        const gainPost = l.proceeds - indexedBase;
+        const taxablePost = gainPost;
+
+        taxable = (taxablePre||0) + (taxablePost||0);
+        totalTaxablePre += (taxablePre||0);
+        totalTaxablePost += (taxablePost||0);
+
+        const preCalc = `Pre@30/06/2027: value ${n2(valueAtCutoff)} - cost ${n2(l.cost)} = gain ${n2(gainPre)}; ${longPre? '50% discount → ' + n2(taxablePre) : 'No discount → ' + n2(taxablePre)}`;
+        const postCalc = `Post: indexed base ${n2(indexedBase)} (value@cutoff ${n2(valueAtCutoff)} * CPI factor ${nN(factorAfter,6)}) → gain ${n2(gainPost)} → taxable ${n2(taxablePost)}`;
+
+        rowsHtml += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px">${nN(l.units,6)}</td><td style="padding:6px">${l.buyDate||''}</td><td style="padding:6px">${n2(l.cost)}</td><td style="padding:6px">${n2(valueAtCutoff)}</td><td style="padding:6px">${n2(gainPre)}</td><td style="padding:6px">${preHeldDays}</td><td style="padding:6px">${escHtml(preCalc)}</td><td style="padding:6px">${n2(taxablePre)}</td></tr>`;
+        rowsHtml += `<tr style="background:rgba(0,0,0,0.02);border-bottom:1px solid var(--border)"><td style="padding:6px">${nN(l.units,6)}</td><td style="padding:6px"></td><td style="padding:6px">${n2(indexedBase)}</td><td style="padding:6px">${n2(l.proceeds)}</td><td style="padding:6px">${n2(gainPost)}</td><td style="padding:6px">${Math.max(0, Math.floor((saleDate - cutoff) / 86400000))}</td><td style="padding:6px">${escHtml(postCalc)}</td><td style="padding:6px">${n2(taxablePost)}</td></tr>`;
+      } else {
+        // fallback: time apportionment shown as two rows
+        const totalDays = Math.max(1, (saleDate - buyDate) / 86400000);
+        const preDays = Math.max(0, Math.min((cutoff - buyDate) / 86400000, totalDays));
+        const propPre = preDays / totalDays;
+        const gainPre = Math.max(0, l.gain * propPre);
+        const taxablePre = (preDays > 365 && gainPre > 0) ? gainPre * 0.5 : gainPre;
+        const taxablePost = l.gain - gainPre;
+        taxable = taxablePre + taxablePost;
+        totalTaxablePre += (taxablePre||0);
+        totalTaxablePost += (taxablePost||0);
+
+        const preCalc = `Apportioned pre ${nN(propPre*100,2)}% → gain ${n2(gainPre)} ${preDays>365? '(50% discount applied)':''}`;
+        const postCalc = `Apportioned post ${nN((1-propPre)*100,2)}% → gain ${n2(l.gain - gainPre)}`;
+
+        rowsHtml += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px">${nN(l.units,6)}</td><td style="padding:6px">${l.buyDate||''}</td><td style="padding:6px">${n2(l.cost)}</td><td style="padding:6px">${n2(l.gain*propPre)}</td><td style="padding:6px">${n2(gainPre)}</td><td style="padding:6px">${Math.floor(preDays)}</td><td style="padding:6px">${escHtml(preCalc)}</td><td style="padding:6px">${n2(taxablePre)}</td></tr>`;
+        rowsHtml += `<tr style="background:rgba(0,0,0,0.02);border-bottom:1px solid var(--border)"><td style="padding:6px">${nN(l.units,6)}</td><td style="padding:6px"></td><td style="padding:6px">${n2(l.cost)}</td><td style="padding:6px">${n2(l.gain*(1-propPre))}</td><td style="padding:6px">${n2(l.gain - gainPre)}</td><td style="padding:6px">${Math.max(0, Math.floor((saleDate - cutoff) / 86400000))}</td><td style="padding:6px">${escHtml(postCalc)}</td><td style="padding:6px">${n2(taxablePost)}</td></tr>`;
+      }
+    } else {
+      // Default post-2027 treatment for lots that do not cross the cutoff: apply indexation
+      const factor = Math.pow(1 + ((opts.cpi||0)/100), years);
+      const adjCost = l.cost * factor;
+      taxable = l.proceeds - adjCost;
+      calcText = `Indexation: cost ${n2(l.cost)} * ${nN(factor,6)} → ${n2(adjCost)}; taxable = ${n2(l.proceeds)} - ${n2(adjCost)} = ${n2(taxable)}`;
+
+      rowsHtml += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px">${nN(l.units,6)}</td><td style="padding:6px">${l.buyDate||''}</td><td style="padding:6px">${n2(l.cost)}</td><td style="padding:6px">${n2(l.proceeds)}</td><td style="padding:6px">${n2(l.gain)}</td><td style="padding:6px">${l.heldDays||0}</td><td style="padding:6px">${escHtml(calcText)}</td><td style="padding:6px">${n2(taxable)}</td></tr>`;
+    }
+
+    // aggregate totals once per lot
+    totalUnits += (l.units||0); totalCost += (l.cost||0); totalProceeds += (l.proceeds||0); totalGain += (l.gain||0); totalTaxable += taxable||0;
+  }
+  if(lots.length) rowsHtml += `</tbody></table>`;
+
+  // compute marginal/full tax impacts if possible
+  let marginal = null, full = null, baseIncome = 0;
+  try{
+    const recFY = dateToFY(new Date().toISOString().slice(0,10)) - 1;
+    const taxRec = getTaxRecord(recFY) || {};
+    const personRec = taxRec[sim.person] || {};
+    baseIncome = $('cgt-sim-income') ? parseFloat($('cgt-sim-income').value) || 0 : 0;
+    const saleFY = (typeof dateToFY === 'function') ? dateToFY(saleDate.toISOString().slice(0,10)) : null;
+    marginal = marginalTaxOnGain(totalTaxable, baseIncome, saleFY);
+    // reuse stored full-deltas if present
+    if(methodKey==='FIFO' && sim.fifoFull) full = sim.fifoFull.delta; else if(methodKey==='LIFO' && sim.lifoFull) full = sim.lifoFull.delta;
+  }catch(e){ }
+
+  // compute post-2027 totals and 30% floor for display
+  // taxByRate mirrors the helper defined inside cgtRunSimulation — it's
+  // redefined here because that one is local to cgtRunSimulation and isn't
+  // in scope in this function (this only matters when a lot has a nonzero
+  // post-cutoff taxable amount, i.e. sale date is after 30/06/2027).
+  function taxByRate(taxable){
+    if(!isFinite(taxable)) return 0;
+    if(marginalRateOverride != null && !isNaN(marginalRateOverride)) return +(taxable * (marginalRateOverride/100)).toFixed(2);
+    const saleFY = (typeof dateToFY === 'function') ? dateToFY(saleDate.toISOString().slice(0,10)) : null;
+    return marginalTaxOnGain(taxable, baseIncome, saleFY);
+  }
+  const preByRate = totalTaxablePre ? taxByRate(totalTaxablePre) : 0;
+  const postByRate = totalTaxablePost ? taxByRate(totalTaxablePost) : 0;
+  const postFloor = +(totalTaxablePost * 0.30).toFixed(2);
+  let displayMarginal = null;
+  if(marginal != null){
+    // Apply 30% minimum floor to the post-2027 portion only, but keep
+    // the pre-2027 marginal tax for the pre portion. Sum both parts.
+    const postUsed = Math.max(postByRate, postFloor);
+    displayMarginal = +(preByRate + postUsed).toFixed(2);
+  }
+
+  const inner = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div style="font-size:14px;font-weight:700">Detailed calculations — ${escHtml(sim.sym)} (${methodKey})</div>
+      <button onclick="closeHudPopup('cgt-method-details')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
+      Sell date: ${saleDate.toISOString().slice(0,10)} · ${opts && opts.cumulativeInflation!=null ? ('Cumulative inflation: '+n2(opts.cumulativeInflation)+'%') : ('CPI: '+n2(opts.cpi||0)+'%')} · Mode: inferred (date split) · Sale price/unit: ${n2(sim.price)}${marginalRateOverride!=null?(' · Marginal %: '+n2(marginalRateOverride)):''}${priceAt20270630!=null?(' · Price@30/06/2027: '+n2(priceAt20270630)):''}
+      <br>Income used: ${n2(baseIncome||0)}${$('cgt-sim-income-note') && $('cgt-sim-income-note').textContent ? ' (' + $('cgt-sim-income-note').textContent + ')' : ''}
+    </div>
+    <div style="max-height:360px;overflow:auto;margin-bottom:8px">${rowsHtml}</div>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
+      <div style="font-weight:700">Totals</div>
+      <div>Units: ${nN(totalUnits,6)}</div>
+      <div>Cost: ${n2(totalCost)}</div>
+      <div>Proceeds: ${n2(totalProceeds)}</div>
+      <div>Gain: ${n2(totalGain)}</div>
+      <div>Taxable: ${n2(totalTaxable)}</div>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">${full!=null?('Full tax delta (incl HECS/MLS): <b>'+n2(full)+'</b>'):(displayMarginal!=null?('Estimated marginal tax change: <b>'+n2(displayMarginal)+'</b>'):'n/a')}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn" onclick="closeHudPopup('cgt-method-details')">Close</button>
+      <button class="btn btn-g" onclick="(function(){ closeHudPopup('cgt-method-details'); cgtShowExportPreview('${methodKey}'); })()">Export these lots</button>
+    </div>
+  `;
+  openHudPopup('cgt-method-details', inner, { minWidth: '760px' });
+}
+
+// Run built-in example scenarios for manual testing and validation
+function cgtRunExampleScenarios(){
+  const cutoff = new Date('2027-06-30');
+  const scenarios = [];
+
+  // Scenario A: bought well before cutoff, sold after, price@cutoff provided
+  scenarios.push({
+    name: 'Buy 2018 → Sell 2028 (price@cutoff available)',
+    lots: [{ units:100, buyDate:'2018-01-15', cost:1000, proceeds:1800, gain:800, heldDays: Math.floor((new Date('2028-01-01')-new Date('2018-01-15'))/86400000) }],
+    opts: { saleDate: '2028-01-01', price20270630: 12, cpiRate:2.5 }
+  });
+
+  // Scenario B: bought before cutoff, sold after, no price@cutoff (fallback)
+  scenarios.push({
+    name: 'Buy 2019 → Sell 2028 (no cutoff price, fallback)',
+    lots: [{ units:50, buyDate:'2019-05-20', cost:500, proceeds:900, gain:400, heldDays: Math.floor((new Date('2028-02-01')-new Date('2019-05-20'))/86400000) }],
+    opts: { saleDate: '2028-02-01', price20270630: null, cpiRate:2.5 }
+  });
+
+  // Scenario C: bought after cutoff
+  scenarios.push({
+    name: 'Buy 2028 → Sell 2029 (post-2027 acquisition)',
+    lots: [{ units:10, buyDate:'2028-03-01', cost:1000, proceeds:1200, gain:200, heldDays: Math.floor((new Date('2029-03-01')-new Date('2028-03-01'))/86400000) }],
+    opts: { saleDate: '2029-03-01', price20270630: null, cpiRate:2.5 }
+  });
+
+  let out = '<div style="font-size:13px"><b>Example scenarios</b></div>';
+  out += '<div style="margin-top:8px">';
+  for(const s of scenarios){
+    const br = computeTaxOnLots(s.lots, s.opts);
+    out += `<div style="margin-bottom:10px;padding:8px;border:1px solid var(--border);border-radius:6px">`;
+    out += `<div style="font-weight:700">${escHtml(s.name)}</div>`;
+    out += `<div>Taxable pre-2027: ${n2(br.taxablePre)} · Taxable post-2027: ${n2(br.taxablePost)} · Total taxable: ${n2(br.taxableTotal)}</div>`;
+    out += `</div>`;
+  }
+  out += '</div>';
+  openHudPopup('cgt-examples', out, { minWidth: '600px' });
+}
+
+function cgtUpdateSlider(){
+  const symEl = $('cgt-sim-symbol');
+  const personEl = $('cgt-sim-person');
+  const modeEl = $('cgt-sim-mode');
+  const inputEl = $('cgt-sim-units');
+  const slider = $('cgt-sim-slider');
+  const label = $('cgt-sim-slider-val');
+  if(!symEl || !slider || !modeEl || !personEl){ if(label) label.textContent='—'; return; }
+  const sym = symEl.value;
+  let person = personEl.value;
+  // Auto-select the person based on symbol ownership when symbol changes
+  if(sym){
+    try{
+      const owner = getSymbolOwner(sym);
+      if(owner && personEl.value !== owner){ personEl.value = owner; person = owner; }
+    }catch(e){ /* ignore if helper missing */ }
+  }
+  const mode = modeEl.value;
+  const { openParcels } = computeCGTSummary();
+  const fullList = (openParcels[sym]||[]).filter(p=>p.units>0.000001);
+  const share = (typeof ownerShare==='function') ? ownerShare(sym, person) : (getSymbolOwner(sym)===person?1:(getSymbolOwner(sym)==='joint'?0.5:0));
+  const availableUnits = fullList.reduce((s,p)=>s + (p.units * share), 0);
+  const price = prices[priceSymbol(sym)] || 0;
+  // load stored 30/06/2027 price for this symbol (if any)
+  const stored30 = cgtLoadPrice20270630(sym);
+  if(stored30 != null){ const el30 = $('cgt-sim-price-20270630'); if(el30) el30.value = stored30; }
+
+  if(mode === 'dollars'){
+    if(price <= 0 || availableUnits <= 0){ slider.disabled = true; slider.max = 0; slider.value = 0; if(label) label.textContent='—'; return; }
+    const maxD = Math.round(price * availableUnits);
+    slider.disabled = false;
+    slider.min = 0; slider.max = maxD; slider.step = 1;
+    const inVal = parseFloat(inputEl?.value);
+    if(!isNaN(inVal)) slider.value = Math.min(Math.max(0, inVal), maxD);
+    else slider.value = maxD;
+    if(label) label.textContent = '$' + n2(Number(slider.value));
+  } else {
+    if(availableUnits <= 0){ slider.disabled = true; slider.max = 0; slider.value = 0; if(label) label.textContent='—'; return; }
+    slider.disabled = false;
+    slider.min = 0; slider.max = +availableUnits.toFixed(6); slider.step = 0.0001;
+    const inVal = parseFloat(inputEl?.value);
+    if(!isNaN(inVal)) slider.value = Math.min(Math.max(0, inVal), availableUnits);
+    else slider.value = +availableUnits.toFixed(6);
+    if(label) label.textContent = nN(Number(slider.value),6) + ' units';
+  }
+}
+
+function cgtSyncUnitsFromInput(el){
+  // keep slider in sync while typing
+  const mode = $('cgt-sim-mode') ? $('cgt-sim-mode').value : 'units';
+  const slider = $('cgt-sim-slider');
+  const label = $('cgt-sim-slider-val');
+  if(!slider) return;
+  const v = parseFloat(el.value);
+  if(isNaN(v)) return;
+  if(mode === 'dollars'){
+    slider.value = Math.min(Math.max(Number(slider.min||0), v), Number(slider.max||0));
+    if(label) label.textContent = '$' + n2(Number(slider.value));
+  } else {
+    slider.value = Math.min(Math.max(Number(slider.min||0), v), Number(slider.max||0));
+    if(label) label.textContent = nN(Number(slider.value),6) + ' units';
+  }
+}
+
+function cgtSyncSliderChange(sl){
+  const mode = $('cgt-sim-mode') ? $('cgt-sim-mode').value : 'units';
+  const input = $('cgt-sim-units');
+  const label = $('cgt-sim-slider-val');
+  if(!input) return;
+  if(mode === 'dollars'){
+    input.value = Number(sl.value);
+    if(label) label.textContent = '$' + n2(Number(sl.value));
+  } else {
+    input.value = Number(sl.value);
+    if(label) label.textContent = nN(Number(sl.value),6) + ' units';
+  }
+}
+
+function cgtOnPersonChange(){
+  const person = $('cgt-sim-person') ? $('cgt-sim-person').value : null;
+  if(person) cgtAutoFillIncome(person);
+  cgtUpdateSlider();
+  // Auto-run simulation when person/income auto-fills
+  try{ setTimeout(()=>{ cgtRunSimulation(); }, 50); }catch(e){ }
+}
+
+function cgtSavePrice20270630(){
+  try{
+    const sym = $('cgt-sim-symbol') ? $('cgt-sim-symbol').value : null;
+    if(!sym) return;
+    const v = parseFloat($('cgt-sim-price-20270630')?.value);
+    const map = JSON.parse(localStorage.getItem('pt_price_20270630')||'{}');
+    if(!isNaN(v)) map[sym] = v; else delete map[sym];
+    localStorage.setItem('pt_price_20270630', JSON.stringify(map));
+  }catch(e){ }
+}
+
+function cgtLoadPrice20270630(sym){
+  try{
+    const map = JSON.parse(localStorage.getItem('pt_price_20270630')||'{}');
+    return map[sym];
+  }catch(e){ return null; }
+}
+
+// Fetch price for 30/06/2027 from a configurable price-feed endpoint.
+// Configure the feed URL in localStorage under key 'pt_price_feed_url'.
+// The feed is expected to accept query params `symbol` and `date` and return JSON: { price: number }
+function cgtFetchPrice20270630(){
+  const sym = $('cgt-sim-symbol') ? $('cgt-sim-symbol').value : null;
+  if(!sym){ notify('Select a symbol first','err'); return; }
+  const feedUrl = localStorage.getItem('pt_price_feed_url');
+  if(!feedUrl){ notify('No price-feed configured. Set localStorage key pt_price_feed_url', 'err'); return; }
+  const date = '2027-06-30';
+  const url = (feedUrl.indexOf('?')>-1) ? (feedUrl + '&symbol=' + encodeURIComponent(sym) + '&date=' + encodeURIComponent(date)) : (feedUrl + '?symbol=' + encodeURIComponent(sym) + '&date=' + encodeURIComponent(date));
+  notify('Fetching price for '+sym+' at '+date+'...','');
+  fetch(url).then(r=>r.json()).then(j=>{
+    if(j && (j.price||j.price===0)){
+      $('cgt-sim-price-20270630').value = Number(j.price);
+      cgtSavePrice20270630();
+      notify('Loaded price '+n2(j.price),'ok');
+      cgtRunSimulation();
+    } else {
+      notify('Feed returned no price','err');
+    }
+  }).catch(e=>{ notify('Failed to fetch price: '+(e.message||e),'err'); });
+}
+
+function cgtAutoFillIncome(person){
+  try{
+    const curFY = dateToFY(new Date().toISOString().slice(0,10));
+    const prevFY = curFY - 1;
+    const rec = getTaxRecord(prevFY) || {};
+    const pRec = rec[person] || {};
+    const salaryNet = (+pRec.salary || 0) - (+pRec.sacrifice || 0);
+    const myDivs = (dividends||[]).filter(d=>dateToFY(d.date)===prevFY && ['dividend','distribution','drp','interest'].includes(d.type))
+      .reduce((s,d)=>{ const own = getSymbolOwner(d.symbol); const share = own===person ? 1 : (own==='joint'?0.5:0); return s + ((+d.amount||0) * share); },0);
+    const myFrank = (dividends||[]).filter(d=>dateToFY(d.date)===prevFY && ['dividend','distribution','drp','interest'].includes(d.type))
+      .reduce((s,d)=>{ const own = getSymbolOwner(d.symbol); const share = own===person ? 1 : (own==='joint'?0.5:0); return s + frankingCredit((+d.amount||0)*share, d.frankingPct||0); },0);
+    const cgts = computeCGTSummary();
+    const myCGT = ((cgts.result||{})[person]||{})[prevFY] ? +(((cgts.result||{})[person]||{})[prevFY].netCapitalGain||0) : 0;
+
+    let netPropGain = 0, netPropLoss = 0, investInterestDeduction = 0;
+    (properties||[]).forEach(p=>{
+      const pOwner = p.owner || 'lumia';
+      const isOwner = pOwner===person || pOwner==='joint';
+      if(!isOwner) return;
+      const share = pOwner==='joint' ? 0.5 : 1;
+      if(p.propType === 'ppor') return;
+      const annualRent = (p.weeklyRent||0)*52*share;
+      const recp = (rec.props && rec.props[p.id]) ? rec.props[p.id] : {};
+      const splits = normaliseSplits(p);
+      let rentalInterest = 0, invInterest = 0;
+      splits.forEach(sp=>{
+        const purpose = sp.purpose || 'rental';
+        const bal = +sp.balance||0, off = +sp.offset||0, rate = +sp.rate||0;
+        const annInt = Math.max(0, bal - off) * (rate/100);
+        if(purpose === 'investment') invInterest += annInt; else if(purpose === 'rental') rentalInterest += annInt;
+      });
+      investInterestDeduction += invInterest * share;
+      const expenses = share * ((+recp.rates||0)+(+recp.insurance||0)+(+recp.repairs||0)+(+recp.agent||0)+(+recp.other||0)+(+recp.depr_bldg||0)+(+recp.depr_pe||0)) + rentalInterest*share;
+      if(annualRent - expenses >= 0) netPropGain += (annualRent - expenses); else netPropLoss += (expenses - annualRent);
+    });
+
+    const taxableIncome = salaryNet + myDivs + myFrank - investInterestDeduction + netPropGain - netPropLoss + myCGT;
+    const input = $('cgt-sim-income');
+    if(input) {
+      input.value = Math.round(taxableIncome) || 0;
+      const noteEl = $('cgt-sim-income-note'); if(noteEl) noteEl.textContent = '(auto-filled)';
+    }
+  }catch(e){ /* ignore */ }
+}
+
+// Auto-snapshot current prices for portfolio symbols on 2027-06-30.
+// Runs once (sets a saved flag) to avoid duplicate captures.
+function cgtAutoSnapshotPrice20270630(){
+  try{
+    const savedFlag = localStorage.getItem('pt_price_20270630_auto_saved');
+    const today = new Date();
+    const target = new Date('2027-06-30');
+    if(today < target) return; // not reached yet
+    if(savedFlag) return; // already auto-saved
+    // gather symbols from trades (portfolio symbols) and holdings
+    const syms = new Set();
+    (trades||[]).forEach(t=>{ if(t.symbol) syms.add(t.symbol); });
+    // also include symbols from properties/tracked parcels if present
+    try{ const { openParcels } = computeCGTSummary(); Object.keys(openParcels||{}).forEach(s=>{ if(!s.startsWith('_stash_')) syms.add(s); }); }catch(e){}
+    const map = JSON.parse(localStorage.getItem('pt_price_20270630')||'{}');
+    let any = false;
+    syms.forEach(sym=>{
+      const p = prices[priceSymbol(sym)];
+      if(p != null && !isNaN(p)){
+        map[sym] = p; any = true;
+      }
+    });
+    if(any){
+      localStorage.setItem('pt_price_20270630', JSON.stringify(map));
+      localStorage.setItem('pt_price_20270630_auto_saved', new Date().toISOString());
+      notify('Auto-saved portfolio prices for 30/06/2027','ok');
+    } else {
+      // still set flag to avoid reattempt loops; user can fetch manually later
+      localStorage.setItem('pt_price_20270630_auto_saved', new Date().toISOString());
+    }
+  }catch(e){ /* ignore */ }
 }

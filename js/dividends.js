@@ -662,11 +662,11 @@ function showDividendPreview(parsed, filename){
   $('div-import-tbody').innerHTML = parsed.map(d => {
     const dup = isDivDuplicate(d);
     return '<tr style="' + (dup ? 'opacity:0.4' : '') + '">'
-      + '<td>' + d.date + '</td>'
-      + '<td><b>' + d.symbol + '</b></td>'
-      + '<td>' + (typeLabel[d.type]||d.type) + '</td>'
+      + '<td>' + escHtml(d.date) + '</td>'
+      + '<td><b>' + escHtml(d.symbol) + '</b></td>'
+      + '<td>' + escHtml(typeLabel[d.type]||d.type) + '</td>'
       + '<td class="pos">$' + (+d.amount).toFixed(2) + '</td>'
-      + '<td style="font-size:10px;color:var(--text3)">' + (d.notes||'') + '</td>'
+      + '<td style="font-size:10px;color:var(--text3)">' + escHtml(d.notes||'') + '</td>'
       + '<td style="font-size:10px">' + (dup
           ? '<span style="color:var(--gold)">⚠ duplicate</span>'
           : '<span style="color:var(--green)">✓ new</span>') + '</td>'

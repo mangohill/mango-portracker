@@ -234,7 +234,7 @@ function buildExportSheets(){
       date: t.date, type: t.type, symbol: csvSafe(t.symbol), asset_type: t.assetType,
       units: +t.units||0, price: +t.price||0,
       gross_value: +gross.toFixed(4), fees: +t.fees||0, net_value: +net.toFixed(4),
-      source: t.source||'', notes: t.notes||'',
+      source: t.source||'', notes: csvSafe(t.notes||''),
       subtype: t.subtype||'', from_symbol: t.fromSymbol||'',
       ca_label: t.caLabel||'', split_ratio: t.splitRatio||'',
       alloc_pct: t.allocPct||'', override_cost_basis: t.overrideCostBasis||'',
@@ -242,8 +242,8 @@ function buildExportSheets(){
   });
 
   const divRows = dividends.map(d => ({
-    date: d.date, symbol: d.symbol, type: d.type,
-    amount: +d.amount, fy: dateToFY ? dateToFY(d.date) : '', notes: d.notes||'',
+    date: d.date, symbol: csvSafe(d.symbol), type: d.type,
+    amount: +d.amount, fy: dateToFY ? dateToFY(d.date) : '', notes: csvSafe(d.notes||''),
   }));
 
   const propRows = properties.map(p => {
@@ -260,7 +260,7 @@ function buildExportSheets(){
       wtd_avg_rate: +wtRate.toFixed(4),
       splits_json: JSON.stringify(splits),
       weekly_rent: p.weeklyRent||0, annual_expenses: p.annualExpenses||0,
-      has_manager: p.hasManager||'', notes: p.notes||'',
+      has_manager: p.hasManager||'', notes: csvSafe(p.notes||''),
     };
   });
 
@@ -270,7 +270,7 @@ function buildExportSheets(){
     category: s.category.startsWith('__') ? (
       {'__TRANSFERS__':'Internal Transfer','__REFUND__':'Refund','__OTHER_INCOME__':'Other Income'}[s.category] || s.category
     ) : s.category,
-    merchant: s.merchant, details: s.details,
+    merchant: csvSafe(s.merchant), details: csvSafe(s.details),
   }));
 
   let holdRows = [];
