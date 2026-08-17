@@ -15,7 +15,7 @@ function switchTab(name,el){
   if(name==='dividends'){ dvFYFilter='ALL'; renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards(); }
   if(name==='spending'){ initSpending(); }
   if(name==='super'){ renderSuperAccounts(); renderSuperCards(); renderSuperChart(); syncSuperColorPickers(); }
-  if(name==='cgt'){ renderCGT(); }
+  if(name==='cgt'){ if(typeof renderCGT === 'function') renderCGT(); else console.warn('renderCGT() not available'); }
   if(name==='property'){ renderProperties(); renderPropCards(); if($('pf-splits-wrap')&&!$('pf-splits-wrap').children.length) renderSplitRows([]); if(typeof togglePropDRVisibility==='function') togglePropDRVisibility(); }
   if(name==='settings'){ renderPrices(); loadCFUrl(); syncInitUI(); renderOwnershipGrid(); }
   if(name==='tax'){ renderTax(); }

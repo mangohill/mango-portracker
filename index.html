@@ -1068,7 +1068,16 @@
   <script src="js/settings.js"></script>
   <script src="js/spending.js"></script>
   <script src="js/backup.js"></script>
-  <script src="js/cgt.js"></script>
+  <script src="js/cgt.js?v=6"></script>
+  <script>
+    try{
+      console.log('CGT diagnostics:', {
+        renderCGT: typeof renderCGT,
+        calcCGTEvents: typeof calcCGTEvents,
+        computeCGTSummary: typeof computeCGTSummary,
+      });
+    }catch(e){ console.error('CGT diagnostics error', e); }
+  </script>
   <script src="js/tax.js"></script>
   <script src="js/sw-register.js"></script>
 </body>
