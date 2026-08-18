@@ -554,17 +554,24 @@ function renderPortfolioChange(allH, filterFn){
   if(!wrap) return;
   const viewKey = portfolioView===1 ? 'stocks' : portfolioView===2 ? 'crypto' : 'all';
 
+  // Market value from live prices — allH from calcH() does not carry _mv
+  const mvOf = h=>{
+    const cur = prices[priceSymbol(h.symbol)];
+    return cur!=null ? cur*h.units : null;
+  };
+
   // filterFn set when Holdings search / type / owner / source is active.
   // Uses per-symbol daily prices in pfSnapshots so 1D/5D/… work for any subset.
   if(filterFn){
     const filtered = allH.filter(filterFn);
     let tv=0, tc=0, any=false;
     filtered.forEach(h=>{
-      if(h._mv!=null){ tv += h._mv; any = true; }
+      const mv = mvOf(h);
+      if(mv!=null){ tv += mv; any = true; }
       tc += h.costBasis;
     });
     const allTime = (any && tc>0) ? { amt: tv-tc, pct: (tv-tc)/tc*100 } : null;
-    if(!allTime && !filtered.length){ wrap.style.display='none'; return; }
+    if(!filtered.length){ wrap.style.display='none'; return; }
     wrap.style.display = '';
     const sub = $('pf-change-sub');
     if(sub) sub.textContent = 'Filtered · period change from per-symbol daily prices';
@@ -592,7 +599,11 @@ function renderPortfolioChange(allH, filterFn){
     const subset = viewKey==='stocks' ? allH.filter(h=>h.assetType!=='crypto')
                  : viewKey==='crypto' ? allH.filter(h=>h.assetType==='crypto')
                  : allH;
-    subset.forEach(h=>{ if(h._mv!=null){tv+=h._mv;any=true;} tc+=h.costBasis; });
+    subset.forEach(h=>{
+      const mv = mvOf(h);
+      if(mv!=null){ tv += mv; any = true; }
+      tc += h.costBasis;
+    });
     if(any && tc>0) allTime = { amt:tv-tc, pct:(tv-tc)/tc*100 };
   }
   if(!allTime){ wrap.style.display='none'; return; }
