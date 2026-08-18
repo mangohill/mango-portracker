@@ -293,19 +293,27 @@ function renderH(){
     </tr>`;
   }).join('');
 
-  // ── Table totals footer (respects search / type / owner / source + view) ──
+  // ── Table totals footer — only when Holdings filters are active ──────
+  // Summary cards already cover the unfiltered view; this row mirrors the
+  // table columns 1:1 (no colspan) so portrait responsive column-hiding
+  // keeps totals under the matching headers. P&L $ hides with its column.
   const hasTableFilter = !!(s || tf || ownerF_h || brokerF_h);
   const hbFoot = $('hb-foot');
   if(hbFoot){
-    if(f.length){
+    if(hasTableFilter && f.length){
       let totMv=0, totCost=0, anyMv=false;
       f.forEach(h=>{ if(h._mv!=null){ totMv+=h._mv; anyMv=true; } totCost+=h.costBasis; });
       const totPl = anyMv ? totMv-totCost : null;
       const totPp = totPl!=null && totCost>0 ? (totPl/totCost)*100 : null;
       const plC = totPl==null?'':(totPl>=0?'pos':'neg');
+      // One <td> per column — same order as thead/body (Symbol…Source)
       hbFoot.innerHTML = `<tr style="font-weight:700;border-top:2px solid var(--bo)">
         <td>TOTAL (${f.length})</td>
-        <td colspan="5" style="font-size:11px;color:var(--text3)">${hasTableFilter?'Filtered':'Visible'}</td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
         <td style="text-align:right">${anyMv?n2(totMv):'—'}</td>
         <td style="text-align:right">${n2(totCost)}</td>
         <td style="text-align:right" class="${plC}">${totPl!=null?(totPl>=0?'+':'')+n2(totPl):'—'}</td>
@@ -384,6 +392,7 @@ function renderH(){
   // period-change row can scope ALL to the filter; historical 1D/5D/… remain
   // unavailable for arbitrary filters (snapshots are portfolio-level only).
   renderPortfolioChange(allH, hasTableFilter ? f : null);
+  if(typeof refreshResponsiveTables === 'function') refreshResponsiveTables();
 }
 
 // ── PORTFOLIO CHANGE (1D/5D/1M/6M/1Y/5Y/ALL) ───────────────────────────
