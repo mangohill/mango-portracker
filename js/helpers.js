@@ -354,6 +354,17 @@ function enhanceResponsiveTables(){
     // shift left and land under the wrong header.
     ths.forEach((th,i)=> th.classList.toggle('rtbl-hide', !visible.has(i)));
 
+    // Keep tfoot totals aligned under the same visible headers (e.g. hide
+    // P&L $ in portrait when that column is dropped).
+    const tfoot = table.querySelector('tfoot');
+    if(tfoot){
+      [...tfoot.querySelectorAll(':scope > tr')].forEach(row=>{
+        const cells = [...row.children];
+        if(cells.length !== total) return;
+        cells.forEach((td,i)=> td.classList.toggle('rtbl-hide', !visible.has(i)));
+      });
+    }
+
     [...tbody.querySelectorAll(':scope > tr')].forEach(row=>{
       if(row.classList.contains('rtbl-detail')) return;
       const cells = [...row.children];
