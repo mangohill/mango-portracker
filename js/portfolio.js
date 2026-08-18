@@ -388,18 +388,18 @@ function renderH(){
     : 'All prices loaded';
 
   snapshotPortfolioValue(allH);
-  // When Holdings filters are active, pass the same filter so Portfolio Change
-  // can recompute 1D/5D/… from per-symbol daily prices for that subset.
-  const tableFilterFn = hasTableFilter ? (h=>{
+  // Single scope for Portfolio Change: portfolio view + optional table filters.
+  // Same mark-to-market engine is used for holistic and filtered views.
+  const changeScopeFn = h=>{
+    if(portfolioView===1 && isCrypto(h)) return false;
+    if(portfolioView===2 && isStock(h)) return false;
     if(s && !h.symbol.toLowerCase().includes(s)) return false;
     if(tf && h.assetType !== tf) return false;
     if(ownerF_h && getSymbolOwner(h.symbol) !== ownerF_h) return false;
     if(brokerF_h && h.source !== brokerF_h) return false;
-    if(portfolioView===1 && isCrypto(h)) return false;
-    if(portfolioView===2 && isStock(h)) return false;
     return true;
-  }) : null;
-  renderPortfolioChange(allH, tableFilterFn);
+  };
+  renderPortfolioChange(changeScopeFn, hasTableFilter);
   if(typeof refreshResponsiveTables === 'function') refreshResponsiveTables();
 }
 
@@ -446,17 +446,13 @@ const PF_CHANGE_RANGES = [
   {key:'all', label:'ALL'},
 ];
 
-// Latest snapshot date on or before targetStr that has a non-null value for viewKey
-function findSnapshotOnOrBefore(targetStr, viewKey){
-  let found = null;
-  for(const d of Object.keys(pfSnapshots)){
-    if(pfSnapshots[d][viewKey]==null) continue;
-    if(d<=targetStr && (!found || d>found)) found = d;
-  }
-  return found ? { date:found, value:pfSnapshots[found][viewKey] } : null;
-}
+// ── Unified mark-to-market engine ─────────────────────────────────────
+// Both holistic and filtered Portfolio Change use the same definition:
+//   value on date D = Σ (units as of D × price on D) for holdings in scope
+// A past day is only used when EVERY in-scope holding that day has a price
+// (strict completeness) so we never compare a partial past to a full present.
 
-// Snapshot date that has per-symbol prices, on or before targetStr
+// Latest snapshot date ≤ targetStr that has a non-empty per-symbol prices map
 function findPricedSnapshotOnOrBefore(targetStr){
   let found = null;
   for(const d of Object.keys(pfSnapshots)){
@@ -467,161 +463,127 @@ function findPricedSnapshotOnOrBefore(targetStr){
   return found;
 }
 
-// Market value of holdings matching filterFn as of dateStr, using stored prices
-function valueForFilterAt(dateStr, filterFn){
-  const snap = pfSnapshots[dateStr];
-  if(!snap || !snap.prices) return null;
-  const holdingsAsOf = calcH(dateStr).filter(filterFn);
-  let tv = 0, any = false;
-  holdingsAsOf.forEach(h=>{
-    const p = snap.prices[priceSymbol(h.symbol)];
-    if(p!=null){ tv += p * h.units; any = true; }
+// Live mark-to-market for current holdings in scope
+function markToMarketLive(scopeFn){
+  const holdings = calcH().filter(scopeFn);
+  if(!holdings.length) return { value:null, complete:true, count:0, priced:0 };
+  let tv = 0, priced = 0;
+  holdings.forEach(h=>{
+    const p = prices[priceSymbol(h.symbol)];
+    if(p!=null){ tv += p * h.units; priced++; }
   });
-  return any ? +tv.toFixed(2) : null;
+  return {
+    value: priced ? +tv.toFixed(2) : null,
+    complete: priced === holdings.length,
+    count: holdings.length,
+    priced
+  };
 }
 
-// Portfolio Change rows for an arbitrary holdings filter (per-symbol history)
-function calcPortfolioChangeFiltered(filterFn, allTime){
-  const todayStr = new Date().toISOString().slice(0,10);
-  const liveHoldings = calcH().filter(filterFn);
-  let curVal = null, any = false, tv = 0;
-  liveHoldings.forEach(h=>{
-    const p = prices[priceSymbol(h.symbol)];
-    if(p!=null){ tv += p * h.units; any = true; }
-  });
-  if(any) curVal = +tv.toFixed(2);
-  if(curVal==null){
-    const latest = findPricedSnapshotOnOrBefore(todayStr);
-    if(latest) curVal = valueForFilterAt(latest, filterFn);
+// Historical mark-to-market: holdings as of dateStr × that day's stored prices
+function markToMarketAt(dateStr, scopeFn){
+  const snap = pfSnapshots[dateStr];
+  if(!snap || !snap.prices || !Object.keys(snap.prices).length){
+    return { value:null, complete:false, count:0, priced:0 };
   }
+  const holdings = calcH(dateStr).filter(scopeFn);
+  if(!holdings.length) return { value:null, complete:true, count:0, priced:0 };
+  let tv = 0, priced = 0;
+  holdings.forEach(h=>{
+    const p = snap.prices[priceSymbol(h.symbol)];
+    if(p!=null){ tv += p * h.units; priced++; }
+  });
+  return {
+    value: priced ? +tv.toFixed(2) : null,
+    complete: priced === holdings.length,
+    count: holdings.length,
+    priced
+  };
+}
 
-  const anchor = findPricedSnapshotOnOrBefore(todayStr) || todayStr;
-  const today = new Date(anchor+'T00:00:00');
+// Period rows for any scope (full portfolio, stocks/crypto view, or table filters).
+// allTime = { amt, pct } for the ALL column (cost vs live market) — may be null.
+function calcPortfolioChangeUnified(scopeFn, allTime){
+  const todayStr = new Date().toISOString().slice(0,10);
+  const live = markToMarketLive(scopeFn);
+  const curVal = (live.complete && live.value!=null) ? live.value : null;
+
+  // Anchor range math on the latest priced snapshot day when available
+  const anchorStr = findPricedSnapshotOnOrBefore(todayStr) || todayStr;
+  const anchor = new Date(anchorStr + 'T00:00:00');
+
   const rows = PF_CHANGE_RANGES.map(r=>{
     if(r.key==='all'){
       if(!allTime || allTime.pct==null) return { label:r.label, pct:null, amt:null };
       return { label:r.label, pct:allTime.pct, amt:allTime.amt };
     }
-    if(curVal==null) return { label:r.label, pct:null, amt:null };
-    const target = new Date(today);
-    if(r.days)   target.setDate(target.getDate()-r.days);
-    if(r.months) target.setMonth(target.getMonth()-r.months);
-    if(r.years)  target.setFullYear(target.getFullYear()-r.years);
+    if(curVal==null) return { label:r.label, pct:null, amt:null, reason:'incomplete' };
+
+    const target = new Date(anchor);
+    if(r.days)   target.setDate(target.getDate() - r.days);
+    if(r.months) target.setMonth(target.getMonth() - r.months);
+    if(r.years)  target.setFullYear(target.getFullYear() - r.years);
     const snapDate = findPricedSnapshotOnOrBefore(target.toISOString().slice(0,10));
-    if(!snapDate) return { label:r.label, pct:null, amt:null };
-    const pastVal = valueForFilterAt(snapDate, filterFn);
-    if(pastVal==null) return { label:r.label, pct:null, amt:null };
+    if(!snapDate) return { label:r.label, pct:null, amt:null, reason:'no-snapshot' };
+
+    const past = markToMarketAt(snapDate, scopeFn);
+    // Strict: every in-scope holding on that day must have a price
+    if(!past.complete || past.value==null) return { label:r.label, pct:null, amt:null, reason:'incomplete' };
+    if(past.count===0) return { label:r.label, pct:null, amt:null, reason:'empty' };
+
     return {
-      label:r.label,
-      pct: pastVal>0 ? ((curVal-pastVal)/pastVal*100) : null,
-      amt: curVal-pastVal,
+      label: r.label,
+      pct: past.value>0 ? ((curVal - past.value) / past.value * 100) : null,
+      amt: curVal - past.value,
       from: snapDate
     };
   });
-  return { asOf:todayStr, rows };
+  return { asOf:todayStr, rows, live };
 }
 
-// allTime = { amt, pct } — true all-time gain (current value vs cost basis),
-// the same figure shown on the Unrealised P&L card. The ALL column uses this
-// directly rather than "earliest snapshot on record", since snapshot history
-// only goes back as far as this feature has been switched on — "ALL" should
-// mean since you started investing, not since we started recording.
-function calcPortfolioChange(viewKey, allTime){
-  const dates = Object.keys(pfSnapshots).filter(d=>pfSnapshots[d][viewKey]!=null).sort();
-  const todayStr = dates.length ? dates[dates.length-1] : new Date().toISOString().slice(0,10);
-  const curVal   = dates.length ? pfSnapshots[todayStr][viewKey] : null;
-  const today    = new Date(todayStr+'T00:00:00');
-
-  const rows = PF_CHANGE_RANGES.map(r=>{
-    if(r.key==='all'){
-      if(!allTime || allTime.pct==null) return { label:r.label, pct:null, amt:null };
-      return { label:r.label, pct:allTime.pct, amt:allTime.amt };
-    }
-    if(curVal==null) return { label:r.label, pct:null, amt:null };
-    const target = new Date(today);
-    if(r.days)   target.setDate(target.getDate()-r.days);
-    if(r.months) target.setMonth(target.getMonth()-r.months);
-    if(r.years)  target.setFullYear(target.getFullYear()-r.years);
-    const snap = findSnapshotOnOrBefore(target.toISOString().slice(0,10), viewKey);
-    if(!snap) return { label:r.label, pct:null, amt:null };
-    return { label:r.label, pct: snap.value>0?((curVal-snap.value)/snap.value*100):null, amt: curVal-snap.value, from:snap.date };
-  });
-  return { asOf:todayStr, rows };
-}
-
-function renderPortfolioChange(allH, filterFn){
+function renderPortfolioChange(scopeFn, isFiltered){
   const wrap = $('pf-change-wrap');
   if(!wrap) return;
-  const viewKey = portfolioView===1 ? 'stocks' : portfolioView===2 ? 'crypto' : 'all';
 
-  // Market value from live prices — allH from calcH() does not carry _mv
-  const mvOf = h=>{
-    const cur = prices[priceSymbol(h.symbol)];
-    return cur!=null ? cur*h.units : null;
-  };
+  // ALL column: cost basis vs live market for the same scope
+  let tv = 0, tc = 0, any = false;
+  calcH().filter(scopeFn).forEach(h=>{
+    const p = prices[priceSymbol(h.symbol)];
+    if(p!=null){ tv += p * h.units; any = true; }
+    tc += h.costBasis;
+  });
+  const allTime = (any && tc>0) ? { amt: tv - tc, pct: (tv - tc) / tc * 100 } : null;
 
-  // filterFn set when Holdings search / type / owner / source is active.
-  // Uses per-symbol daily prices in pfSnapshots so 1D/5D/… work for any subset.
-  if(filterFn){
-    const filtered = allH.filter(filterFn);
-    let tv=0, tc=0, any=false;
-    filtered.forEach(h=>{
-      const mv = mvOf(h);
-      if(mv!=null){ tv += mv; any = true; }
-      tc += h.costBasis;
-    });
-    const allTime = (any && tc>0) ? { amt: tv-tc, pct: (tv-tc)/tc*100 } : null;
-    if(!filtered.length){ wrap.style.display='none'; return; }
-    wrap.style.display = '';
-    const sub = $('pf-change-sub');
-    if(sub) sub.textContent = 'Filtered · period change from per-symbol daily prices';
-    const { rows } = calcPortfolioChangeFiltered(filterFn, allTime);
-    $('pf-change-row').innerHTML = rows.map(r=>{
-      if(r.pct==null) return `<div style="text-align:center">
-        <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
-        <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text3)">—</div>
-        <div style="font-size:9px;color:var(--text3);margin-top:2px">No history yet</div>
-      </div>`;
-      const cls = r.pct>=0?'pos':'neg';
-      return `<div style="text-align:center">
-        <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
-        <div class="${cls}" style="font-family:var(--mono);font-size:15px;font-weight:600">${r.pct>=0?'+':''}${r.pct.toFixed(2)}%</div>
-        <div class="${cls}" style="font-size:9px;margin-top:2px">${r.amt>=0?'+':''}${n2(r.amt)}</div>
-      </div>`;
-    }).join('');
-    return;
-  }
+  const scoped = calcH().filter(scopeFn);
+  if(!scoped.length){ wrap.style.display = 'none'; return; }
 
-  // Unfiltered (or All / Stocks / Crypto view only): use aggregate snapshots
-  let allTime = null;
-  {
-    let tv=0,tc=0,any=false;
-    const subset = viewKey==='stocks' ? allH.filter(h=>h.assetType!=='crypto')
-                 : viewKey==='crypto' ? allH.filter(h=>h.assetType==='crypto')
-                 : allH;
-    subset.forEach(h=>{
-      const mv = mvOf(h);
-      if(mv!=null){ tv += mv; any = true; }
-      tc += h.costBasis;
-    });
-    if(any && tc>0) allTime = { amt:tv-tc, pct:(tv-tc)/tc*100 };
-  }
-  if(!allTime){ wrap.style.display='none'; return; }
   wrap.style.display = '';
   const sub = $('pf-change-sub');
   if(sub){
-    const labels = Object.keys(pfSnapshots).sort();
-    sub.textContent = labels.length
-      ? `Since ${labels[0]} · ${labels.length} day${labels.length>1?'s':''} recorded · ALL = cost vs market`
-      : 'Recording daily values — more history will appear over time · ALL = cost vs market';
+    const pricedDays = Object.keys(pfSnapshots).filter(d=>{
+      const pr = pfSnapshots[d] && pfSnapshots[d].prices;
+      return pr && Object.keys(pr).length;
+    }).sort();
+    const base = pricedDays.length
+      ? `Mark-to-market · ${pricedDays.length} day${pricedDays.length>1?'s':''} with per-symbol prices · since ${pricedDays[0]}`
+      : 'Mark-to-market · recording per-symbol daily prices — history builds over time';
+    sub.textContent = (isFiltered ? 'Filtered · ' : '') + base + ' · ALL = cost vs market';
   }
-  const { rows } = calcPortfolioChange(viewKey, allTime);
+
+  const { rows } = calcPortfolioChangeUnified(scopeFn, allTime);
   $('pf-change-row').innerHTML = rows.map(r=>{
-    if(r.pct==null) return `<div style="text-align:center">
-      <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
-      <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text3)">—</div>
-    </div>`;
-    const cls = r.pct>=0?'pos':'neg';
+    if(r.pct==null){
+      const hint = r.key==='all' || !r.reason ? ''
+        : r.reason==='incomplete' ? 'Incomplete prices'
+        : r.reason==='no-snapshot' ? 'No history yet'
+        : '';
+      return `<div style="text-align:center">
+        <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
+        <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text3)">—</div>
+        ${hint ? `<div style="font-size:9px;color:var(--text3);margin-top:2px">${hint}</div>` : ''}
+      </div>`;
+    }
+    const cls = r.pct>=0 ? 'pos' : 'neg';
     return `<div style="text-align:center">
       <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
       <div class="${cls}" style="font-family:var(--mono);font-size:15px;font-weight:600">${r.pct>=0?'+':''}${r.pct.toFixed(2)}%</div>
