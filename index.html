@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com https://api.coingecko.com https://*.workers.dev https://*.cloudflare.com https://query1.finance.yahoo.com https://www.monashinvestors.com; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Portfolio Tracker v3</title>
+<title>Portfolio Tracker</title>
 <!-- Google Fonts removed for offline support; IBM Plex fallbacks to system fonts -->
   <link rel="stylesheet" href="app.css">
 </head>
@@ -1068,16 +1068,7 @@
   <script src="js/settings.js"></script>
   <script src="js/spending.js"></script>
   <script src="js/backup.js"></script>
-  <script src="js/cgt.js?v=6"></script>
-  <script>
-    try{
-      console.log('CGT diagnostics:', {
-        renderCGT: typeof renderCGT,
-        calcCGTEvents: typeof calcCGTEvents,
-        computeCGTSummary: typeof computeCGTSummary,
-      });
-    }catch(e){ console.error('CGT diagnostics error', e); }
-  </script>
+  <script src="js/cgt.js"></script>
   <script src="js/tax.js"></script>
   <script src="js/sw-register.js"></script>
 </body>
