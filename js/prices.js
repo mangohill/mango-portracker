@@ -231,14 +231,27 @@ async function backfillPortfolioHistory(){
   if(!workerURL) return;
 
   // Once per calendar day is plenty — avoids hammering the worker's KV
-  // list endpoint on every single price refresh.
+  // list endpoint on every single price refresh. Re-run if we have
+  // aggregate-only snapshots that still need per-symbol prices.
   const todayStr = new Date().toISOString().slice(0,10);
-  if(localStorage.getItem('pt_pf_backfill_date') === todayStr) return;
+  const needsPriceUpgrade = Object.keys(pfSnapshots).some(d=>{
+    const s = pfSnapshots[d];
+    return s && (s.all!=null || s.stocks!=null || s.crypto!=null) && !(s.prices && Object.keys(s.prices).length);
+  });
+  if(localStorage.getItem('pt_pf_backfill_date') === todayStr && !needsPriceUpgrade) return;
 
   const knownDates = Object.keys(pfSnapshots).sort();
-  const since = knownDates.length
-    ? new Date(new Date(knownDates[knownDates.length-1]+'T00:00:00').getTime()+86400000).toISOString().slice(0,10)
-    : '1970-01-01';
+  // If upgrading, pull from earliest missing-prices day; else from day after last snapshot
+  let since = '1970-01-01';
+  if(!needsPriceUpgrade && knownDates.length){
+    since = new Date(new Date(knownDates[knownDates.length-1]+'T00:00:00').getTime()+86400000).toISOString().slice(0,10);
+  } else if(needsPriceUpgrade){
+    const missing = knownDates.filter(d=>{
+      const s = pfSnapshots[d];
+      return !(s && s.prices && Object.keys(s.prices).length);
+    });
+    if(missing.length) since = missing[0];
+  }
 
   let history;
   try{
@@ -248,17 +261,31 @@ async function backfillPortfolioHistory(){
   }catch(e){ console.warn('backfillPortfolioHistory fetch failed:', e); return; }
 
   const unlistedSyms = new Set(['MAIF','MAAT']);
+  // Reverse CoinGecko map so worker crypto ids become our symbol keys (BTC, ETH, …)
+  const CG_REV = Object.fromEntries(Object.entries(CG).map(([sym,id])=>[id,sym]));
   let filled = 0;
   for(const dateKey of Object.keys(history).sort()){
-    if(pfSnapshots[dateKey]) continue; // never overwrite a day we already have
+    // Upgrade existing aggregate-only days with prices when we have them
     const dayPrices = history[dateKey];
+    if(!dayPrices || typeof dayPrices!=='object') continue;
+
+    // Normalise worker keys → app price keys (DHHF.AX→DHHF, bitcoin→BTC)
+    const pricesMap = {};
+    for(const [k,v] of Object.entries(dayPrices)){
+      if(v==null || !(+v>0)) continue;
+      let sym;
+      if(k.endsWith('.AX')) sym = k.slice(0,-3).toUpperCase();
+      else if(CG_REV[k]) sym = CG_REV[k];
+      else sym = k.toUpperCase();
+      pricesMap[sym] = +v;
+    }
+
     const holdingsAsOf = calcH(dateKey);
     const valFor = filterFn => {
       let tv = 0, any = false;
       holdingsAsOf.filter(filterFn).forEach(h=>{
         if(unlistedSyms.has(priceSymbol(h.symbol))) return; // worker can't price these
-        const sym = h.assetType==='crypto' ? CG[priceSymbol(h.symbol)] : priceSymbol(h.symbol)+'.AX';
-        const p = sym ? dayPrices[sym] : null;
+        const p = pricesMap[priceSymbol(h.symbol)];
         if(p!=null){ tv += p*h.units; any = true; }
       });
       return any ? +tv.toFixed(2) : null;
@@ -266,8 +293,19 @@ async function backfillPortfolioHistory(){
     const all    = valFor(()=>true);
     const stocks = valFor(h=>h.assetType!=='crypto');
     const crypto = valFor(h=>h.assetType==='crypto');
-    if(all==null && stocks==null && crypto==null) continue;
-    pfSnapshots[dateKey] = { all, stocks, crypto };
+    if(all==null && stocks==null && crypto==null && !Object.keys(pricesMap).length) continue;
+
+    const existing = pfSnapshots[dateKey];
+    if(existing && existing.prices && Object.keys(existing.prices).length){
+      // Already have prices for this day — leave aggregates alone
+      continue;
+    }
+    pfSnapshots[dateKey] = {
+      all: all!=null ? all : (existing&&existing.all),
+      stocks: stocks!=null ? stocks : (existing&&existing.stocks),
+      crypto: crypto!=null ? crypto : (existing&&existing.crypto),
+      prices: pricesMap
+    };
     filled++;
   }
   if(filled){ savePfSnapshots(); renderPortfolioChange(calcH()); }
