@@ -4,7 +4,7 @@
 // Scope: https://mangohill.github.io/mango-portracker/
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'portfolio-tracker-v12';
+const CACHE_NAME = 'portfolio-tracker-v13';
 const BASE       = '/mango-portracker/';
 
 const PRECACHE_URLS = [
@@ -29,7 +29,6 @@ const PRECACHE_URLS = [
   BASE + 'js/sw-register.js',
 ];
 
-// ── Install: pre-cache everything ────────────────────────────────────────────
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
@@ -45,7 +44,6 @@ self.addEventListener('install', event => {
   );
 });
 
-// ── Activate: delete old caches ──────────────────────────────────────────────
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -61,14 +59,11 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('message',e=>{if(e.data&&e.data.type==='SKIP_WAITING')self.skipWaiting();});
 function isNF(u){const p=new URL(u).pathname;return p.endsWith('.js')||p.endsWith('.css')||p.endsWith('.html')||p.endsWith('/');}
-// ── Fetch ─────────────────────────────────────────────────────────────────────
+
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-
   if (event.request.method !== 'GET') return;
   if (url.origin !== location.origin)  return;
-
-  // Skip API calls
   const isApi = url.pathname.startsWith('/api/') ||
     url.searchParams.has('symbols') ||
     url.searchParams.has('maif') ||
@@ -79,9 +74,7 @@ self.addEventListener('fetch', event => {
     url.hostname.includes('monash') ||
     url.hostname.includes('cloudflare');
   if (isApi) return;
-
   if (url.pathname.endsWith('/version.json')) return;
-
   if(isNF(event.request.url)){
     event.respondWith(fetch(event.request,{cache:'no-cache'}).then(res=>{
       if(res&&res.ok) caches.open(CACHE_NAME).then(cache=>cache.put(event.request,res.clone()));
