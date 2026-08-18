@@ -422,13 +422,35 @@ function snapshotPortfolioValue(allH){
   const stocks = valFor(h=>h.assetType!=='crypto');
   const crypto = valFor(h=>h.assetType==='crypto');
   if(all==null && stocks==null && crypto==null) return; // no prices yet — don't record
-  // Per-symbol prices power filtered Portfolio Change (search / type / owner / source)
+  // Per-symbol prices for mark-to-market Portfolio Change (stocks + crypto)
   const pricesMap = {};
+  const heldSyms = new Set();
   allH.forEach(h=>{
     const sym = priceSymbol(h.symbol);
-    if(sym && prices[sym]!=null) pricesMap[sym] = prices[sym];
+    if(!sym) return;
+    heldSyms.add(sym);
+    if(prices[sym]!=null) pricesMap[sym] = prices[sym];
   });
   const prev = pfSnapshots[today] || {};
+  // Keep prior prices for held symbols still missing today (e.g. crypto fetch
+  // failed once, or monthly NAV). Avoids wiping crypto out of the day map.
+  if(prev.prices){
+    for(const [sym,p] of Object.entries(prev.prices)){
+      if(heldSyms.has(sym) && pricesMap[sym]==null && p!=null) pricesMap[sym] = p;
+    }
+  }
+  // Also inherit from the previous calendar day when today is sparse
+  if(Object.keys(pricesMap).length < heldSyms.size){
+    const prevDay = findPricedSnapshotOnOrBefore(
+      new Date(new Date(today+'T00:00:00').getTime()-86400000).toISOString().slice(0,10)
+    );
+    const prevDayPrices = prevDay && pfSnapshots[prevDay] && pfSnapshots[prevDay].prices;
+    if(prevDayPrices){
+      for(const [sym,p] of Object.entries(prevDayPrices)){
+        if(heldSyms.has(sym) && pricesMap[sym]==null && p!=null) pricesMap[sym] = p;
+      }
+    }
+  }
   pfSnapshots[today] = {
     all, stocks, crypto,
     prices: Object.keys(pricesMap).length ? pricesMap : (prev.prices||undefined)
@@ -468,6 +490,20 @@ function findPricedSnapshotOnOrBefore(targetStr){
     if(d<=targetStr && (!found || d>found)) found = d;
   }
   return found;
+}
+
+// Latest date ≤ targetStr where mark-to-market is complete for this scope.
+// Skips e.g. ASX-only worker days when the scope is crypto-only.
+function findCompleteSnapshotOnOrBefore(targetStr, scopeFn){
+  const dates = Object.keys(pfSnapshots).filter(d=>{
+    const pr = pfSnapshots[d] && pfSnapshots[d].prices;
+    return pr && Object.keys(pr).length && d <= targetStr;
+  }).sort().reverse();
+  for(const d of dates){
+    const m = markToMarketAt(d, scopeFn);
+    if(m.complete && m.value!=null && m.count>0) return d;
+  }
+  return null;
 }
 
 // Live mark-to-market for current holdings in scope
@@ -531,8 +567,8 @@ function calcPortfolioChangeUnified(scopeFn, allTime){
   const live = markToMarketLive(scopeFn);
   const curVal = (live.complete && live.value!=null) ? live.value : null;
 
-  // Anchor range math on the latest priced snapshot day when available
-  const anchorStr = findPricedSnapshotOnOrBefore(todayStr) || todayStr;
+  // Anchor on latest day that is complete for THIS scope (not merely any prices)
+  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn) || todayStr;
   const anchor = new Date(anchorStr + 'T00:00:00');
 
   const rows = PF_CHANGE_RANGES.map(r=>{
@@ -546,11 +582,10 @@ function calcPortfolioChangeUnified(scopeFn, allTime){
     if(r.days)   target.setDate(target.getDate() - r.days);
     if(r.months) target.setMonth(target.getMonth() - r.months);
     if(r.years)  target.setFullYear(target.getFullYear() - r.years);
-    const snapDate = findPricedSnapshotOnOrBefore(target.toISOString().slice(0,10));
+    const snapDate = findCompleteSnapshotOnOrBefore(target.toISOString().slice(0,10), scopeFn);
     if(!snapDate) return { label:r.label, pct:null, amt:null, reason:'no-snapshot' };
 
     const past = markToMarketAt(snapDate, scopeFn);
-    // Strict: every in-scope holding on that day must have a price
     if(!past.complete || past.value==null) return { label:r.label, pct:null, amt:null, reason:'incomplete' };
     if(past.count===0) return { label:r.label, pct:null, amt:null, reason:'empty' };
 

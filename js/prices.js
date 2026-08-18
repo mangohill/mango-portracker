@@ -143,8 +143,9 @@ async function refreshPrices(){
       const res  = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=aud`);
       const data = await res.json();
       cryptos.forEach(x=>{
-        const id = CG[x.symbol];
-        if(id && data[id]?.aud){ prices[priceSymbol(x.symbol)]=data[id].aud; cryptoFetched++; }
+        const sym = priceSymbol(x.symbol);
+        const id = CG[sym];
+        if(id && data[id]?.aud){ prices[sym]=data[id].aud; cryptoFetched++; }
       });
     }catch(e){ notify('CoinGecko error: '+e.message,'err'); }
   }
