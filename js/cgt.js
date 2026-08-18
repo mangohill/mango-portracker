@@ -36,7 +36,6 @@
 // ── AMIT COST BASE ADJUSTMENTS ───────────────────────────────────────────
 // Stored per symbol per distribution (record) date, as entered from each
 // fund's annual tax statement.
-try{ console.log('cgt.js: initializing AMIT adjustments'); }catch(e){}
 let amitAdjustments = (()=>{try{return JSON.parse(localStorage.getItem('pt_amit')||'[]');}catch(e){return [];}})();
 
 function saveAmitAdjustments(){ localStorage.setItem('pt_amit', JSON.stringify(amitAdjustments)); }
@@ -72,7 +71,6 @@ function shareForOwner(ownerKey, person){
 // maintaining open parcels per symbol (with continuity through corporate
 // actions), consuming them FIFO on each sell.
 function buildDisposals(){
-  try{ console.log('cgt.js: enter buildDisposals'); }catch(e){}
   const parcels = {};    // symbol -> [{units, cost, date}]
   const disposals = [];  // [{symbol, saleDate, unitsSold, proceeds, costConsumed, gain, lots, shortfallUnits}]
   const amitLog = [];    // [{symbol, date, amount, capped}]
@@ -195,7 +193,6 @@ function buildDisposals(){
 
 // ── PROPERTY CGT ──────────────────────────────────────────────────────────
 function buildPropertyDisposals(){
-  try{ console.log('cgt.js: enter buildPropertyDisposals'); }catch(e){}
   return (typeof properties!=='undefined' ? properties : [])
     .filter(p => p.sold && p.soldDate)
     .map(p=>{
@@ -634,9 +631,13 @@ function renderCGT(){
     <div class="fs" style="border-color:var(--border2);margin-bottom:16px">
       <div class="fst">📉 CAPITAL GAINS — ASSUMPTIONS</div>
       <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7">
-        Estimates only, not tax advice. FIFO parcel matching · corporate actions assumed CGT-free rollovers ·
-        losses offset short-term gains before long-term, discount applied after ·
-        AMIT cost base floored at $0 (excess flagged, not auto-realised). Confirm with your accountant.
+                Estimates only — not tax advice. Confirm with your accountant.<br><br>
+        <b>Core rules:</b> FIFO parcel matching · corporate actions treated as CGT-free rollovers (cost base + acquisition date carry over) ·
+        capital losses offset short-term gains before long-term, then the 50% discount is applied ·
+        AMIT cost base floored at $0 (any excess is flagged, not auto-realised as a gain).<br><br>
+        <b>From 1 July 2027:</b> Gains accrued up to 30 June 2027 continue to receive the 50% CGT discount (if held &gt;12 months).
+        Gains accruing from 1 July 2027 are calculated with cost-base indexation and are subject to a 30% minimum tax rate floor on that post-cutoff portion.
+        The simulation section lets you model this split using a price at 30/06/2027 and CPI / cumulative inflation inputs.
       </div>
     </div>
 
