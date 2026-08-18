@@ -110,10 +110,12 @@ let propRepayAnnual = false; // true=annual, false=monthly
 let editingDivId    = null;
 let hdSortKey = 'symbol'; // matches the "Name A→Z" default shown in the hd-sort dropdown
 let dvFYFilter = 'ALL';
-// Daily portfolio value snapshots — {date: {all, stocks, crypto}} — powers
-// the "Portfolio Change" (1D/5D/1M/6M/1Y/5Y/ALL) row. Real, mark-to-market
-// history, distinct from the Analytics "Value Over Time" chart (which
-// applies today's prices retroactively rather than real historical prices).
+// Daily portfolio value snapshots — {date: {all, stocks, crypto, prices?}} —
+// powers the "Portfolio Change" (1D/5D/1M/6M/1Y/5Y/ALL) row. Optional `prices`
+// is a per-symbol map (same keys as live `prices`) so filtered holdings views
+// can compute their own period change. Real, mark-to-market history, distinct
+// from the Analytics "Value Over Time" chart (which applies today's prices
+// retroactively rather than real historical prices).
 let pfSnapshots = (()=>{try{return JSON.parse(localStorage.getItem('pt_pf_snapshots')||'{}');}catch(e){return {};}})();
 function savePfSnapshots(){ localStorage.setItem('pt_pf_snapshots', JSON.stringify(pfSnapshots)); }
 
