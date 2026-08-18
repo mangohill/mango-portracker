@@ -293,6 +293,30 @@ function renderH(){
     </tr>`;
   }).join('');
 
+  // ── Table totals footer (respects search / type / owner / source + view) ──
+  const hasTableFilter = !!(s || tf || ownerF_h || brokerF_h);
+  const hbFoot = $('hb-foot');
+  if(hbFoot){
+    if(f.length){
+      let totMv=0, totCost=0, anyMv=false;
+      f.forEach(h=>{ if(h._mv!=null){ totMv+=h._mv; anyMv=true; } totCost+=h.costBasis; });
+      const totPl = anyMv ? totMv-totCost : null;
+      const totPp = totPl!=null && totCost>0 ? (totPl/totCost)*100 : null;
+      const plC = totPl==null?'':(totPl>=0?'pos':'neg');
+      hbFoot.innerHTML = `<tr style="font-weight:700;border-top:2px solid var(--bo)">
+        <td>TOTAL (${f.length})</td>
+        <td colspan="5" style="font-size:11px;color:var(--text3)">${hasTableFilter?'Filtered':'Visible'}</td>
+        <td style="text-align:right">${anyMv?n2(totMv):'—'}</td>
+        <td style="text-align:right">${n2(totCost)}</td>
+        <td style="text-align:right" class="${plC}">${totPl!=null?(totPl>=0?'+':'')+n2(totPl):'—'}</td>
+        <td style="text-align:right" class="${plC}">${totPp!=null?(totPp>=0?'+':'')+totPp.toFixed(2)+'%':'—'}</td>
+        <td></td>
+      </tr>`;
+    } else {
+      hbFoot.innerHTML = '';
+    }
+  }
+
   // ── Summary cards — filtered by portfolioView ──────────────────
   const allH = holdings; // unfiltered by search/type, for card totals
   const filterFn = portfolioView===1 ? isStock : portfolioView===2 ? isCrypto : ()=>true;
@@ -356,7 +380,10 @@ function renderH(){
     : 'All prices loaded';
 
   snapshotPortfolioValue(allH);
-  renderPortfolioChange(allH);
+  // Pass filtered table rows when search/type/owner/source is active so the
+  // period-change row can scope ALL to the filter; historical 1D/5D/… remain
+  // unavailable for arbitrary filters (snapshots are portfolio-level only).
+  renderPortfolioChange(allH, hasTableFilter ? f : null);
 }
 
 // ── PORTFOLIO CHANGE (1D/5D/1M/6M/1Y/5Y/ALL) ───────────────────────────
@@ -430,10 +457,43 @@ function calcPortfolioChange(viewKey, allTime){
   return { asOf:todayStr, rows };
 }
 
-function renderPortfolioChange(allH){
+function renderPortfolioChange(allH, filteredRows){
   const wrap = $('pf-change-wrap');
   if(!wrap) return;
   const viewKey = portfolioView===1 ? 'stocks' : portfolioView===2 ? 'crypto' : 'all';
+
+  // When the holdings table has search/type/owner/source filters active,
+  // scope the ALL figure to the filtered set. Historical 1D/5D/1M/… ranges
+  // need portfolio-level snapshots and cannot be reconstructed for an
+  // arbitrary subset, so those cells show "—" with a short note.
+  if(filteredRows){
+    let tv=0, tc=0, any=false;
+    filteredRows.forEach(h=>{
+      if(h._mv!=null){ tv += h._mv; any = true; }
+      tc += h.costBasis;
+    });
+    const allTime = (any && tc>0) ? { amt: tv-tc, pct: (tv-tc)/tc*100 } : null;
+    if(!allTime){ wrap.style.display='none'; return; }
+    wrap.style.display = '';
+    const sub = $('pf-change-sub');
+    if(sub) sub.textContent = 'Filtered · ALL = cost vs market · period history needs full portfolio snapshots';
+    $('pf-change-row').innerHTML = PF_CHANGE_RANGES.map(r=>{
+      if(r.key==='all'){
+        const cls = allTime.pct>=0?'pos':'neg';
+        return `<div style="text-align:center">
+          <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
+          <div class="${cls}" style="font-family:var(--mono);font-size:15px;font-weight:600">${allTime.pct>=0?'+':''}${allTime.pct.toFixed(2)}%</div>
+          <div class="${cls}" style="font-size:9px;margin-top:2px">${allTime.amt>=0?'+':''}${n2(allTime.amt)}</div>
+        </div>`;
+      }
+      return `<div style="text-align:center">
+        <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
+        <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text3)">—</div>
+        <div style="font-size:9px;color:var(--text3);margin-top:2px">Not available when filtered</div>
+      </div>`;
+    }).join('');
+    return;
+  }
 
   // True all-time gain for this view — current value vs cost basis, exactly
   // matching the Unrealised P&L card's figure (filtered the same way).
