@@ -449,8 +449,15 @@ const PF_CHANGE_RANGES = [
 // ── Unified mark-to-market engine ─────────────────────────────────────
 // Both holistic and filtered Portfolio Change use the same definition:
 //   value on date D = Σ (units as of D × price on D) for holdings in scope
-// A past day is only used when EVERY in-scope holding that day has a price
-// (strict completeness) so we never compare a partial past to a full present.
+// Strict completeness applies only to daily-priced symbols. Unlisted /
+// monthly-priced holdings (MAIF, MAAT, …) are included in value when a
+// price is known, but never force the whole portfolio to "Incomplete".
+
+// Symbols without daily market quotes (manual / monthly NAV etc.)
+const NON_DAILY_PRICE_SYMS = new Set(['MAIF','MAAT']);
+function isDailyPricedSym(sym){
+  return !NON_DAILY_PRICE_SYMS.has(priceSymbol(sym));
+}
 
 // Latest snapshot date ≤ targetStr that has a non-empty per-symbol prices map
 function findPricedSnapshotOnOrBefore(targetStr){
@@ -467,20 +474,28 @@ function findPricedSnapshotOnOrBefore(targetStr){
 function markToMarketLive(scopeFn){
   const holdings = calcH().filter(scopeFn);
   if(!holdings.length) return { value:null, complete:true, count:0, priced:0 };
-  let tv = 0, priced = 0;
+  let tv = 0, priced = 0, dailyNeeded = 0, dailyPriced = 0;
   holdings.forEach(h=>{
-    const p = prices[priceSymbol(h.symbol)];
+    const sym = priceSymbol(h.symbol);
+    const p = prices[sym];
     if(p!=null){ tv += p * h.units; priced++; }
+    if(isDailyPricedSym(sym)){
+      dailyNeeded++;
+      if(p!=null) dailyPriced++;
+    }
   });
   return {
     value: priced ? +tv.toFixed(2) : null,
-    complete: priced === holdings.length,
+    // Only daily-priced symbols block completeness
+    complete: dailyNeeded === 0 || dailyPriced === dailyNeeded,
     count: holdings.length,
     priced
   };
 }
 
-// Historical mark-to-market: holdings as of dateStr × that day's stored prices
+// Historical mark-to-market: holdings as of dateStr × that day's stored prices.
+// Non-daily symbols fall back to live/manual price when missing from the snapshot
+// (e.g. MAIF only updates monthly — carry the last known NAV).
 function markToMarketAt(dateStr, scopeFn){
   const snap = pfSnapshots[dateStr];
   if(!snap || !snap.prices || !Object.keys(snap.prices).length){
@@ -488,14 +503,22 @@ function markToMarketAt(dateStr, scopeFn){
   }
   const holdings = calcH(dateStr).filter(scopeFn);
   if(!holdings.length) return { value:null, complete:true, count:0, priced:0 };
-  let tv = 0, priced = 0;
+  let tv = 0, priced = 0, dailyNeeded = 0, dailyPriced = 0;
   holdings.forEach(h=>{
-    const p = snap.prices[priceSymbol(h.symbol)];
+    const sym = priceSymbol(h.symbol);
+    let p = snap.prices[sym];
+    if(p==null && !isDailyPricedSym(sym) && prices[sym]!=null){
+      p = prices[sym]; // carry forward manual / monthly NAV
+    }
     if(p!=null){ tv += p * h.units; priced++; }
+    if(isDailyPricedSym(sym)){
+      dailyNeeded++;
+      if(snap.prices[sym]!=null) dailyPriced++; // must be real snapshot price, not fallback
+    }
   });
   return {
     value: priced ? +tv.toFixed(2) : null,
-    complete: priced === holdings.length,
+    complete: dailyNeeded === 0 || dailyPriced === dailyNeeded,
     count: holdings.length,
     priced
   };
