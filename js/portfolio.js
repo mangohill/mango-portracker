@@ -521,9 +521,9 @@ const PF_CHANGE_RANGES = [
 //                      modes). "How did my money perform" — rewards good
 //                      timing of contributions.
 const PF_CHANGE_MODES = [
-  { key:'value', label:'Value Δ' },
-  { key:'twr',   label:'Time-Weighted' },
-  { key:'mwr',   label:'Money-Weighted' },
+  { key:'value', label:'Value Change', hint:"Value now vs. value you held on that date — can look extreme after a big contribution, even if the price barely moved" },
+  { key:'twr',   label:'Time-Weighted', hint:'How did the asset/strategy perform — ignores when or how much you added' },
+  { key:'mwr',   label:'Money-Weighted', hint:'How did my money perform — rewards good timing of contributions' },
 ];
 let pfChangeMode = 0;
 function cyclePfChangeMode(){
@@ -846,7 +846,9 @@ function renderPortfolioChange(scopeFn, isFiltered){
 
   const mode = PF_CHANGE_MODES[pfChangeMode];
   const badge = $('pf-change-mode-badge');
-  if(badge) badge.textContent = '· ' + mode.label;
+  if(badge){ badge.textContent = '· ' + mode.label; badge.title = mode.hint; }
+  const th = $('pf-change-th');
+  if(th) th.title = mode.hint + '  (tap to switch: ' + PF_CHANGE_MODES.map(m=>m.label).join(' → ') + ')';
 
   const sub = $('pf-change-sub');
   if(sub){
