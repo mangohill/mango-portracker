@@ -317,7 +317,12 @@ async function backfillPortfolioHistory(forceSince){
     };
     filled++;
   }
-  if(filled){ savePfSnapshots(); renderPortfolioChange(calcH()); }
+  // (pre-existing bug fixed here: renderPortfolioChange expects a scope
+  // filter FUNCTION, not a holdings array — calcH() is an array, which is
+  // why this only surfaced once the backfill actually filled real days.
+  // renderH() rebuilds the correct scope from current UI state and calls
+  // renderPortfolioChange correctly itself.)
+  if(filled){ savePfSnapshots(); renderH(); }
   localStorage.setItem('pt_pf_backfill_date', todayStr);
 }
 
