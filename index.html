@@ -991,6 +991,28 @@
     <div style="font-family:var(--mono);font-size:11px;margin-top:8px;color:var(--text3)" id="cf-status"></div>
   </div>
 
+  <div class="fs">
+    <div class="fst">📈 Backfill Historical Prices</div>
+    <p style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:16px">
+      One-off (re-runnable) job that fills in past prices for your held symbols, so Portfolio Change can show 5D/1M/1Y/etc, not just 1D.<br>
+      Daily prices from <strong style="color:var(--text)">1 Jul 2025</strong> to now; <span id="bf-res-label">fortnightly</span> from <strong style="color:var(--text)">1 Jan 2018</strong> to 30 Jun 2025 — keeps the worker's storage small while staying accurate. Safe to re-run any time; it only adds to what's already stored.
+    </p>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+      <div class="fgi">
+        <label class="fl">Older-history resolution</label>
+        <select class="fi" id="bf-resolution" onchange="$('bf-res-label').textContent=this.value">
+          <option value="fortnightly" selected>Fortnightly (~26 pts/yr)</option>
+          <option value="monthly">Monthly (~12 pts/yr, smaller)</option>
+        </select>
+      </div>
+      <button class="btn btn-g" id="bf-run-btn" onclick="runBackfill()">RUN BACKFILL</button>
+    </div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;height:6px;overflow:hidden;margin-bottom:8px;display:none" id="bf-bar-wrap">
+      <div id="bf-bar" style="background:var(--green);height:100%;width:0%;transition:width .3s"></div>
+    </div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text3)" id="bf-status"></div>
+  </div>
+
   <!-- Manual prices -->
   <div class="fs">
     <div class="fst">Manual Price Entry</div>
