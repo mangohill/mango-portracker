@@ -100,6 +100,57 @@ async function runBackfill(){
   }
 }
 
+// One-off cleanup for entries stored before this worker started filtering
+// on each symbol's real listing date (Yahoo's `range=max` sometimes returns
+// priced days from before an ETF/stock actually listed). Same batched
+// offset/nextOffset driving pattern as runBackfill().
+async function runPruneHistory(){
+  const workerURL = getWorkerURL();
+  if(!workerURL){ notify('Set your Cloudflare Worker URL first.','err'); return; }
+  const limit = 8;
+
+  const btn = $('bf-prune-btn'), status = $('bf-status');
+  btn.disabled = true; btn.textContent = 'CHECKING…';
+  status.textContent = 'Checking for stray pre-listing history…'; status.style.color = 'var(--text3)';
+
+  let offset = 0, totalSymbols = null, totalRemoved = 0;
+  try{
+    while(true){
+      const url = `${workerURL}?pruneHistory=1&offset=${offset}&limit=${limit}`;
+      const r = await fetch(url);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const d = await r.json();
+      if(!d.ok) throw new Error(d.error || 'Worker returned an error');
+
+      totalSymbols = d.totalSymbols;
+      totalRemoved += d.totalRemoved || 0;
+      const doneSoFar = Math.min(offset + limit, totalSymbols || 0);
+      status.textContent = `Checking… ${doneSoFar}/${totalSymbols} symbols · ${totalRemoved} stray entries removed so far`;
+
+      if(d.done) break;
+      offset = d.nextOffset;
+      await new Promise(res => setTimeout(res, 400));
+    }
+
+    status.textContent = totalRemoved
+      ? `✓ Removed ${totalRemoved} stray pre-listing entries across ${totalSymbols} symbols. Pulling refreshed history…`
+      : `✓ Checked ${totalSymbols} symbols — nothing stray found.`;
+    status.style.color = 'var(--green)';
+
+    if(totalRemoved){
+      await backfillPortfolioHistory('2018-01-01');
+      status.textContent = status.textContent.replace('Pulling refreshed history…', 'Done ✓');
+    }
+    notify(totalRemoved ? `✓ Cleaned up ${totalRemoved} stray entries` : '✓ No stray pre-listing entries found', 'ok');
+  }catch(e){
+    status.textContent = 'Cleanup failed: ' + e.message;
+    status.style.color = 'var(--red)';
+    notify('Cleanup failed: ' + e.message, 'err');
+  }finally{
+    btn.disabled = false; btn.textContent = 'FIX PRE-LISTING DATA';
+  }
+}
+
 function renderPrices(){
   const holdings=calcH();
   // Show all cached prices, annotate with asset type from holdings

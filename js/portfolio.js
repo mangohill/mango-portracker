@@ -503,6 +503,34 @@ const PF_CHANGE_RANGES = [
   {key:'all', label:'ALL'},
 ];
 
+// ── Portfolio Change display modes ─────────────────────────────────────
+// Click the "PORTFOLIO CHANGE" header to cycle through these. All three
+// answer "how has this scope done over each window", but define "return"
+// differently:
+//  · Value Δ        — value now vs. value you HAD on that date. Distorted
+//                      by contribution timing: a big DCA burst makes % look
+//                      huge even when prices barely moved.
+//  · Time-Weighted   — chains sub-period returns between every available
+//                      snapshot, netting out contributions/withdrawals each
+//                      leg. "How did the strategy/asset perform" — immune
+//                      to when or how much cash you added.
+//  · Money-Weighted  — solves the single discount rate that reconciles
+//                      every buy/sell in the window plus the ending value
+//                      (period IRR, actual day-count weighted — NOT
+//                      annualised, so it stays comparable to the other two
+//                      modes). "How did my money perform" — rewards good
+//                      timing of contributions.
+const PF_CHANGE_MODES = [
+  { key:'value', label:'Value Δ' },
+  { key:'twr',   label:'Time-Weighted' },
+  { key:'mwr',   label:'Money-Weighted' },
+];
+let pfChangeMode = 0;
+function cyclePfChangeMode(){
+  pfChangeMode = (pfChangeMode + 1) % PF_CHANGE_MODES.length;
+  if(typeof renderH === 'function') renderH();
+}
+
 // ── Unified mark-to-market engine ─────────────────────────────────────
 // Both holistic and filtered Portfolio Change use the same definition:
 //   value on date D = Σ (units as of D × price on D) for holdings in scope
@@ -534,6 +562,21 @@ function findCompleteSnapshotOnOrBefore(targetStr, scopeFn){
     const pr = pfSnapshots[d] && pfSnapshots[d].prices;
     return pr && Object.keys(pr).length && d <= targetStr;
   }).sort().reverse();
+  for(const d of dates){
+    const m = markToMarketAt(d, scopeFn);
+    if(m.complete && m.value!=null && m.count>0) return d;
+  }
+  return null;
+}
+
+// Earliest date ≥ targetStr where mark-to-market is complete for this scope.
+// Used to anchor the "ALL" window start on a date this scope can actually
+// be valued on, rather than the first date ANY symbol happened to be priced.
+function findCompleteSnapshotOnOrAfter(targetStr, scopeFn){
+  const dates = Object.keys(pfSnapshots).filter(d=>{
+    const pr = pfSnapshots[d] && pfSnapshots[d].prices;
+    return pr && Object.keys(pr).length && d >= targetStr;
+  }).sort();
   for(const d of dates){
     const m = markToMarketAt(d, scopeFn);
     if(m.complete && m.value!=null && m.count>0) return d;
@@ -634,23 +677,177 @@ function calcPortfolioChangeUnified(scopeFn, allTime){
   return { asOf:todayStr, rows, live };
 }
 
+// Buy/sell trades for exactly the symbols currently in scope — the same
+// symbol key calcH() aggregates by, so this always lines up with whatever
+// the value/TWR/MWR calcs are using (respects broker/owner/text filters).
+// DRP reinvestments (type:'drp') are deliberately excluded: they're not
+// external cash, they're already reflected in the higher unit count.
+function scopedCashFlowTrades(scopeFn){
+  const symbols = new Set(calcH().filter(scopeFn).map(h=>h.symbol));
+  return trades.filter(t => (t.type==='buy' || t.type==='sell') && symbols.has(t.symbol));
+}
+
+function windowStartTarget(rangeKey, anchorStr){
+  if(rangeKey==='all'){
+    const dates = Object.keys(pfSnapshots).filter(d=>{
+      const pr = pfSnapshots[d] && pfSnapshots[d].prices;
+      return pr && Object.keys(pr).length;
+    }).sort();
+    return dates.length ? dates[0] : null;
+  }
+  const r = PF_CHANGE_RANGES.find(x=>x.key===rangeKey);
+  const target = new Date(anchorStr + 'T00:00:00');
+  if(r.days)   target.setDate(target.getDate() - r.days);
+  if(r.months) target.setMonth(target.getMonth() - r.months);
+  if(r.years)  target.setFullYear(target.getFullYear() - r.years);
+  return localDateStr(target);
+}
+
+// ── Time-weighted return ────────────────────────────────────────────
+// Chains a sub-period return between every complete snapshot in the
+// window — each leg's ending value has that leg's net contributions/
+// withdrawals stripped out before computing the leg's return — then
+// geometrically links the legs. Accuracy scales with snapshot density:
+// daily for the last ~13 months, sparser further back (worker backfill
+// tiers), so recent windows (1D–6M) are exact and 1Y/5Y/ALL are a close
+// approximation built from real historical prices.
+function calcPortfolioChangeTWR(scopeFn){
+  const todayStr = localDateStr();
+  const holdings = calcH().filter(scopeFn);
+  if(!holdings.length) return { asOf: todayStr, rows: [] };
+
+  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn) || todayStr;
+  const cfByDate = {};
+  scopedCashFlowTrades(scopeFn).forEach(t=>{
+    const gross = (+t.units||0) * (+t.price||0);
+    const cf = t.type==='buy' ? (gross + (+t.fees||0)) : -(gross - (+t.fees||0));
+    cfByDate[t.date] = (cfByDate[t.date]||0) + cf;
+  });
+
+  const allDates = Object.keys(pfSnapshots).filter(d=>{
+    const pr = pfSnapshots[d] && pfSnapshots[d].prices;
+    return pr && Object.keys(pr).length;
+  }).sort();
+
+  const rows = PF_CHANGE_RANGES.map(r=>{
+    const targetStart = windowStartTarget(r.key, anchorStr);
+    if(!targetStart) return { label:r.label, pct:null, reason:'no-snapshot' };
+    const startDate = r.key==='all'
+      ? findCompleteSnapshotOnOrAfter(targetStart, scopeFn)
+      : findCompleteSnapshotOnOrBefore(targetStart, scopeFn);
+    if(!startDate) return { label:r.label, pct:null, reason:'no-snapshot' };
+
+    const legs = allDates.filter(d => d>=startDate && d<=anchorStr);
+    if(!legs.length || legs[0]!==startDate) legs.unshift(startDate);
+
+    let chain = 1;
+    for(let i=0;i<legs.length-1;i++){
+      const dA=legs[i], dB=legs[i+1];
+      const vA = markToMarketAt(dA, scopeFn), vB = markToMarketAt(dB, scopeFn);
+      if(!vA.complete || !vB.complete || vA.value==null || vB.value==null || vA.value<=0) continue;
+      let cf = 0;
+      for(const [d,amt] of Object.entries(cfByDate)) if(d>dA && d<=dB) cf += amt;
+      chain *= (1 + (vB.value - cf - vA.value) / vA.value);
+    }
+    // Final leg from the last available snapshot to today's live value
+    const lastLeg = legs[legs.length-1];
+    const vLast = markToMarketAt(lastLeg, scopeFn), vNow = markToMarketLive(scopeFn);
+    if(vLast.complete && vNow.complete && vLast.value>0 && vNow.value!=null){
+      let cf = 0;
+      for(const [d,amt] of Object.entries(cfByDate)) if(d>lastLeg && d<=todayStr) cf += amt;
+      chain *= (1 + (vNow.value - cf - vLast.value) / vLast.value);
+    } else if(lastLeg!==anchorStr){
+      return { label:r.label, pct:null, reason:'incomplete' };
+    }
+    return { label:r.label, pct:(chain-1)*100, from:startDate };
+  });
+  return { asOf: todayStr, rows };
+}
+
+// ── Money-weighted return (period IRR) ──────────────────────────────
+// Solves, for the window, the single rate p that reconciles: −(value you
+// had at window start) + every buy(−)/sell(+) in the window + (value now)
+// = 0, using actual calendar day-count weighting. This is the window's
+// holding-period IRR — deliberately NOT annualised, so it stays directly
+// comparable to Value Δ and TWR alongside it rather than exploding for
+// short windows the way an annualised rate would.
+function xirrPeriodic(cashflows, T){
+  if(T<=0) return null;
+  const npv = p => cashflows.reduce((s,cf)=> s + cf.amt/Math.pow(1+p, cf.t/T), 0);
+  let p = 0.1, converged = false;
+  for(let i=0;i<60;i++){
+    const f = npv(p), h = 1e-6;
+    const fp = (npv(p+h)-npv(p-h))/(2*h);
+    if(!isFinite(fp) || Math.abs(fp)<1e-12) break;
+    const next = p - f/fp;
+    if(!isFinite(next) || next<=-0.999999) break;
+    if(Math.abs(next-p) < 1e-9){ p = next; converged = true; break; }
+    p = next;
+  }
+  const total = cashflows.reduce((s,c)=>s+Math.abs(c.amt),0) || 1;
+  if(converged && Math.abs(npv(p)) < total*0.01) return p;
+  // Newton didn't settle cleanly — bisect over a wide, bounded range
+  let lo=-0.999, hi=50, flo=npv(lo), fhi=npv(hi);
+  if(flo*fhi>0) return null; // no sign change within range — can't solve
+  let mid = lo;
+  for(let i=0;i<200;i++){
+    mid = (lo+hi)/2; const fm = npv(mid);
+    if(Math.abs(fm) < total*0.0001) return mid;
+    if(flo*fm<0){ hi=mid; fhi=fm; } else { lo=mid; flo=fm; }
+  }
+  return mid;
+}
+
+function calcPortfolioChangeMWR(scopeFn){
+  const todayStr = localDateStr();
+  const holdings = calcH().filter(scopeFn);
+  if(!holdings.length) return { asOf: todayStr, rows: [] };
+
+  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn) || todayStr;
+  const vNow = markToMarketLive(scopeFn);
+  const cfTrades = scopedCashFlowTrades(scopeFn);
+
+  const rows = PF_CHANGE_RANGES.map(r=>{
+    const targetStart = windowStartTarget(r.key, anchorStr);
+    if(!targetStart || !vNow.complete || vNow.value==null) return { label:r.label, pct:null, reason:'no-snapshot' };
+    const startDate = r.key==='all'
+      ? findCompleteSnapshotOnOrAfter(targetStart, scopeFn)
+      : findCompleteSnapshotOnOrBefore(targetStart, scopeFn);
+    if(!startDate) return { label:r.label, pct:null, reason:'no-snapshot' };
+
+    const startM = markToMarketAt(startDate, scopeFn);
+    if(!startM.complete || startM.value==null) return { label:r.label, pct:null, reason:'incomplete' };
+
+    const T = Math.max(1, (new Date(todayStr) - new Date(startDate)) / 86400000);
+    const cashflows = [{ t:0, amt:-startM.value }];
+    cfTrades.forEach(t=>{
+      if(t.date<=startDate || t.date>todayStr) return;
+      const gross = (+t.units||0) * (+t.price||0);
+      const amt = t.type==='buy' ? -(gross+(+t.fees||0)) : (gross-(+t.fees||0));
+      const days = Math.max(0, (new Date(t.date) - new Date(startDate)) / 86400000);
+      cashflows.push({ t:days, amt });
+    });
+    cashflows.push({ t:T, amt:vNow.value });
+
+    const p = xirrPeriodic(cashflows, T);
+    if(p==null) return { label:r.label, pct:null, reason:'no-converge' };
+    return { label:r.label, pct:p*100, from:startDate };
+  });
+  return { asOf: todayStr, rows };
+}
+
 function renderPortfolioChange(scopeFn, isFiltered){
   const wrap = $('pf-change-wrap');
   if(!wrap) return;
 
-  // ALL column: cost basis vs live market for the same scope
-  let tv = 0, tc = 0, any = false;
-  calcH().filter(scopeFn).forEach(h=>{
-    const p = prices[priceSymbol(h.symbol)];
-    if(p!=null){ tv += p * h.units; any = true; }
-    tc += h.costBasis;
-  });
-  const allTime = (any && tc>0) ? { amt: tv - tc, pct: (tv - tc) / tc * 100 } : null;
-
   const scoped = calcH().filter(scopeFn);
   if(!scoped.length){ wrap.style.display = 'none'; return; }
-
   wrap.style.display = '';
+
+  const mode = PF_CHANGE_MODES[pfChangeMode];
+  const badge = $('pf-change-mode-badge');
+  if(badge) badge.textContent = '· ' + mode.label;
+
   const sub = $('pf-change-sub');
   if(sub){
     const pricedDays = Object.keys(pfSnapshots).filter(d=>{
@@ -658,17 +855,35 @@ function renderPortfolioChange(scopeFn, isFiltered){
       return pr && Object.keys(pr).length;
     }).sort();
     const base = pricedDays.length
-      ? `Mark-to-market · ${pricedDays.length} day${pricedDays.length>1?'s':''} with per-symbol prices · since ${pricedDays[0]}`
-      : 'Mark-to-market · recording per-symbol daily prices — history builds over time';
-    sub.textContent = (isFiltered ? 'Filtered · ' : '') + base + ' · ALL = cost vs market';
+      ? `${pricedDays.length} day${pricedDays.length>1?'s':''} with per-symbol prices · since ${pricedDays[0]}`
+      : 'recording per-symbol daily prices — history builds over time';
+    const modeHint = mode.key==='value' ? 'Mark-to-market · ' + base + ' · ALL = cost vs market'
+      : mode.key==='twr' ? 'Time-weighted (strategy return) · ' + base
+      : "Money-weighted (your money's return, period IRR) · " + base;
+    sub.textContent = (isFiltered ? 'Filtered · ' : '') + modeHint + ' · click header to switch';
   }
 
-  const { rows } = calcPortfolioChangeUnified(scopeFn, allTime);
-  $('pf-change-row').innerHTML = rows.map(r=>{
+  let result;
+  if(mode.key==='value'){
+    let tv = 0, tc = 0, any = false;
+    scoped.forEach(h=>{
+      const p = prices[priceSymbol(h.symbol)];
+      if(p!=null){ tv += p * h.units; any = true; }
+      tc += h.costBasis;
+    });
+    const allTime = (any && tc>0) ? { amt: tv - tc, pct: (tv - tc) / tc * 100 } : null;
+    result = calcPortfolioChangeUnified(scopeFn, allTime);
+  } else if(mode.key==='twr'){
+    result = calcPortfolioChangeTWR(scopeFn);
+  } else {
+    result = calcPortfolioChangeMWR(scopeFn);
+  }
+
+  $('pf-change-row').innerHTML = result.rows.map(r=>{
     if(r.pct==null){
-      const hint = r.key==='all' || !r.reason ? ''
-        : r.reason==='incomplete' ? 'Incomplete prices'
+      const hint = r.reason==='incomplete' ? 'Incomplete prices'
         : r.reason==='no-snapshot' ? 'No history yet'
+        : r.reason==='no-converge' ? "Couldn't solve"
         : '';
       return `<div style="text-align:center">
         <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
@@ -677,10 +892,13 @@ function renderPortfolioChange(scopeFn, isFiltered){
       </div>`;
     }
     const cls = r.pct>=0 ? 'pos' : 'neg';
+    const amtLine = (mode.key==='value' && r.amt!=null)
+      ? `<div class="${cls}" style="font-size:9px;margin-top:2px">${r.amt>=0?'+':''}${n2(r.amt)}</div>`
+      : '';
     return `<div style="text-align:center">
       <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
       <div class="${cls}" style="font-family:var(--mono);font-size:15px;font-weight:600">${r.pct>=0?'+':''}${r.pct.toFixed(2)}%</div>
-      <div class="${cls}" style="font-size:9px;margin-top:2px">${r.amt>=0?'+':''}${n2(r.amt)}</div>
+      ${amtLine}
     </div>`;
   }).join('');
 }

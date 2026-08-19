@@ -47,8 +47,8 @@
     <div class="card"><div class="card-label">Total Trades</div><div class="card-value neu" id="ctrd">0</div><div class="card-sub" id="cpt">Prices not loaded</div></div>
   </div>
   <div class="tw" id="pf-change-wrap" style="display:none">
-    <div class="th">
-      <span class="tt">PORTFOLIO CHANGE</span>
+    <div class="th" id="pf-change-th" onclick="cyclePfChangeMode()" style="cursor:pointer" title="Click to cycle: Value change → Time-weighted return → Money-weighted return">
+      <span class="tt">PORTFOLIO CHANGE <span id="pf-change-mode-badge" style="font-family:var(--mono);font-size:10px;color:var(--gold);text-transform:none;letter-spacing:0;margin-left:6px">· Value Δ</span></span>
       <span id="pf-change-sub" style="font-family:var(--mono);font-size:10px;color:var(--text3)"></span>
     </div>
     <div id="pf-change-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:10px;padding:16px 18px"></div>
@@ -1006,6 +1006,7 @@
         </select>
       </div>
       <button class="btn btn-g" id="bf-run-btn" onclick="runBackfill()">RUN BACKFILL</button>
+      <button class="btn" id="bf-prune-btn" onclick="runPruneHistory()" title="Removes any stored prices that predate a symbol's actual ASX/exchange listing date">FIX PRE-LISTING DATA</button>
     </div>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;height:6px;overflow:hidden;margin-bottom:8px;display:none" id="bf-bar-wrap">
       <div id="bf-bar" style="background:var(--green);height:100%;width:0%;transition:width .3s"></div>
