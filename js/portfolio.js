@@ -409,7 +409,7 @@ function renderH(){
 // ever care about the latest value recorded for "today". Skipped entirely
 // if no prices are loaded yet, so we never pollute history with a $0 day.
 function snapshotPortfolioValue(allH){
-  const today = new Date().toISOString().slice(0,10);
+  const today = localDateStr();
   const valFor = filterFn => {
     let tv = 0, any = false;
     allH.filter(filterFn).forEach(h=>{
@@ -441,9 +441,9 @@ function snapshotPortfolioValue(allH){
   }
   // Also inherit from the previous calendar day when today is sparse
   if(Object.keys(pricesMap).length < heldSyms.size){
-    const prevDay = findPricedSnapshotOnOrBefore(
-      new Date(new Date(today+'T00:00:00').getTime()-86400000).toISOString().slice(0,10)
-    );
+    const yesterday = new Date(today+'T00:00:00');
+    yesterday.setDate(yesterday.getDate()-1);
+    const prevDay = findPricedSnapshotOnOrBefore(localDateStr(yesterday));
     const prevDayPrices = prevDay && pfSnapshots[prevDay] && pfSnapshots[prevDay].prices;
     if(prevDayPrices){
       for(const [sym,p] of Object.entries(prevDayPrices)){
@@ -563,7 +563,7 @@ function markToMarketAt(dateStr, scopeFn){
 // Period rows for any scope (full portfolio, stocks/crypto view, or table filters).
 // allTime = { amt, pct } for the ALL column (cost vs live market) — may be null.
 function calcPortfolioChangeUnified(scopeFn, allTime){
-  const todayStr = new Date().toISOString().slice(0,10);
+  const todayStr = localDateStr();
   const live = markToMarketLive(scopeFn);
   const curVal = (live.complete && live.value!=null) ? live.value : null;
 
@@ -582,7 +582,7 @@ function calcPortfolioChangeUnified(scopeFn, allTime){
     if(r.days)   target.setDate(target.getDate() - r.days);
     if(r.months) target.setMonth(target.getMonth() - r.months);
     if(r.years)  target.setFullYear(target.getFullYear() - r.years);
-    const snapDate = findCompleteSnapshotOnOrBefore(target.toISOString().slice(0,10), scopeFn);
+    const snapDate = findCompleteSnapshotOnOrBefore(localDateStr(target), scopeFn);
     if(!snapDate) return { label:r.label, pct:null, amt:null, reason:'no-snapshot' };
 
     const past = markToMarketAt(snapDate, scopeFn);

@@ -234,7 +234,7 @@ async function backfillPortfolioHistory(){
   // Once per calendar day is plenty — avoids hammering the worker's KV
   // list endpoint on every single price refresh. Re-run if we have
   // aggregate-only snapshots that still need per-symbol prices.
-  const todayStr = new Date().toISOString().slice(0,10);
+  const todayStr = localDateStr();
   const needsPriceUpgrade = Object.keys(pfSnapshots).some(d=>{
     const s = pfSnapshots[d];
     return s && (s.all!=null || s.stocks!=null || s.crypto!=null) && !(s.prices && Object.keys(s.prices).length);
@@ -245,7 +245,9 @@ async function backfillPortfolioHistory(){
   // If upgrading, pull from earliest missing-prices day; else from day after last snapshot
   let since = '1970-01-01';
   if(!needsPriceUpgrade && knownDates.length){
-    since = new Date(new Date(knownDates[knownDates.length-1]+'T00:00:00').getTime()+86400000).toISOString().slice(0,10);
+    const dayAfterLast = new Date(knownDates[knownDates.length-1]+'T00:00:00');
+    dayAfterLast.setDate(dayAfterLast.getDate()+1);
+    since = localDateStr(dayAfterLast);
   } else if(needsPriceUpgrade){
     const missing = knownDates.filter(d=>{
       const s = pfSnapshots[d];

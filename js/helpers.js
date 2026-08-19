@@ -1,5 +1,20 @@
 // ── helpers.js ─────────────────────────────────────────────
 
+// Local calendar-day string (YYYY-MM-DD) for the browser's own timezone.
+// Deliberately NOT toISOString(), which converts to UTC first — for
+// timezones ahead of UTC (e.g. Brisbane, UTC+10) that silently shifts
+// the "day" backwards for roughly the first ~10 hours of each local day,
+// and shifts date-arithmetic targets (today - N days) by a day too.
+// Anywhere we're bucketing portfolio snapshots or history by calendar
+// day, this is the one to use instead of toISOString().slice(0,10).
+function localDateStr(d){
+  d = d || new Date();
+  const y   = d.getFullYear();
+  const m   = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
 function csvSafe(v){
   // Prevent CSV/XLSX formula injection by prefixing formula chars with apostrophe
   if(v == null) return '';
