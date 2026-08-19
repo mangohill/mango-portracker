@@ -985,6 +985,7 @@ function buildSyncPayload(){
       pt_props:          properties,
       pt_spending:       spendingData,
       pt_prices:         prices,
+      pt_pf_snapshots:   pfSnapshots,
       cf_worker_url:     localStorage.getItem('cf_worker_url')||'',
       pt_drp_carry:      (()=>{try{return JSON.parse(localStorage.getItem('pt_drp_carry')||'{}');}catch(e){return {};}})() ,
       pt_drp_skipped:    getDRPSkipped(),
@@ -1155,6 +1156,7 @@ function applyRemoteData(remote){
   properties   = d.pt_props      || [];
   spendingData = d.pt_spending   || [];
   prices       = d.pt_prices     || {};
+  mergePfSnapshots(d.pt_pf_snapshots);
   localStorage.setItem('pt_trades',   JSON.stringify(trades));
   localStorage.setItem('pt_divs',     JSON.stringify(dividends));
   localStorage.setItem('pt_props',    JSON.stringify(properties));

@@ -458,6 +458,41 @@ function snapshotPortfolioValue(allH){
   savePfSnapshots();
 }
 
+// Merge a remote device's pfSnapshots into ours, day by day — used by Cloud
+// Sync pull. Deliberately NOT a wholesale overwrite: each device only ever
+// records prices for the days it was actually open, so overwriting would
+// wipe out this device's own history for any day the remote copy lacks.
+// Per date: keep both devices' per-symbol prices (union), preferring this
+// device's own reading if both recorded the same symbol that day; keep
+// whichever side has non-null aggregate totals.
+function mergePfSnapshots(remoteSnaps){
+  if(!remoteSnaps || typeof remoteSnaps!=='object') return false;
+  let changed = false;
+  for(const [date, remote] of Object.entries(remoteSnaps)){
+    if(!remote || typeof remote!=='object') continue;
+    const local = pfSnapshots[date];
+    if(!local){
+      pfSnapshots[date] = remote;
+      changed = true;
+      continue;
+    }
+    const mergedPrices = { ...(remote.prices||{}), ...(local.prices||{}) };
+    const merged = {
+      all:    local.all    != null ? local.all    : remote.all,
+      stocks: local.stocks != null ? local.stocks : remote.stocks,
+      crypto: local.crypto != null ? local.crypto : remote.crypto,
+      prices: Object.keys(mergedPrices).length ? mergedPrices : undefined,
+    };
+    // Only mark changed if the merge actually added something new
+    if(JSON.stringify(merged) !== JSON.stringify(local)){
+      pfSnapshots[date] = merged;
+      changed = true;
+    }
+  }
+  if(changed) savePfSnapshots();
+  return changed;
+}
+
 const PF_CHANGE_RANGES = [
   {key:'1d',  label:'1D',  days:1},
   {key:'5d',  label:'5D',  days:5},
