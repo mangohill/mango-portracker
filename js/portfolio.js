@@ -522,8 +522,8 @@ const PF_CHANGE_RANGES = [
 //                      timing of contributions.
 const PF_CHANGE_MODES = [
   { key:'value', label:'Value Change', hint:"Value now vs. value you held on that date — can look extreme after a big contribution, even if the price barely moved" },
-  { key:'twr',   label:'Time-Weighted', hint:'How did the asset/strategy perform — ignores when or how much you added' },
-  { key:'mwr',   label:'Money-Weighted', hint:'How did my money perform — rewards good timing of contributions' },
+  { key:'twr',   label:'Time-Weighted', hint:'% ignores when/how much you added, so it answers "how did the asset/strategy perform". $ below is your actual profit (value change minus your net contributions)' },
+  { key:'mwr',   label:'Money-Weighted', hint:'% rewards good timing of contributions, so it answers "how did my money perform". $ below is your actual profit (value change minus your net contributions)' },
 ];
 let pfChangeMode = 0;
 function cyclePfChangeMode(){
@@ -703,6 +703,23 @@ function windowStartTarget(rangeKey, anchorStr){
   return localDateStr(target);
 }
 
+// $ profit attributable to performance alone, for a given window — the
+// same underlying accounting identity for both TWR and MWR, since it's
+// just arithmetic (End = Start + NetContributions + Gain), not a modeled
+// rate: Gain = End − Start − NetContributions. Buys count as a positive
+// contribution, sells as a negative one (a withdrawal), matching the sign
+// convention the % calcs already use.
+function investmentGainDollars(scopeFn, startDate, todayStr, startVal, endVal){
+  if(startVal==null || endVal==null) return null;
+  let netContrib = 0;
+  scopedCashFlowTrades(scopeFn).forEach(t=>{
+    if(t.date<=startDate || t.date>todayStr) return;
+    const gross = (+t.units||0) * (+t.price||0);
+    netContrib += t.type==='buy' ? (gross + (+t.fees||0)) : -(gross - (+t.fees||0));
+  });
+  return endVal - startVal - netContrib;
+}
+
 // ── Time-weighted return ────────────────────────────────────────────
 // Chains a sub-period return between every complete snapshot in the
 // window — each leg's ending value has that leg's net contributions/
@@ -759,7 +776,9 @@ function calcPortfolioChangeTWR(scopeFn){
     } else if(lastLeg!==anchorStr){
       return { label:r.label, pct:null, reason:'incomplete' };
     }
-    return { label:r.label, pct:(chain-1)*100, from:startDate };
+    const startM = markToMarketAt(startDate, scopeFn);
+    const amt = investmentGainDollars(scopeFn, startDate, todayStr, startM.value, vNow.value);
+    return { label:r.label, pct:(chain-1)*100, amt, from:startDate };
   });
   return { asOf: todayStr, rows };
 }
@@ -831,7 +850,8 @@ function calcPortfolioChangeMWR(scopeFn){
 
     const p = xirrPeriodic(cashflows, T);
     if(p==null) return { label:r.label, pct:null, reason:'no-converge' };
-    return { label:r.label, pct:p*100, from:startDate };
+    const amt = investmentGainDollars(scopeFn, startDate, todayStr, startM.value, vNow.value);
+    return { label:r.label, pct:p*100, amt, from:startDate };
   });
   return { asOf: todayStr, rows };
 }
@@ -894,7 +914,7 @@ function renderPortfolioChange(scopeFn, isFiltered){
       </div>`;
     }
     const cls = r.pct>=0 ? 'pos' : 'neg';
-    const amtLine = (mode.key==='value' && r.amt!=null)
+    const amtLine = (r.amt!=null)
       ? `<div class="${cls}" style="font-size:9px;margin-top:2px">${r.amt>=0?'+':''}${n2(r.amt)}</div>`
       : '';
     return `<div style="text-align:center">
