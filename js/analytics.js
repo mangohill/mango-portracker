@@ -253,6 +253,30 @@ function filterByPeriod(arr, period){
   });
 }
 
+// Same period definitions as filterByPeriod, but returns the actual date
+// boundaries (not a filtered array) — used to build a CONTINUOUS month axis
+// for the cost/value/P&L charts, spanning the whole selected period rather
+// than only months that happened to contain a trade.
+function periodBounds(period){
+  const now = new Date();
+  const fyYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear()-1;
+  const cfyStart = new Date(fyYear, 6, 1);
+  const pfyStart = new Date(fyYear-1, 6, 1);
+  const pfyEnd   = new Date(fyYear, 5, 30);
+  const fromVal  = $('an-from') ? $('an-from').value : '';
+  const toVal    = $('an-to')   ? $('an-to').value   : '';
+  let from = null, to = now;
+  if(period==='ytd')    from = new Date(now.getFullYear(), 0, 1);
+  else if(period==='1y')  from = new Date(now.getFullYear()-1, now.getMonth(), now.getDate());
+  else if(period==='6m')  from = new Date(now.getFullYear(), now.getMonth()-6, now.getDate());
+  else if(period==='3m')  from = new Date(now.getFullYear(), now.getMonth()-3, now.getDate());
+  else if(period==='cfy') from = cfyStart;
+  else if(period==='pfy'){ from = pfyStart; to = pfyEnd; }
+  else if(period==='custom'){ from = fromVal ? new Date(fromVal) : null; to = toVal ? new Date(toVal) : now; }
+  // 'all' → from stays null (caller falls back to earliest trade date)
+  return { from: from ? localDateStr(from) : null, to: localDateStr(to) };
+}
+
 // ── ANALYTICS ─────────────────────────────────────────────────────────
 
 // Looks up sym's actual price on/before dateStr using the same pfSnapshots
@@ -334,7 +358,7 @@ function renderAnalytics(){
   ].map(c=>`<div class="card"><div class="card-label">${c.l}</div><div class="card-value ${c.s}">${c.v}</div><div class="card-sub">${c.sub}</div></div>`).join('');
 
   // --- Main chart ---
-  renderMainChart(filtered, groupBy, chartType, holdings);
+  renderMainChart(filtered, groupBy, chartType, holdings, period);
 
   // --- Allocation pie ---
   renderAllocChart(holdings);
@@ -352,13 +376,18 @@ function toggleAnGroup(g){
   renderAnalytics();
 }
 
-function renderMainChart(filtered, groupBy, chartType, holdings){
-  if(!filtered.length){ mkChart('an-main-chart',{type:'line',data:{labels:[],datasets:[]}}); return; }
+function renderMainChart(filtered, groupBy, chartType, holdings, period){
+  // Only bail out entirely when there's no trade history at all — a narrow
+  // period (e.g. "Last 3 months") with zero trades IN it can still have
+  // real, price-driven value to show for positions bought earlier.
+  if(!trades.length){ mkChart('an-main-chart',{type:'line',data:{labels:[],datasets:[]}}); return; }
 
   const titles = {cost:'COST BASIS OVER TIME', value:'PORTFOLIO VALUE OVER TIME (ACTUAL HISTORICAL PRICES)', pnl:'CUMULATIVE P&L (INCL. DIVIDENDS)', trades:'TRADE ACTIVITY (GROSS AUD)', alloc:'CURRENT ALLOCATION'};
   $('an-chart-title').textContent = titles[chartType]||'';
 
   if(chartType==='alloc'){
+    const pillsEl = $('an-legend-pills');
+    if(pillsEl) pillsEl.style.display = 'none'; // no group-toggle concept for a point-in-time pie
     // Pie for current allocation
     const h = holdings.filter(x=>prices[priceSymbol(x.symbol)]);
     const labels = h.map(x=>x.symbol);
@@ -373,6 +402,8 @@ function renderMainChart(filtered, groupBy, chartType, holdings){
   }
 
   if(chartType==='trades'){
+    const pillsEl = $('an-legend-pills');
+    if(pillsEl) pillsEl.style.display = 'none'; // buy/sell bars aren't grouped by symbol/type
     // Bar chart: monthly buy vs sell volume
     const monthly = {};
     filtered.forEach(t=>{
@@ -396,18 +427,42 @@ function renderMainChart(filtered, groupBy, chartType, holdings){
   }
 
   // Line charts: cost/value/pnl over time
-  // Build cumulative timeline per group
-  const groups = groupBy==='combined' ? ['All'] :
-                 groupBy==='bytype'   ? [...new Set(filtered.map(t=>t.assetType))] :
-                                        [...new Set(filtered.map(t=>t.symbol))];
+  // Groups shown = currently held + anything traded in the selected period,
+  // so a position bought before the period (and untouched during it) still
+  // appears instead of silently vanishing from the chart and legend.
+  const heldSet   = groupBy==='bytype' ? new Set(holdings.map(h=>h.assetType))
+                   : groupBy==='bysymbol'? new Set(holdings.map(h=>h.symbol)) : null;
+  const tradedSet = groupBy==='bytype' ? new Set(filtered.map(t=>t.assetType))
+                   : groupBy==='bysymbol'? new Set(filtered.map(t=>t.symbol)) : null;
+  const groups = groupBy==='combined' ? ['All']
+    : [...new Set([...(heldSet||[]), ...(tradedSet||[])])];
 
-  // Get sorted unique dates (monthly buckets)
-  const allDates = [...new Set(filtered.map(t=>t.date.slice(0,7)))].sort();
+  // Month buckets span the FULL selected period continuously, not just
+  // months that happened to contain a trade — otherwise a held-but-untraded
+  // position shows as a single flat point instead of its real trajectory.
+  const { from: periodFrom, to: periodTo } = periodBounds(period);
+  const earliestTradeDate = trades.length ? trades.map(t=>t.date).sort()[0] : null;
+  const axisFromRaw = periodFrom && earliestTradeDate ? (periodFrom > earliestTradeDate ? periodFrom : earliestTradeDate)
+                     : (periodFrom || earliestTradeDate);
+  let allDates = [];
+  if(axisFromRaw){
+    let cur = new Date(+axisFromRaw.slice(0,4), +axisFromRaw.slice(5,7)-1, 1);
+    const end = new Date(+periodTo.slice(0,4), +periodTo.slice(5,7)-1, 1);
+    while(cur <= end){
+      allDates.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`);
+      cur.setMonth(cur.getMonth()+1);
+    }
+  }
+  if(!allDates.length){ mkChart('an-main-chart',{type:'line',data:{labels:[],datasets:[]}}); return; }
 
   const datasets = groups.map((g,i)=>{
-    const groupTrades = groupBy==='combined' ? filtered :
-                        groupBy==='bytype'   ? filtered.filter(t=>t.assetType===g) :
-                                               filtered.filter(t=>t.symbol===g);
+    // Always compute from the FULL trade history (not the period-filtered
+    // list) so cost/value/P&L carried INTO the period reflects the real
+    // accumulated position, rather than incorrectly resetting to zero at
+    // the start of whatever period is selected.
+    const groupTrades = groupBy==='combined' ? trades :
+                        groupBy==='bytype'   ? trades.filter(t=>t.assetType===g) :
+                                               trades.filter(t=>t.symbol===g);
 
     const data = allDates.map(month=>{
       const monthTrades = groupTrades.filter(t=>t.date.slice(0,7)<=month);
