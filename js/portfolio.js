@@ -741,10 +741,22 @@ function calcPortfolioChangeTWR(scopeFn){
     cfByDate[t.date] = (cfByDate[t.date]||0) + cf;
   });
 
+  // Legs must be built from dates where THIS SCOPE specifically has a
+  // complete price, not "any symbol priced that day" — pfSnapshots dates
+  // are dominated by whichever symbols happen to be priced on a given day,
+  // so comparing scope-value across two arbitrary consecutive dates from
+  // that global list almost always lands on a day this scope ISN'T priced
+  // on, marking nearly every leg incomplete and silently skipping it. Using
+  // only this scope's own complete dates guarantees every adjacent pair
+  // in `legs` is a real, valid leg.
   const allDates = Object.keys(pfSnapshots).filter(d=>{
     const pr = pfSnapshots[d] && pfSnapshots[d].prices;
     return pr && Object.keys(pr).length;
   }).sort();
+  const scopeDates = allDates.filter(d => {
+    const m = markToMarketAt(d, scopeFn);
+    return m.complete && m.value!=null;
+  });
 
   const rows = PF_CHANGE_RANGES.map(r=>{
     const targetStart = windowStartTarget(r.key, anchorStr);
@@ -754,7 +766,7 @@ function calcPortfolioChangeTWR(scopeFn){
       : findCompleteSnapshotOnOrBefore(targetStart, scopeFn);
     if(!startDate) return { label:r.label, pct:null, reason:'no-snapshot' };
 
-    const legs = allDates.filter(d => d>=startDate && d<=anchorStr);
+    const legs = scopeDates.filter(d => d>=startDate && d<=anchorStr);
     if(!legs.length || legs[0]!==startDate) legs.unshift(startDate);
 
     let chain = 1;
