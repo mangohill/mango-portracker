@@ -127,6 +127,106 @@ function calcH(asOfDate){
   return Object.values(map).filter(h=>h.units>0.000001);
 }
 
+// ── TRADE ROI (per-trade, shown in the Trades table) ─────────────────
+// Buy/DRP trades: ROI vs current market price, using net cost per unit
+// (trade price + this trade's own fees, i.e. what that specific parcel
+// actually cost you).
+// Sell trades: REALIZED ROI vs the running weighted-average cost per unit
+// at the moment of sale (same average-cost method calcH() uses to track
+// holdings), using net sale proceeds per unit (after fees). This mirrors
+// calcH()'s corporate-action handling so average cost stays correct across
+// mergers/splits/spinoffs feeding into a sell.
+// Corporate action rows are skipped entirely (not a buy/sell).
+function computeTradeROIData(){
+  const map = {};
+  const out = {};
+  const sorted = [...trades].sort((a,b)=>{
+    const dateD = a.date.localeCompare(b.date);
+    if(dateD!==0) return dateD;
+    const aIsFrom = (a.subtype||'').endsWith('_from') ? -1 : 0;
+    const bIsFrom = (b.subtype||'').endsWith('_from') ? -1 : 0;
+    return aIsFrom - bIsFrom;
+  });
+  for(const t of sorted){
+    const s = t.symbol;
+    if(!map[s]) map[s] = {units:0, costBasis:0};
+
+    if(t.type==='corporate_action'){
+      const sub = t.subtype||'';
+      if(sub==='merger_from'||sub==='split_from'||sub==='rename_from'||sub==='spinoff_from'){
+        map[s]._caTransfer = map[s].costBasis;
+        map[s].units = 0;
+        map[s].costBasis = 0;
+      } else if(sub==='merger_to'||sub==='split_to'||sub==='rename_to'||sub==='spinoff_to'){
+        const fromSym = t.fromSymbol||'';
+        const fromEntry = fromSym ? (map[fromSym] || null) : null;
+        const allocPct = t.allocPct!=null ? +t.allocPct/100 : 1;
+        let costToAdd;
+        if(t.overrideCostBasis){
+          costToAdd = +t.overrideCostBasis;
+        } else if(sub==='spinoff_to'){
+          costToAdd = fromEntry ? (fromEntry._caTransfer||0)*allocPct : +t.units * +t.price;
+        } else if(fromEntry && fromEntry._caTransfer != null){
+          costToAdd = fromEntry._caTransfer||0;
+        } else if(fromEntry){
+          costToAdd = fromEntry.costBasis||0;
+          fromEntry.costBasis = 0;
+          fromEntry.units = 0;
+        } else if(sub==='split_to' || sub==='rename_to' || sub==='merger_to'){
+          const selfEntry = map[s];
+          if(selfEntry && selfEntry._caTransfer != null){
+            costToAdd = selfEntry._caTransfer;
+          } else {
+            costToAdd = +t.units * +t.price;
+          }
+        } else {
+          costToAdd = +t.units * +t.price;
+        }
+        map[s].units += +t.units;
+        map[s].costBasis += costToAdd;
+        if(sub==='spinoff_to' && fromEntry){
+          const fromFull = map[fromSym];
+          fromFull.costBasis = (fromFull._caTransfer||0) * (1-allocPct);
+          fromFull.units = +t.fromUnits||fromFull.units;
+          delete fromFull._caTransfer;
+        }
+      }
+    } else if(t.type==='buy' || t.type==='drp'){
+      const netCost = (+t.units * +t.price) + (+t.fees||0);
+      map[s].units += +t.units;
+      map[s].costBasis += netCost;
+      out[t.id] = { kind:'buy', costPerUnit: (+t.units>0) ? netCost/(+t.units) : null };
+    } else {
+      const avgCostPerUnit = map[s].units>0 ? map[s].costBasis/map[s].units : null;
+      const netProceeds = (+t.units * +t.price) - (+t.fees||0);
+      const netPerUnit = (+t.units>0) ? netProceeds/(+t.units) : null;
+      out[t.id] = { kind:'sell', avgCostPerUnit, netPerUnit };
+      const ratio = map[s].units>0 ? (+t.units/map[s].units) : 0;
+      map[s].costBasis -= map[s].costBasis*ratio;
+      map[s].units -= +t.units;
+    }
+  }
+  return out;
+}
+
+// ROI % for a single trade row, or null if not computable (missing price,
+// no prior holdings for a sell, corporate action, etc).
+function tradeROIPct(t, roiMap){
+  const r = roiMap[t.id];
+  if(!r) return null;
+  if(r.kind==='buy'){
+    if(!r.costPerUnit) return null;
+    const cur = prices[priceSymbol(t.symbol)];
+    if(cur==null) return null;
+    return (cur - r.costPerUnit) / r.costPerUnit * 100;
+  }
+  if(r.kind==='sell'){
+    if(!r.avgCostPerUnit || r.netPerUnit==null) return null;
+    return (r.netPerUnit - r.avgCostPerUnit) / r.avgCostPerUnit * 100;
+  }
+  return null;
+}
+
 // ── RENDER HOLDINGS ──────────────────────────────────────────────────
 // ── SORTABLE TABLES ──────────────────────────────────────────────────
 const SORT_STATE = {};
@@ -961,10 +1061,11 @@ function renderT(){
   // Sort — default to most-recent-first by date whenever nothing's been explicitly chosen
   if(!getSort('tb').col) SORT_STATE['tb'] = {col:'date', dir:-1};
   const {col, dir} = getSort('tb');
+  const _roiMap = computeTradeROIData();
   if(col){
     f = sortRows(f.map(t=>{
       const g=+t.units * +t.price;
-      return {...t, _gross:g, _net:t.type==='buy'?g+(+t.fees||0):g-(+t.fees||0)};
+      return {...t, _gross:g, _net:(t.type==='buy'||t.type==='drp')?g+(+t.fees||0):g-(+t.fees||0), _roi:tradeROIPct(t,_roiMap)};
     }), col, dir, 'assetType', 'symbol');
   }
 
@@ -986,6 +1087,7 @@ function renderT(){
     th('_gross','Gross','text-align:right') +
     th('fees','Fees','text-align:right') +
     th('_net','Net','text-align:right') +
+    th('_roi','ROI %','text-align:right') +
     th('source','Source') +
     '<th></th>';
 
@@ -1016,7 +1118,7 @@ function renderT(){
       getAllBrokers().forEach(b=>{ html += '<option value="' + b.value + '"' + (t.source===b.value?' selected':'') + '>' + b.label + '</option>'; });
       html += '</select></td>';
       html += '<td><input class="fi" type="text" id="et-notes" value="' + escHtml(t.notes||'') + '" placeholder="Notes…" style="width:120px;padding:3px 5px"></td>';
-      html += '<td colspan="2" style="white-space:nowrap;padding:6px 8px">';
+      html += '<td colspan="3" style="white-space:nowrap;padding:6px 8px">';
       html += '<button class="btn btn-g" style="padding:4px 12px;font-size:11px" onclick="saveEditTrade()">&#10003; SAVE</button> ';
       html += '<button class="btn" style="padding:4px 8px;font-size:11px" onclick="cancelEditTrade()">&#10005;</button>';
       html += '</td></tr>';
@@ -1042,7 +1144,7 @@ function renderT(){
         + '<td>' + caTag + '</td>'
         + '<td style="text-align:right">' + nN(t.units,8) + '</td>'
         + '<td style="text-align:right;color:var(--text3)">' + (isFrom?'—':n2(t.price,dec(t.price))) + '</td>'
-        + '<td colspan="3" style="color:var(--text3);font-size:11px">'
+        + '<td colspan="4" style="color:var(--text3);font-size:11px">'
         +   (isFrom 
             ? 'Cost basis out → ' + (t.fromSymbol||t.symbol)
             : 'Cost basis in ← ' + (t.fromSymbol||'?')) + '</td>'
@@ -1052,6 +1154,10 @@ function renderT(){
         + '</td>'
         + '</tr>';
     }
+    const roi = t._roi!==undefined ? t._roi : tradeROIPct(t, _roiMap);
+    const roiC = roi==null ? '' : (roi>=0 ? 'pos' : 'neg');
+    const roiCell = roi!=null ? (roi>=0?'+':'')+roi.toFixed(2)+'%' : '<span style="color:var(--text3)">—</span>';
+
     return '<tr>'
       + '<td>' + t.date + '</td>'
       + '<td>' + bS(t.type) + '</td>'
@@ -1062,6 +1168,7 @@ function renderT(){
       + '<td style="text-align:right">' + n2(g) + '</td>'
       + '<td style="text-align:right;color:var(--text3)">' + n2(+t.fees||0) + '</td>'
       + '<td style="text-align:right">' + n2(net) + '</td>'
+      + '<td style="text-align:right" class="' + roiC + '">' + roiCell + '</td>'
       + '<td style="color:var(--text3);font-size:10px">' + (t.source||'') + '</td>'
       + '<td style="white-space:nowrap;padding:4px 8px">'
       + '<button style="' + btnStyle + '" onclick="doEditTrade(' + ri + ')">&#9998; EDIT</button>'
