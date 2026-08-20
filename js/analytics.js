@@ -254,7 +254,33 @@ function filterByPeriod(arr, period){
 }
 
 // ── ANALYTICS ─────────────────────────────────────────────────────────
+
+// Looks up sym's actual price on/before dateStr using the same pfSnapshots
+// history the Portfolio Change TWR/MWR calcs use — so "Portfolio Value" and
+// "Cumulative P&L" over time reflect what the position was REALLY worth on
+// each date, not today's price projected backwards. Falls back to today's
+// live price (old behaviour), then cost, only when no historical point
+// exists yet for that date (e.g. before the worker's backfill history starts).
+let _anPriceDatesCache = null;
+function historicalPriceOnOrBefore(sym, dateStr){
+  if(typeof pfSnapshots === 'undefined') return null;
+  if(!_anPriceDatesCache) _anPriceDatesCache = Object.keys(pfSnapshots).sort().reverse();
+  for(const d of _anPriceDatesCache){
+    if(d > dateStr) continue;
+    const p = pfSnapshots[d] && pfSnapshots[d].prices && pfSnapshots[d].prices[sym];
+    if(p!=null) return p;
+  }
+  return null;
+}
+function monthEndOrToday(monthStr){
+  const [y,m] = monthStr.split('-').map(Number);
+  const end = localDateStr(new Date(y, m, 0)); // day 0 of next month = last day of this month
+  const today = localDateStr();
+  return end < today ? end : today;
+}
+
 function renderAnalytics(){
+  _anPriceDatesCache = null; // pfSnapshots may have changed since last render (backfill, price refresh)
   const period  = $('an-period').value;
   const groupBy = $('an-group').value;
   const chartType = $('an-chart').value;
@@ -329,7 +355,7 @@ function toggleAnGroup(g){
 function renderMainChart(filtered, groupBy, chartType, holdings){
   if(!filtered.length){ mkChart('an-main-chart',{type:'line',data:{labels:[],datasets:[]}}); return; }
 
-  const titles = {cost:'COST BASIS OVER TIME', value:'PORTFOLIO VALUE OVER TIME', pnl:'CUMULATIVE P&L', trades:'TRADE ACTIVITY (GROSS AUD)', alloc:'CURRENT ALLOCATION'};
+  const titles = {cost:'COST BASIS OVER TIME', value:'PORTFOLIO VALUE OVER TIME (ACTUAL HISTORICAL PRICES)', pnl:'CUMULATIVE P&L (INCL. DIVIDENDS)', trades:'TRADE ACTIVITY (GROSS AUD)', alloc:'CURRENT ALLOCATION'};
   $('an-chart-title').textContent = titles[chartType]||'';
 
   if(chartType==='alloc'){
@@ -421,14 +447,31 @@ function renderMainChart(filtered, groupBy, chartType, holdings){
       }
       const totalCost = Object.values(costMap).reduce((s,h)=>s+h.cost,0);
       if(chartType==='cost') return +totalCost.toFixed(2);
-      const totalVal = Object.values(costMap).reduce((s,h,_,__,sym=Object.keys(costMap)[Object.values(costMap).indexOf(h)])=>s+(prices[priceSymbol(sym)]?prices[priceSymbol(sym)]*h.units:h.cost),0);
-      // For value: use current price if available, else fallback to cost
+
+      // Real historical mark-to-market: the actual price on/before this
+      // month's end date (from the worker's price history), not today's
+      // live price projected backwards onto every past month. Falls back
+      // to today's live price, then cost, only when no historical point
+      // exists yet for that date.
+      const lookupDate = monthEndOrToday(month);
       let val=0;
       for(const [sym,h] of Object.entries(costMap)){
-        val += prices[priceSymbol(sym)] ? prices[priceSymbol(sym)]*h.units : h.cost;
+        const psym = priceSymbol(sym);
+        const hist = historicalPriceOnOrBefore(psym, lookupDate);
+        const p = hist!=null ? hist : prices[psym];
+        val += p!=null ? p*h.units : h.cost;
       }
       if(chartType==='value') return +val.toFixed(2);
-      return +(val-totalCost).toFixed(2); // pnl
+
+      // Cumulative P&L includes dividend income received to date (cash
+      // dividends only — DRP is excluded since it's already reflected
+      // above via the extra reinvested units, not double-counted here).
+      // A capital-only P&L understates real performance for income assets.
+      const groupSyms = new Set(Object.keys(costMap));
+      const divsToDate = dividends
+        .filter(d => d.type!=='drp' && d.date<=lookupDate && groupSyms.has(d.symbol))
+        .reduce((s,d)=>s+(+d.amount||0), 0);
+      return +(val - totalCost + divsToDate).toFixed(2); // pnl (total return, incl. dividends)
     });
 
     return {
