@@ -790,7 +790,7 @@ function calcPortfolioChangeUnified(scopeFn, allTime){
   const rows = PF_CHANGE_RANGES.map(r=>{
     if(r.key==='all'){
       if(!allTime || allTime.pct==null) return { label:r.label, pct:null, amt:null };
-      return { label:r.label, pct:allTime.pct, amt:allTime.amt };
+      return { label:r.label, pct:allTime.pct, amt:allTime.amt, pastValue:allTime.cost };
     }
     if(curVal==null) return { label:r.label, pct:null, amt:null, reason:'incomplete' };
 
@@ -809,6 +809,7 @@ function calcPortfolioChangeUnified(scopeFn, allTime){
       label: r.label,
       pct: past.value>0 ? ((curVal - past.value) / past.value * 100) : null,
       amt: curVal - past.value,
+      pastValue: past.value,
       from: snapDate
     };
   });
@@ -928,7 +929,7 @@ function calcPortfolioChangeTWR(scopeFn){
     }
     const startM = markToMarketAt(startDate, scopeFn);
     const amt = investmentGainDollars(scopeFn, startDate, todayStr, startM.value, vNow.value);
-    return { label:r.label, pct:(chain-1)*100, amt, from:startDate };
+    return { label:r.label, pct:(chain-1)*100, amt, pastValue:startM.value, from:startDate };
   });
   return { asOf: todayStr, rows };
 }
@@ -1001,7 +1002,7 @@ function calcPortfolioChangeMWR(scopeFn){
     const p = xirrPeriodic(cashflows, T);
     if(p==null) return { label:r.label, pct:null, reason:'no-converge' };
     const amt = investmentGainDollars(scopeFn, startDate, todayStr, startM.value, vNow.value);
-    return { label:r.label, pct:p*100, amt, from:startDate };
+    return { label:r.label, pct:p*100, amt, pastValue:startM.value, from:startDate };
   });
   return { asOf: todayStr, rows };
 }
@@ -1044,23 +1045,13 @@ function renderPortfolioChange(scopeFn, isFiltered){
       if(p!=null){ tv += p * h.units; any = true; }
       tc += h.costBasis;
     });
-    const allTime = (any && tc>0) ? { amt: tv - tc, pct: (tv - tc) / tc * 100 } : null;
+    const allTime = (any && tc>0) ? { amt: tv - tc, pct: (tv - tc) / tc * 100, cost: tc } : null;
     result = calcPortfolioChangeUnified(scopeFn, allTime);
   } else if(mode.key==='twr'){
     result = calcPortfolioChangeTWR(scopeFn);
   } else {
     result = calcPortfolioChangeMWR(scopeFn);
   }
-
-  // Multiple windows can legitimately resolve to the SAME anchor date when
-  // at least one symbol/broker in this scope has shallow price history —
-  // e.g. "All Sources" including a recently-added broker means no date
-  // before that broker's earliest price can ever be "complete" for the
-  // combined scope, so 6M/1Y/5Y targets that all fall before that floor
-  // all clamp to the same nearest usable date. Flag it so it reads as
-  // "same real window, shown twice" rather than looking like a bug.
-  const fromCounts = {};
-  result.rows.forEach(r=>{ if(r.from) fromCounts[r.from] = (fromCounts[r.from]||0) + 1; });
 
   $('pf-change-row').innerHTML = result.rows.map(r=>{
     if(r.pct==null){
@@ -1078,14 +1069,17 @@ function renderPortfolioChange(scopeFn, isFiltered){
     const amtLine = (r.amt!=null)
       ? `<div class="${cls}" style="font-size:9px;margin-top:2px">${r.amt>=0?'+':''}${n2(r.amt)}</div>`
       : '';
-    const clamped = r.from && fromCounts[r.from] > 1
-      ? `<div style="font-size:8px;color:var(--gold);margin-top:2px" title="This scope's earliest fully-priced date is ${r.from} — this window and at least one other both clamp to it, so they show the same figures">since ${r.from}</div>`
+    // Raw value at the START of this window (before the % / $ change was
+    // applied to it) — shown so you can independently check the math
+    // yourself: pastValue + amt should always equal today's current value.
+    const pastLine = (r.pastValue!=null)
+      ? `<div style="font-size:9px;margin-top:2px;color:var(--blue)">was ${n2(r.pastValue)}</div>`
       : '';
     return `<div style="text-align:center">
       <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
       <div class="${cls}" style="font-family:var(--mono);font-size:15px;font-weight:600">${r.pct>=0?'+':''}${r.pct.toFixed(2)}%</div>
       ${amtLine}
-      ${clamped}
+      ${pastLine}
     </div>`;
   }).join('');
 }
