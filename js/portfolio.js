@@ -644,6 +644,41 @@ function isDailyPricedSym(sym){
   return !NON_DAILY_PRICE_SYMS.has(priceSymbol(sym));
 }
 
+// A wide, multi-symbol scope (e.g. no filter at all — every ETF, stock,
+// LIC and crypto you hold at once) essentially NEVER has every single
+// symbol priced on the exact same calendar day — one symbol's price fetch
+// having a one-off gap on one day is normal and expected, but requiring
+// an exact match blocks the ENTIRE scope's completeness for that day. So
+// each symbol's price is looked up within a small tolerance window (on or
+// before the target date) instead of requiring an exact hit — the same
+// "carry the last known price forward" convention markets already use for
+// non-trading days. Rebuilt lazily; call resetMtmCache() after anything
+// that can change pfSnapshots (backfill, prune, a fresh price refresh).
+let _mtmSymDatesCache = null;
+function resetMtmCache(){ _mtmSymDatesCache = null; }
+function _buildMtmSymDatesCache(){
+  const cache = {};
+  for(const d of Object.keys(pfSnapshots)){
+    const pr = pfSnapshots[d] && pfSnapshots[d].prices;
+    if(!pr) continue;
+    for(const sym of Object.keys(pr)) (cache[sym] ||= []).push(d);
+  }
+  for(const sym in cache) cache[sym].sort();
+  return cache;
+}
+const MTM_TOLERANCE_DAYS = 5; // absorbs one-off gaps without masking real staleness in 1D/5D
+function priceNearOrBefore(sym, dateStr){
+  if(!_mtmSymDatesCache) _mtmSymDatesCache = _buildMtmSymDatesCache();
+  const dates = _mtmSymDatesCache[sym];
+  if(!dates || !dates.length) return null;
+  let best = null;
+  for(let i=dates.length-1;i>=0;i--){ if(dates[i] <= dateStr){ best = dates[i]; break; } }
+  if(!best) return null;
+  const gapDays = (new Date(dateStr) - new Date(best)) / 86400000;
+  if(gapDays > MTM_TOLERANCE_DAYS) return null; // too stale to trust — leave incomplete
+  return pfSnapshots[best].prices[sym];
+}
+
 // Latest snapshot date ≤ targetStr that has a non-empty per-symbol prices map
 function findPricedSnapshotOnOrBefore(targetStr){
   let found = null;
@@ -708,8 +743,11 @@ function markToMarketLive(scopeFn){
 }
 
 // Historical mark-to-market: holdings as of dateStr × that day's stored prices.
-// Non-daily symbols fall back to live/manual price when missing from the snapshot
-// (e.g. MAIF only updates monthly — carry the last known NAV).
+// Each daily-priced symbol accepts a price within MTM_TOLERANCE_DAYS on or
+// before dateStr (see priceNearOrBefore) rather than requiring an exact hit
+// for that specific date — otherwise a single symbol's one-off gap blocks
+// completeness for the WHOLE scope. Non-daily symbols (MAIF/MAAT) still
+// carry forward from today's live/manual price when missing entirely.
 function markToMarketAt(dateStr, scopeFn){
   const snap = pfSnapshots[dateStr];
   if(!snap || !snap.prices || !Object.keys(snap.prices).length){
@@ -720,14 +758,14 @@ function markToMarketAt(dateStr, scopeFn){
   let tv = 0, priced = 0, dailyNeeded = 0, dailyPriced = 0;
   holdings.forEach(h=>{
     const sym = priceSymbol(h.symbol);
-    let p = snap.prices[sym];
+    let p = isDailyPricedSym(sym) ? priceNearOrBefore(sym, dateStr) : snap.prices[sym];
     if(p==null && !isDailyPricedSym(sym) && prices[sym]!=null){
       p = prices[sym]; // carry forward manual / monthly NAV
     }
     if(p!=null){ tv += p * h.units; priced++; }
     if(isDailyPricedSym(sym)){
       dailyNeeded++;
-      if(snap.prices[sym]!=null) dailyPriced++; // must be real snapshot price, not fallback
+      if(p!=null) dailyPriced++; // within tolerance counts as priced
     }
   });
   return {
@@ -971,6 +1009,7 @@ function calcPortfolioChangeMWR(scopeFn){
 function renderPortfolioChange(scopeFn, isFiltered){
   const wrap = $('pf-change-wrap');
   if(!wrap) return;
+  resetMtmCache(); // pfSnapshots may have changed (backfill/prune/price refresh) since last render
 
   const scoped = calcH().filter(scopeFn);
   if(!scoped.length){ wrap.style.display = 'none'; return; }
