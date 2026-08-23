@@ -594,12 +594,18 @@ function mergePfSnapshots(remoteSnaps){
 }
 
 const PF_CHANGE_RANGES = [
-  {key:'1d',  label:'1D',  days:1},
-  {key:'5d',  label:'5D',  days:5},
-  {key:'1m',  label:'1M',  months:1},
-  {key:'6m',  label:'6M',  months:6},
-  {key:'1y',  label:'1Y',  years:1},
-  {key:'5y',  label:'5Y',  years:5},
+  // tol = how many days away from the true target date a "complete" snapshot
+  // is still allowed to count as this window's start. Without this bound,
+  // a scope with any data gap near the target silently falls back to
+  // whatever complete date happens to exist — possibly months or years
+  // earlier — making e.g. "1M" quietly compare against a value from a
+  // totally different era instead of just admitting it has no usable data.
+  {key:'1d',  label:'1D',  days:1,   tol:2},
+  {key:'5d',  label:'5D',  days:5,   tol:4},
+  {key:'1m',  label:'1M',  months:1, tol:10},
+  {key:'6m',  label:'6M',  months:6, tol:20},
+  {key:'1y',  label:'1Y',  years:1,  tol:30},
+  {key:'5y',  label:'5Y',  years:5,  tol:60},
   {key:'all', label:'ALL'},
 ];
 
@@ -692,12 +698,21 @@ function findPricedSnapshotOnOrBefore(targetStr){
 
 // Latest date ≤ targetStr where mark-to-market is complete for this scope.
 // Skips e.g. ASX-only worker days when the scope is crypto-only.
-function findCompleteSnapshotOnOrBefore(targetStr, scopeFn){
+// maxLookbackDays (optional) bounds how far before targetStr this is allowed
+// to search — beyond that, a "complete" date is too stale to honestly stand
+// in for this target and the function gives up (returns null) rather than
+// silently returning something from a completely different era.
+function findCompleteSnapshotOnOrBefore(targetStr, scopeFn, maxLookbackDays){
   const dates = Object.keys(pfSnapshots).filter(d=>{
     const pr = pfSnapshots[d] && pfSnapshots[d].prices;
     return pr && Object.keys(pr).length && d <= targetStr;
   }).sort().reverse();
+  const targetMs = maxLookbackDays!=null ? new Date(targetStr+'T00:00:00').getTime() : null;
   for(const d of dates){
+    if(targetMs!=null){
+      const gapDays = (targetMs - new Date(d+'T00:00:00').getTime()) / 86400000;
+      if(gapDays > maxLookbackDays) break; // dates are descending — nothing closer remains
+    }
     const m = markToMarketAt(d, scopeFn);
     if(m.complete && m.value!=null && m.count>0) return d;
   }
@@ -784,7 +799,7 @@ function calcPortfolioChangeUnified(scopeFn, allTime){
   const curVal = (live.complete && live.value!=null) ? live.value : null;
 
   // Anchor on latest day that is complete for THIS scope (not merely any prices)
-  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn) || todayStr;
+  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
   const anchor = new Date(anchorStr + 'T00:00:00');
 
   const rows = PF_CHANGE_RANGES.map(r=>{
@@ -798,7 +813,7 @@ function calcPortfolioChangeUnified(scopeFn, allTime){
     if(r.days)   target.setDate(target.getDate() - r.days);
     if(r.months) target.setMonth(target.getMonth() - r.months);
     if(r.years)  target.setFullYear(target.getFullYear() - r.years);
-    const snapDate = findCompleteSnapshotOnOrBefore(localDateStr(target), scopeFn);
+    const snapDate = findCompleteSnapshotOnOrBefore(localDateStr(target), scopeFn, r.tol);
     if(!snapDate) return { label:r.label, pct:null, amt:null, reason:'no-snapshot' };
 
     const past = markToMarketAt(snapDate, scopeFn);
@@ -872,7 +887,7 @@ function calcPortfolioChangeTWR(scopeFn){
   const holdings = calcH().filter(scopeFn);
   if(!holdings.length) return { asOf: todayStr, rows: [] };
 
-  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn) || todayStr;
+  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
   const cfByDate = {};
   scopedCashFlowTrades(scopeFn).forEach(t=>{
     const gross = (+t.units||0) * (+t.price||0);
@@ -902,7 +917,7 @@ function calcPortfolioChangeTWR(scopeFn){
     if(!targetStart) return { label:r.label, pct:null, reason:'no-snapshot' };
     const startDate = r.key==='all'
       ? findCompleteSnapshotOnOrAfter(targetStart, scopeFn)
-      : findCompleteSnapshotOnOrBefore(targetStart, scopeFn);
+      : findCompleteSnapshotOnOrBefore(targetStart, scopeFn, r.tol);
     if(!startDate) return { label:r.label, pct:null, reason:'no-snapshot' };
 
     const legs = scopeDates.filter(d => d>=startDate && d<=anchorStr);
@@ -973,7 +988,7 @@ function calcPortfolioChangeMWR(scopeFn){
   const holdings = calcH().filter(scopeFn);
   if(!holdings.length) return { asOf: todayStr, rows: [] };
 
-  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn) || todayStr;
+  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
   const vNow = markToMarketLive(scopeFn);
   const cfTrades = scopedCashFlowTrades(scopeFn);
 
@@ -982,7 +997,7 @@ function calcPortfolioChangeMWR(scopeFn){
     if(!targetStart || !vNow.complete || vNow.value==null) return { label:r.label, pct:null, reason:'no-snapshot' };
     const startDate = r.key==='all'
       ? findCompleteSnapshotOnOrAfter(targetStart, scopeFn)
-      : findCompleteSnapshotOnOrBefore(targetStart, scopeFn);
+      : findCompleteSnapshotOnOrBefore(targetStart, scopeFn, r.tol);
     if(!startDate) return { label:r.label, pct:null, reason:'no-snapshot' };
 
     const startM = markToMarketAt(startDate, scopeFn);
