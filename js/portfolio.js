@@ -1052,6 +1052,16 @@ function renderPortfolioChange(scopeFn, isFiltered){
     result = calcPortfolioChangeMWR(scopeFn);
   }
 
+  // Multiple windows can legitimately resolve to the SAME anchor date when
+  // at least one symbol/broker in this scope has shallow price history —
+  // e.g. "All Sources" including a recently-added broker means no date
+  // before that broker's earliest price can ever be "complete" for the
+  // combined scope, so 6M/1Y/5Y targets that all fall before that floor
+  // all clamp to the same nearest usable date. Flag it so it reads as
+  // "same real window, shown twice" rather than looking like a bug.
+  const fromCounts = {};
+  result.rows.forEach(r=>{ if(r.from) fromCounts[r.from] = (fromCounts[r.from]||0) + 1; });
+
   $('pf-change-row').innerHTML = result.rows.map(r=>{
     if(r.pct==null){
       const hint = r.reason==='incomplete' ? 'Incomplete prices'
@@ -1068,10 +1078,14 @@ function renderPortfolioChange(scopeFn, isFiltered){
     const amtLine = (r.amt!=null)
       ? `<div class="${cls}" style="font-size:9px;margin-top:2px">${r.amt>=0?'+':''}${n2(r.amt)}</div>`
       : '';
+    const clamped = r.from && fromCounts[r.from] > 1
+      ? `<div style="font-size:8px;color:var(--gold);margin-top:2px" title="This scope's earliest fully-priced date is ${r.from} — this window and at least one other both clamp to it, so they show the same figures">since ${r.from}</div>`
+      : '';
     return `<div style="text-align:center">
       <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
       <div class="${cls}" style="font-family:var(--mono);font-size:15px;font-weight:600">${r.pct>=0?'+':''}${r.pct.toFixed(2)}%</div>
       ${amtLine}
+      ${clamped}
     </div>`;
   }).join('');
 }
