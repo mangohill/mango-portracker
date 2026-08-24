@@ -792,9 +792,17 @@ function markToMarketAt(dateStr, scopeFn){
 }
 
 // Period rows for any scope (full portfolio, stocks/crypto view, or table filters).
-// allTime = { amt, pct } for the ALL column (cost vs live market) — may be null.
-function calcPortfolioChangeUnified(scopeFn, allTime){
+function calcPortfolioChangeUnified(scopeFn){
   const todayStr = localDateStr();
+  const scoped = calcH().filter(scopeFn);
+  let tv = 0, tc = 0, any = false;
+  scoped.forEach(h=>{
+    const p = prices[priceSymbol(h.symbol)];
+    if(p!=null){ tv += p * h.units; any = true; }
+    tc += h.costBasis;
+  });
+  const allTime = (any && tc>0) ? { amt: tv - tc, pct: (tv - tc) / tc * 100, cost: tc } : null;
+
   const live = markToMarketLive(scopeFn);
   const curVal = (live.complete && live.value!=null) ? live.value : null;
 
@@ -839,6 +847,52 @@ function calcPortfolioChangeUnified(scopeFn, allTime){
 function scopedCashFlowTrades(scopeFn){
   const symbols = new Set(calcH().filter(scopeFn).map(h=>h.symbol));
   return trades.filter(t => (t.type==='buy' || t.type==='sell') && symbols.has(t.symbol));
+}
+
+// ── Per-source decomposition ────────────────────────────────────────
+// A combined scope (e.g. "All Sources") requiring every symbol from every
+// broker to be simultaneously priced on the same historical date is nearly
+// impossible once the portfolio spans multiple sources — one recently-added
+// holding anywhere blocks completeness for the WHOLE combined scope, even
+// though filtering to any single source works fine back to 5Y. Instead:
+// run the given calc fn once per distinct source, letting each one resolve
+// its own best anchor date independently (its own tolerance, its own
+// history depth), then sum the resulting $ figures across sources.
+//
+// pct is recomputed from the summed $ figures rather than averaged, so it
+// stays a true (combinedNow − combinedPast) / combinedPast for Value
+// Change. For TWR/MWR this becomes a value-weighted blend of each source's
+// own (correctly mode-computed) $ gain over the summed starting value —
+// not a literally re-chained/re-solved joint TWR/IRR, but a much closer
+// answer than "no data", built entirely from real per-source numbers.
+//
+// If a source has no valid data for a given window (e.g. a stock bought
+// last month has no 5Y history), it's simply left out of that window's sum
+// and the row is flagged `partial` with a coverage count.
+function calcPortfolioChangeBySource(scopeFn, calcFn){
+  const sources = [...new Set(calcH().filter(scopeFn).map(h=>h.source||'(none)'))];
+  if(sources.length<=1) return calcFn(scopeFn);
+
+  const perSource = sources.map(src=>calcFn(h=>scopeFn(h) && (h.source||'(none)')===src));
+  const rows = PF_CHANGE_RANGES.map((r,idx)=>{
+    let sumAmt=0, sumPast=0, included=0;
+    perSource.forEach(res=>{
+      const row = res.rows[idx];
+      if(row && row.pct!=null && row.amt!=null && row.pastValue!=null){
+        sumAmt += row.amt; sumPast += row.pastValue; included++;
+      }
+    });
+    if(included===0) return { label:r.label, pct:null, amt:null, reason:'no-snapshot' };
+    return {
+      label: r.label,
+      pct: sumPast>0 ? (sumAmt/sumPast*100) : null,
+      amt: sumAmt,
+      pastValue: sumPast,
+      partial: included<sources.length,
+      coverage: `${included}/${sources.length} sources`,
+    };
+  });
+  return { asOf: localDateStr(), rows };
 }
 
 function windowStartTarget(rangeKey, anchorStr){
@@ -1054,18 +1108,11 @@ function renderPortfolioChange(scopeFn, isFiltered){
 
   let result;
   if(mode.key==='value'){
-    let tv = 0, tc = 0, any = false;
-    scoped.forEach(h=>{
-      const p = prices[priceSymbol(h.symbol)];
-      if(p!=null){ tv += p * h.units; any = true; }
-      tc += h.costBasis;
-    });
-    const allTime = (any && tc>0) ? { amt: tv - tc, pct: (tv - tc) / tc * 100, cost: tc } : null;
-    result = calcPortfolioChangeUnified(scopeFn, allTime);
+    result = calcPortfolioChangeBySource(scopeFn, calcPortfolioChangeUnified);
   } else if(mode.key==='twr'){
-    result = calcPortfolioChangeTWR(scopeFn);
+    result = calcPortfolioChangeBySource(scopeFn, calcPortfolioChangeTWR);
   } else {
-    result = calcPortfolioChangeMWR(scopeFn);
+    result = calcPortfolioChangeBySource(scopeFn, calcPortfolioChangeMWR);
   }
 
   $('pf-change-row').innerHTML = result.rows.map(r=>{
@@ -1090,11 +1137,15 @@ function renderPortfolioChange(scopeFn, isFiltered){
     const pastLine = (r.pastValue!=null)
       ? `<div style="font-size:9px;margin-top:2px;color:var(--blue)">was ${n2(r.pastValue)}</div>`
       : '';
+    const partialLine = r.partial
+      ? `<div style="font-size:8px;margin-top:1px;color:var(--gold)" title="Some sources have no data this far back — sum excludes them for this window">partial · ${r.coverage}</div>`
+      : '';
     return `<div style="text-align:center">
       <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
       <div class="${cls}" style="font-family:var(--mono);font-size:15px;font-weight:600">${r.pct>=0?'+':''}${r.pct.toFixed(2)}%</div>
       ${amtLine}
       ${pastLine}
+      ${partialLine}
     </div>`;
   }).join('');
 }
