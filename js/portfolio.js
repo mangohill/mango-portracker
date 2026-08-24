@@ -904,6 +904,49 @@ function calcPortfolioChangeBySource(scopeFn, calcFn){
   return { asOf: localDateStr(), rows };
 }
 
+// ── DIAGNOSTICS (console) ────────────────────────────────────────────
+// Run from the browser console: pfChangeDebug('commsec') for one source
+// (use the exact value from the Source/Broker filter's dropdown — right-
+// click it and Inspect to see the <option value="..."> if unsure), or
+// pfChangeDebug() with no argument for the whole unfiltered portfolio.
+// For every Portfolio Change window it reports the exact target date and,
+// per symbol held under that scope as of that date, whether a price was
+// found within tolerance — the same check markToMarketAt() does
+// internally, but with per-symbol detail instead of one complete/
+// incomplete flag, so a real data gap can be pinned to a specific symbol
+// and date instead of just "no-snapshot" on the whole source.
+function pfChangeDebug(sourceValue){
+  const scopeFn = sourceValue!=null ? (h=>(h.source||'(none)')===sourceValue) : (()=>true);
+  const todayStr = localDateStr();
+  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
+  const anchor = new Date(anchorStr+'T00:00:00');
+  console.log(`── Portfolio Change diagnostics ${sourceValue!=null?'· source="'+sourceValue+'"':'· ALL (unfiltered)'} · anchor=${anchorStr} ──`);
+  PF_CHANGE_RANGES.forEach(r=>{
+    if(r.key==='all') return;
+    const target = new Date(anchor);
+    if(r.days)   target.setDate(target.getDate() - r.days);
+    if(r.months) target.setMonth(target.getMonth() - r.months);
+    if(r.years)  target.setFullYear(target.getFullYear() - r.years);
+    const targetStr = localDateStr(target);
+    const holdings = calcH(targetStr).filter(scopeFn);
+    if(!holdings.length){
+      console.log(`${r.label} (target ${targetStr}, tol ${r.tol}d): NO HOLDINGS existed under this scope as of that date`);
+      return;
+    }
+    const rows = holdings.map(h=>{
+      const sym = priceSymbol(h.symbol);
+      const daily = isDailyPricedSym(sym);
+      const p = daily
+        ? priceNearOrBefore(sym, targetStr)
+        : (pfSnapshots[targetStr] && pfSnapshots[targetStr].prices && pfSnapshots[targetStr].prices[sym]);
+      return { symbol: h.symbol, priceSymbol: sym, dailyPriced: daily, priced: p!=null, price: p };
+    });
+    const missing = rows.filter(x=>x.dailyPriced && !x.priced);
+    console.log(`${r.label} (target ${targetStr}, tol ${r.tol}d): ${missing.length ? 'MISSING → '+missing.map(m=>m.symbol).join(', ') : 'all priced ✓'}`);
+    console.table(rows);
+  });
+}
+
 function windowStartTarget(rangeKey, anchorStr){
   if(rangeKey==='all'){
     const dates = Object.keys(pfSnapshots).filter(d=>{
