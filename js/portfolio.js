@@ -920,7 +920,17 @@ function pfChangeDebug(sourceValue){
   const todayStr = localDateStr();
   const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
   const anchor = new Date(anchorStr+'T00:00:00');
-  console.log(`── Portfolio Change diagnostics ${sourceValue!=null?'· source="'+sourceValue+'"':'· ALL (unfiltered)'} · anchor=${anchorStr} ──`);
+  if(!_mtmSymDatesCache) _mtmSymDatesCache = _buildMtmSymDatesCache();
+  const nearest = (sym, dateStr) => {
+    const dates = _mtmSymDatesCache[sym];
+    if(!dates || !dates.length) return { nearestDate:null, gapDays:null, price:null };
+    let best = null;
+    for(let i=dates.length-1;i>=0;i--){ if(dates[i] <= dateStr){ best = dates[i]; break; } }
+    if(!best) return { nearestDate:null, gapDays:null, price:null };
+    const gapDays = Math.round((new Date(dateStr+'T00:00:00') - new Date(best+'T00:00:00')) / 86400000);
+    return { nearestDate:best, gapDays, price: pfSnapshots[best].prices[sym] };
+  };
+  console.log(`── Portfolio Change diagnostics ${sourceValue!=null?'· source="'+sourceValue+'"':'· ALL (unfiltered)'} · anchor=${anchorStr} · MTM_TOLERANCE_DAYS=${MTM_TOLERANCE_DAYS} ──`);
   PF_CHANGE_RANGES.forEach(r=>{
     if(r.key==='all') return;
     const target = new Date(anchor);
@@ -936,10 +946,13 @@ function pfChangeDebug(sourceValue){
     const rows = holdings.map(h=>{
       const sym = priceSymbol(h.symbol);
       const daily = isDailyPricedSym(sym);
-      const p = daily
-        ? priceNearOrBefore(sym, targetStr)
-        : (pfSnapshots[targetStr] && pfSnapshots[targetStr].prices && pfSnapshots[targetStr].prices[sym]);
-      return { symbol: h.symbol, priceSymbol: sym, dailyPriced: daily, priced: p!=null, price: p };
+      const n = daily ? nearest(sym, targetStr) : { nearestDate:targetStr, gapDays:0, price: pfSnapshots[targetStr] && pfSnapshots[targetStr].prices && pfSnapshots[targetStr].prices[sym] };
+      const withinTol = n.gapDays!=null && n.gapDays <= MTM_TOLERANCE_DAYS;
+      return {
+        symbol: h.symbol, priceSymbol: sym, dailyPriced: daily,
+        nearestDate: n.nearestDate, gapDays: n.gapDays, price: n.price,
+        priced: n.price!=null && withinTol
+      };
     });
     const missing = rows.filter(x=>x.dailyPriced && !x.priced);
     console.log(`${r.label} (target ${targetStr}, tol ${r.tol}d): ${missing.length ? 'MISSING → '+missing.map(m=>m.symbol).join(', ') : 'all priced ✓'}`);
