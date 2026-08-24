@@ -873,16 +873,24 @@ function calcPortfolioChangeBySource(scopeFn, calcFn){
   const sources = [...new Set(calcH().filter(scopeFn).map(h=>h.source||'(none)'))];
   if(sources.length<=1) return calcFn(scopeFn);
 
-  const perSource = sources.map(src=>calcFn(h=>scopeFn(h) && (h.source||'(none)')===src));
+  const brokerLabels = (typeof getAllBrokers==='function') ? getAllBrokers() : [];
+  const labelFor = src => (brokerLabels.find(x=>x.value===src)||{}).label || src;
+
+  const perSource = sources.map(src=>({
+    src,
+    result: calcFn(h=>scopeFn(h) && (h.source||'(none)')===src)
+  }));
   const rows = PF_CHANGE_RANGES.map((r,idx)=>{
     let sumAmt=0, sumPast=0, included=0;
-    perSource.forEach(res=>{
-      const row = res.rows[idx];
-      if(row && row.pct!=null && row.amt!=null && row.pastValue!=null){
-        sumAmt += row.amt; sumPast += row.pastValue; included++;
-      }
+    const breakdown = []; // per-source outcome for this window, for diagnostics
+    perSource.forEach(({src, result})=>{
+      const row = result.rows[idx];
+      const ok = row && row.pct!=null && row.amt!=null && row.pastValue!=null;
+      if(ok){ sumAmt += row.amt; sumPast += row.pastValue; included++; }
+      breakdown.push({ src: labelFor(src), ok, reason: ok ? null : (row && row.reason || 'no-snapshot') });
     });
-    if(included===0) return { label:r.label, pct:null, amt:null, reason:'no-snapshot' };
+    const detail = breakdown.map(b => `${b.src}: ${b.ok ? 'ok' : b.reason}`).join(' · ');
+    if(included===0) return { label:r.label, pct:null, amt:null, reason:'no-snapshot', detail };
     return {
       label: r.label,
       pct: sumPast>0 ? (sumAmt/sumPast*100) : null,
@@ -890,6 +898,7 @@ function calcPortfolioChangeBySource(scopeFn, calcFn){
       pastValue: sumPast,
       partial: included<sources.length,
       coverage: `${included}/${sources.length} sources`,
+      detail,
     };
   });
   return { asOf: localDateStr(), rows };
@@ -1124,7 +1133,7 @@ function renderPortfolioChange(scopeFn, isFiltered){
       return `<div style="text-align:center">
         <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
         <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text3)">—</div>
-        ${hint ? `<div style="font-size:9px;color:var(--text3);margin-top:2px">${hint}</div>` : ''}
+        ${hint ? `<div style="font-size:9px;color:var(--text3);margin-top:2px" ${r.detail?`title="${escHtml(r.detail)}"`:''}>${hint}${r.detail?' ⓘ':''}</div>` : ''}
       </div>`;
     }
     const cls = r.pct>=0 ? 'pos' : 'neg';
@@ -1138,7 +1147,7 @@ function renderPortfolioChange(scopeFn, isFiltered){
       ? `<div style="font-size:9px;margin-top:2px;color:var(--blue)">was ${n2(r.pastValue)}</div>`
       : '';
     const partialLine = r.partial
-      ? `<div style="font-size:8px;margin-top:1px;color:var(--gold)" title="Some sources have no data this far back — sum excludes them for this window">partial · ${r.coverage}</div>`
+      ? `<div style="font-size:8px;margin-top:1px;color:var(--gold)" title="${escHtml(r.detail||'Some sources have no data this far back — sum excludes them for this window')}">partial · ${r.coverage} ⓘ</div>`
       : '';
     return `<div style="text-align:center">
       <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
