@@ -203,6 +203,10 @@ async function refreshPrices(){
 // price, and pull down whatever it recorded while you were away.
 
 // Tell the worker which symbols to price at its next scheduled run.
+// Also sends the full set of symbols ever traded (not just currently held)
+// so the worker can keep a permanent backfill list — otherwise a fully-
+// sold position drops out of "currently held" and its history can never
+// be fetched again, even though it was genuinely held for real in the past.
 async function syncHoldingsToWorker(){
   const workerURL = getWorkerURL();
   if(!workerURL) return;
@@ -217,9 +221,18 @@ async function syncHoldingsToWorker(){
      .map(x => CG[priceSymbol(x.symbol)])
      .filter(Boolean)
   )];
-  if(!asx.length && !crypto.length) return;
+  const asxAll = [...new Set(
+    trades.filter(t => t.assetType!=='crypto' && !unlistedSyms.has(priceSymbol(t.symbol)))
+          .map(t => priceSymbol(t.symbol)+'.AX')
+  )];
+  const cryptoAll = [...new Set(
+    trades.filter(t => t.assetType==='crypto')
+          .map(t => CG[priceSymbol(t.symbol)])
+          .filter(Boolean)
+  )];
+  if(!asx.length && !crypto.length && !asxAll.length && !cryptoAll.length) return;
   try{
-    await fetch(`${workerURL}?syncHoldings=1&asx=${encodeURIComponent(asx.join(','))}&crypto=${encodeURIComponent(crypto.join(','))}`);
+    await fetch(`${workerURL}?syncHoldings=1&asx=${encodeURIComponent(asx.join(','))}&crypto=${encodeURIComponent(crypto.join(','))}&asxAll=${encodeURIComponent(asxAll.join(','))}&cryptoAll=${encodeURIComponent(cryptoAll.join(','))}`);
   }catch(e){ console.warn('syncHoldingsToWorker failed:', e); }
 }
 
