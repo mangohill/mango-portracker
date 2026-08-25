@@ -645,7 +645,13 @@ function cyclePfChangeMode(){
 // price is known, but never force the whole portfolio to "Incomplete".
 
 // Symbols without daily market quotes (manual / monthly NAV etc.)
-const NON_DAILY_PRICE_SYMS = new Set(['MAIF','MAAT']);
+// DW8/KDY: DW8 renamed to KDY via corporate action, then delisted
+// 2025-03-03 — Yahoo has zero historical data under either ticker, so
+// requiring it as "daily priced" permanently blocks mark-to-market
+// completeness for every date it was held (breaking 5Y/ALL-scope Portfolio
+// Change). Excluding it here means it's still valued when a price happens
+// to be known, but never forces the whole scope to "incomplete".
+const NON_DAILY_PRICE_SYMS = new Set(['MAIF','MAAT','DW8','KDY']);
 function isDailyPricedSym(sym){
   return !NON_DAILY_PRICE_SYMS.has(priceSymbol(sym));
 }
