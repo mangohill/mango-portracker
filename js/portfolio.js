@@ -672,7 +672,15 @@ function _buildMtmSymDatesCache(){
   for(const sym in cache) cache[sym].sort();
   return cache;
 }
-const MTM_TOLERANCE_DAYS = 5; // absorbs one-off gaps without masking real staleness in 1D/5D
+// Older holdings were historically backfilled at monthly resolution (one
+// snapshot per month, typically month-end) — so the real gap between a
+// month-end snapshot and a mid-month target date is routinely ~22-25 days.
+// 35 comfortably covers any month (max 31 days) plus a few days' buffer.
+// Recently-added holdings get dense daily snapshots regardless, so their
+// actual gap stays small (1-3 days) and this ceiling never matters for them
+// — raising it only helps sparse/older data, it can't make a genuinely
+// fresh price look more stale than it is.
+const MTM_TOLERANCE_DAYS = 35;
 function priceNearOrBefore(sym, dateStr){
   if(!_mtmSymDatesCache) _mtmSymDatesCache = _buildMtmSymDatesCache();
   const dates = _mtmSymDatesCache[sym];
