@@ -318,15 +318,19 @@ async function backfillPortfolioHistory(forceSince){
     if(all==null && stocks==null && crypto==null && !Object.keys(pricesMap).length) continue;
 
     const existing = pfSnapshots[dateKey];
-    if(existing && existing.prices && Object.keys(existing.prices).length){
-      // Already have prices for this day — leave aggregates alone
-      continue;
-    }
+    // Merge rather than skip: a day can already have SOME symbols priced
+    // (e.g. from an earlier backfill) while a later backfill adds a symbol
+    // that wasn't tracked yet at the time (a newly-added-to-history-list
+    // holding, or one recovered via a ticker-rename override). Skipping the
+    // whole day whenever it already had any prices silently discarded that
+    // new symbol's data forever, even though the fetch just returned it.
+    const mergedPrices = { ...(existing && existing.prices || {}), ...pricesMap };
+    if(!Object.keys(mergedPrices).length && all==null && stocks==null && crypto==null) continue;
     pfSnapshots[dateKey] = {
       all: all!=null ? all : (existing&&existing.all),
       stocks: stocks!=null ? stocks : (existing&&existing.stocks),
       crypto: crypto!=null ? crypto : (existing&&existing.crypto),
-      prices: pricesMap
+      prices: mergedPrices
     };
     filled++;
   }
