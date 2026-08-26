@@ -12,6 +12,101 @@ function renderR(){
   </tr>`).join('');
 }
 
+// ── CRYPTO SWAP ──────────────────────────────────────────────────────
+// Records a crypto-to-crypto trade as a linked SELL + BUY pair at the same
+// AUD market value, so it flows through the normal cgt.js `sell` branch and
+// produces a real disposal (proceeds/cost/gain, FIFO lots, holding period) —
+// unlike Corporate Actions, which deliberately carries cost basis across
+// with no CGT event (correct for genuine scrip mergers, wrong for a swap).
+function swapAutoFillUnits(){
+  const sym = $('sw-from-sym').value.trim().toUpperCase();
+  if(!sym) return;
+  const h = calcH().find(x=>x.symbol===sym);
+  if(h){
+    $('sw-from-units').value = h.units;
+    $('sw-from-units').placeholder = h.units + ' (from holdings)';
+  }
+  swapPreview();
+}
+
+function swapPreview(){
+  const fromSym   = $('sw-from-sym').value.trim().toUpperCase();
+  const toSym     = $('sw-to-sym').value.trim().toUpperCase();
+  const fromUnits = parseFloat($('sw-from-units').value)||0;
+  const toUnits   = parseFloat($('sw-to-units').value)||0;
+  const audValue  = parseFloat($('sw-aud-value').value)||0;
+  const feeFrom   = parseFloat($('sw-fee-from').value)||0;
+  const feeTo     = parseFloat($('sw-fee-to').value)||0;
+
+  if(!fromSym || !toSym || !fromUnits || !toUnits || !audValue){
+    $('sw-preview').style.display='none'; return;
+  }
+
+  const sellPrice = audValue / fromUnits;
+  const buyPrice  = audValue / toUnits;
+  const proceeds  = audValue - feeFrom;
+  const buyCost   = audValue + feeTo;
+  const h = calcH().find(x=>x.symbol===fromSym);
+  const costBasis = h ? h.costBasis : null;
+
+  const lines = [
+    `<b>${escHtml(fromSym)}</b> — SELL ${nN(fromUnits,8)} units @ ${n2(sellPrice,dec(sellPrice))}/unit → proceeds ${n2(proceeds)}`,
+    `<b>${escHtml(toSym)}</b> — BUY ${nN(toUnits,8)} units @ ${n2(buyPrice,dec(buyPrice))}/unit → cost base ${n2(buyCost)}`,
+  ];
+  if(costBasis!=null){
+    const estGain = proceeds - costBasis;
+    lines.push(`Est. capital ${estGain>=0?'gain':'loss'} on ${escHtml(fromSym)}: <span style="color:${estGain>=0?'var(--green)':'var(--red)'}">${n2(Math.abs(estGain))}</span> (current avg cost basis — actual CGT report applies FIFO per parcel)`);
+  } else {
+    lines.push(`No current holdings found for ${escHtml(fromSym)} — check the symbol matches your existing trades.`);
+  }
+  lines.push(`${escHtml(toSym)} starts a new 12-month CGT holding period from this date.`);
+
+  $('sw-preview-text').innerHTML = lines.join('<br>');
+  $('sw-preview').style.display = '';
+}
+
+function addCryptoSwap(){
+  const date      = $('sw-date').value;
+  const fromSym   = $('sw-from-sym').value.trim().toUpperCase();
+  const toSym     = $('sw-to-sym').value.trim().toUpperCase();
+  const fromUnits = parseFloat($('sw-from-units').value);
+  const toUnits   = parseFloat($('sw-to-units').value);
+  const audValue  = parseFloat($('sw-aud-value').value);
+  const feeFrom   = parseFloat($('sw-fee-from').value)||0;
+  const feeTo     = parseFloat($('sw-fee-to').value)||0;
+  const notes     = $('sw-notes').value.trim();
+
+  if(!date||!fromSym||!toSym){ notify('Date, From Symbol and To Symbol are required.','err'); return; }
+  if(!fromUnits||fromUnits<=0){ notify('Enter units disposed (From Units).','err'); return; }
+  if(!toUnits||toUnits<=0){ notify('Enter units received (To Units).','err'); return; }
+  if(!audValue||audValue<=0){ notify('Enter the AUD market value of the swap.','err'); return; }
+
+  const swapId    = uid();
+  const sellPrice = audValue / fromUnits;
+  const buyPrice  = audValue / toUnits;
+
+  const sellTrade = {
+    id:uid(), swapId, date, type:'sell', symbol:fromSym, assetType:'crypto',
+    units:fromUnits, price:sellPrice, fees:feeFrom, source:'swap',
+    notes:(notes?notes+' — ':'')+`Swap → ${nN(toUnits,8)} ${toSym}`,
+  };
+  const buyTrade = {
+    id:uid(), swapId, date, type:'buy', symbol:toSym, assetType:'crypto',
+    units:toUnits, price:buyPrice, fees:feeTo, source:'swap',
+    notes:(notes?notes+' — ':'')+`Swap ← ${nN(fromUnits,8)} ${fromSym}`,
+  };
+
+  trades.push(sellTrade, buyTrade);
+  save(); clearSwapForm(); renderH(); renderT(); renderR(); if(typeof renderAnalytics==='function') renderAnalytics();
+  notify(`✓ Swap recorded: ${nN(fromUnits,4)} ${fromSym} → ${nN(toUnits,4)} ${toSym}`);
+}
+
+function clearSwapForm(){
+  ['sw-date','sw-from-sym','sw-from-units','sw-to-sym','sw-to-units','sw-aud-value','sw-fee-from','sw-fee-to','sw-notes']
+    .forEach(id=>{ const el=$(id); if(el) el.value=''; });
+  $('sw-preview').style.display = 'none';
+}
+
 // ── CORPORATE ACTIONS ────────────────────────────────────────────────
 let caType = 'merger';
 
