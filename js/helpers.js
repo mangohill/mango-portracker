@@ -145,6 +145,19 @@ const CG = {
   AXS:'axie-infinity',
 };
 
+// Symbols not in the hand-curated CG table above (any coin added after this
+// was written) get resolved automatically via CoinGecko's search API and
+// cached here — see resolveCoinGeckoId() in prices.js — so adding a new
+// coin to your holdings just works on the next price refresh instead of
+// needing a code edit. Ambiguous/unmatched symbols can be set manually via
+// Settings → Set CoinGecko ID, which also writes here.
+let CG_OVERRIDES = (()=>{try{return JSON.parse(localStorage.getItem('pt_cg_overrides')||'{}');}catch(e){return {};}})();
+function saveCGOverrides(){ localStorage.setItem('pt_cg_overrides', JSON.stringify(CG_OVERRIDES)); }
+function cgId(symbol){
+  const s = (symbol||'').toUpperCase();
+  return CG_OVERRIDES[s] || CG[s] || null;
+}
+
 // ── HELPERS ──────────────────────────────────────────────────────────
 const $  = id => document.getElementById(id);
 const uid = () => Date.now() + Math.floor(Math.random()*1e7);

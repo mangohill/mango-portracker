@@ -129,6 +129,48 @@ async function fetchAndSetMAIF(){
   }
 }
 
+// ── COINGECKO ID RESOLUTION ──────────────────────────────────────────
+// For a symbol not already in CG or CG_OVERRIDES, look it up via
+// CoinGecko's search API and cache the match, so a newly-added coin gets
+// priced on the very next refresh — no code edit required. If more than
+// one coin shares the symbol, the highest-ranked (lowest market_cap_rank)
+// match is used automatically; check the console or Settings if it picked
+// the wrong one and override it manually.
+async function resolveCoinGeckoId(symbol){
+  const s = (symbol||'').toUpperCase();
+  const known = cgId(s);
+  if(known) return known;
+  try{
+    const r = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(s)}`);
+    if(!r.ok) return null;
+    const d = await r.json();
+    const matches = (d.coins||[]).filter(c => (c.symbol||'').toUpperCase() === s);
+    if(!matches.length) return null;
+    matches.sort((a,b)=>(a.market_cap_rank||1e9)-(b.market_cap_rank||1e9));
+    const best = matches[0];
+    CG_OVERRIDES[s] = best.id;
+    saveCGOverrides();
+    if(matches.length > 1){
+      console.warn(`Multiple CoinGecko coins share symbol ${s} — auto-picked "${best.id}" (rank ${best.market_cap_rank}). Others: ${matches.slice(1).map(m=>m.id).join(', ')}`);
+    }
+    return best.id;
+  }catch(e){
+    console.warn('CoinGecko search failed for', s, e);
+    return null;
+  }
+}
+
+function setCoinGeckoId(){
+  const symRaw = prompt('Crypto symbol (e.g. VIRTUAL):');
+  if(!symRaw) return;
+  const sym = symRaw.trim().toUpperCase();
+  const idRaw = prompt(`CoinGecko coin id for ${sym} — find it in the coin's CoinGecko URL, e.g. coingecko.com/en/coins/virtuals-protocol → "virtuals-protocol":`);
+  if(!idRaw) return;
+  CG_OVERRIDES[sym] = idRaw.trim().toLowerCase();
+  saveCGOverrides();
+  notify(`✓ ${sym} → ${CG_OVERRIDES[sym]} saved. Click ↻ REFRESH PRICES to fetch it.`,'ok');
+}
+
 async function refreshPrices(){
   const h = calcH();
   if(!h.length){ notify('No holdings to price.','err'); return; }
@@ -138,16 +180,29 @@ async function refreshPrices(){
   const cryptos = h.filter(x => x.assetType==='crypto');
   let cryptoFetched = 0;
   if(cryptos.length){
-    const ids = [...new Set(cryptos.map(x=>CG[priceSymbol(x.symbol)]).filter(Boolean))].join(',');
-    try{
-      const res  = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=aud`);
-      const data = await res.json();
-      cryptos.forEach(x=>{
-        const sym = priceSymbol(x.symbol);
-        const id = CG[sym];
-        if(id && data[id]?.aud){ prices[sym]=data[id].aud; cryptoFetched++; }
-      });
-    }catch(e){ notify('CoinGecko error: '+e.message,'err'); }
+    const symbols = [...new Set(cryptos.map(x=>priceSymbol(x.symbol)))];
+    // Auto-resolve any symbol we don't already have a CoinGecko id for
+    // (e.g. a coin added since CG was last hand-curated) before fetching.
+    const unresolved = symbols.filter(s=>!cgId(s));
+    if(unresolved.length){
+      await Promise.all(unresolved.map(s=>resolveCoinGeckoId(s)));
+    }
+    const idMap = {}, failed = [];
+    symbols.forEach(s=>{ const id=cgId(s); if(id) idMap[s]=id; else failed.push(s); });
+    const ids = [...new Set(Object.values(idMap))].join(',');
+    if(ids){
+      try{
+        const res  = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=aud`);
+        const data = await res.json();
+        symbols.forEach(sym=>{
+          const id = idMap[sym];
+          if(id && data[id]?.aud){ prices[sym]=data[id].aud; cryptoFetched++; }
+        });
+      }catch(e){ notify('CoinGecko error: '+e.message,'err'); }
+    }
+    if(failed.length){
+      notify(`Couldn't auto-match CoinGecko id for: ${failed.join(', ')} — set it manually in ⚙ Settings → Set CoinGecko ID.`,'err');
+    }
   }
 
   // ── ASX stocks & ETFs via Cloudflare Worker proxy ──
@@ -218,7 +273,7 @@ async function syncHoldingsToWorker(){
   )];
   const crypto = [...new Set(
     h.filter(x => x.assetType==='crypto')
-     .map(x => CG[priceSymbol(x.symbol)])
+     .map(x => cgId(priceSymbol(x.symbol)))
      .filter(Boolean)
   )];
   const asxAll = [...new Set(
@@ -227,7 +282,7 @@ async function syncHoldingsToWorker(){
   )];
   const cryptoAll = [...new Set(
     trades.filter(t => t.assetType==='crypto')
-          .map(t => CG[priceSymbol(t.symbol)])
+          .map(t => cgId(priceSymbol(t.symbol)))
           .filter(Boolean)
   )];
   if(!asx.length && !crypto.length && !asxAll.length && !cryptoAll.length) return;
