@@ -997,6 +997,24 @@ function buildSyncPayload(){
       pt_tax: taxData, pt_stock_owners: stockOwners, pt_extra_persons: extraPersons,
       pt_amit: (()=>{try{return JSON.parse(localStorage.getItem('pt_amit')||'[]');}catch(e){return [];}})(),
       pt_cgt_loss_carry_in: (()=>{try{return JSON.parse(localStorage.getItem('pt_cgt_loss_carry_in')||'{}');}catch(e){return {};}})(),
+      // Manual CoinGecko symbol→id overrides (Settings → Set CoinGecko ID)
+      pt_cg_overrides: (typeof CG_OVERRIDES !== 'undefined') ? CG_OVERRIDES : {},
+      // CGT simulator's saved/auto-snapshotted prices for 30/06/2027
+      pt_price_20270630: (()=>{try{return JSON.parse(localStorage.getItem('pt_price_20270630')||'{}');}catch(e){return {};}})(),
+      pt_price_20270630_auto_saved: localStorage.getItem('pt_price_20270630_auto_saved') || '',
+      // Minor cache/config flags — small, no reason to drop them
+      pt_pf_backfill_date: localStorage.getItem('pt_pf_backfill_date') || '',
+      pt_super_last_fy:    localStorage.getItem('pt_super_last_fy') || '',
+      pt_price_feed_url:   localStorage.getItem('pt_price_feed_url') || '',
+      // GitHub Gist Cloud Sync credential/device state — included so pulling
+      // this payload on a new device fully re-establishes sync.
+      // NOTE: this writes your GitHub PAT into the Gist that token itself
+      // authenticates to — anyone who ever reads that Gist's raw content
+      // gets a live credential. Keep the Gist private (already default here).
+      pt_sync_key:      localStorage.getItem('pt_sync_key') || '',
+      pt_sync_gist_id:  localStorage.getItem('pt_sync_gist_id') || '',
+      pt_sync_device:   syncDevice,
+      pt_last_sync:     localStorage.getItem('pt_last_sync') || '',
     }
   };
 }
@@ -1174,8 +1192,19 @@ function applyRemoteData(remote){
   if(d.pt_drp_settings) localStorage.setItem('pt_drp_settings', JSON.stringify(d.pt_drp_settings));
   if(d.pt_amit){ amitAdjustments = d.pt_amit; saveAmitAdjustments(); }
   if(d.pt_cgt_loss_carry_in) localStorage.setItem('pt_cgt_loss_carry_in', JSON.stringify(d.pt_cgt_loss_carry_in));
+  if(d.pt_cg_overrides){ CG_OVERRIDES = d.pt_cg_overrides; saveCGOverrides(); }
+  if(d.pt_price_20270630) localStorage.setItem('pt_price_20270630', JSON.stringify(d.pt_price_20270630));
+  if(d.pt_price_20270630_auto_saved) localStorage.setItem('pt_price_20270630_auto_saved', d.pt_price_20270630_auto_saved);
+  if(d.pt_pf_backfill_date) localStorage.setItem('pt_pf_backfill_date', d.pt_pf_backfill_date);
+  if(d.pt_super_last_fy)    localStorage.setItem('pt_super_last_fy',    d.pt_super_last_fy);
+  if(d.pt_price_feed_url)   localStorage.setItem('pt_price_feed_url',   d.pt_price_feed_url);
+  if(d.pt_sync_key)      { syncKey = d.pt_sync_key; localStorage.setItem('pt_sync_key', d.pt_sync_key); }
+  if(d.pt_sync_gist_id)    localStorage.setItem('pt_sync_gist_id', d.pt_sync_gist_id);
+  if(d.pt_sync_device)   { syncDevice = d.pt_sync_device; localStorage.setItem('pt_sync_device', d.pt_sync_device); }
+  if(d.pt_last_sync)       localStorage.setItem('pt_last_sync', d.pt_last_sync);
   if(d.su_combined_color){ suCombinedColor = d.su_combined_color;
                            localStorage.setItem('su_combined_color', d.su_combined_color); }
+  try { resetMtmCache(); } catch(e){} // pfSnapshots just changed — drop the stale mark-to-market date cache
   refreshAllBrokerSelects();
   renderH(); renderT(); renderR(); renderHD();
   renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards();
@@ -1185,6 +1214,7 @@ function applyRemoteData(remote){
   try { renderTax(); } catch(e){}
   try { renderCGT(); } catch(e){}
   try { renderOwnershipGrid(); } catch(e){}
+  try { syncInitUI(); } catch(e){} // repopulate Settings → Cloud Sync fields with restored token/gist ID/device
   // Clear revert buttons after sync pull (user confirmed remote data is source of truth)
   if(typeof mathInpClearAllReverts==='function') mathInpClearAllReverts();
 }

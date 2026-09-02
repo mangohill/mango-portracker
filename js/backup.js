@@ -34,6 +34,27 @@ function backupExport(){
       pt_amit:      amitAdjustments,
       pt_cgt_loss_carry_in: JSON.parse(localStorage.getItem('pt_cgt_loss_carry_in')||'{}'),
       pt_drp_settings: JSON.parse(localStorage.getItem('pt_drp_settings')||'{}'),
+      // Portfolio Change history (1D/5D/1M/.../ALL, TWR/MWR) — real mark-to-market
+      // snapshots built by backfill/daily sync. Previously missing from backups,
+      // so a restore silently wiped all historical Portfolio Change data.
+      pt_pf_snapshots: pfSnapshots,
+      // Manual CoinGecko symbol→id overrides (Settings → Set CoinGecko ID)
+      pt_cg_overrides: CG_OVERRIDES,
+      // CGT simulator's saved/auto-snapshotted prices for 30/06/2027
+      pt_price_20270630: JSON.parse(localStorage.getItem('pt_price_20270630')||'{}'),
+      pt_price_20270630_auto_saved: localStorage.getItem('pt_price_20270630_auto_saved') || '',
+      // Minor cache/config flags — small, no reason to drop them from the backup
+      pt_pf_backfill_date: localStorage.getItem('pt_pf_backfill_date') || '',
+      pt_super_last_fy:    localStorage.getItem('pt_super_last_fy') || '',
+      pt_price_feed_url:   localStorage.getItem('pt_price_feed_url') || '',
+      // GitHub Gist Cloud Sync device/credential state — included so a restore
+      // fully re-establishes sync without you having to re-paste your token.
+      // NOTE: this puts your GitHub PAT in plaintext in the downloaded JSON —
+      // keep backup files as private as you would the token itself.
+      pt_sync_key:      localStorage.getItem('pt_sync_key') || '',
+      pt_sync_gist_id:  localStorage.getItem('pt_sync_gist_id') || '',
+      pt_sync_device:   localStorage.getItem('pt_sync_device') || '',
+      pt_last_sync:     localStorage.getItem('pt_last_sync') || '',
     }
   };
 
@@ -50,7 +71,8 @@ function backupExport(){
     + `${(payload.data.pt_super||[]).length} super accounts, `
     + `${payload.data.pt_brokers.length} custom brokers, `
     + `${payload.data.pt_amit.length} AMIT adjustments, `
-    + `${Object.keys(payload.data.pt_prices||{}).length} cached prices`, 'var(--green)');
+    + `${Object.keys(payload.data.pt_prices||{}).length} cached prices, `
+    + `${Object.keys(payload.data.pt_pf_snapshots||{}).length} portfolio history days`, 'var(--green)');
 }
 
 function backupImport(input){
@@ -87,6 +109,9 @@ function backupImport(input){
       ['Custom brokers',    (d.pt_brokers||[]).length,  getCustomBrokers().length],
       ['Cached prices',     Object.keys(d.pt_prices||{}).length, Object.keys(prices).length],
       ['AMIT adjustments',  (d.pt_amit||[]).length,     amitAdjustments.length],
+      ['Portfolio history (days)', Object.keys(d.pt_pf_snapshots||{}).length, Object.keys(pfSnapshots).length],
+      ['CoinGecko ID overrides',   Object.keys(d.pt_cg_overrides||{}).length, Object.keys(CG_OVERRIDES).length],
+      ['Cloud Sync token/gist',    d.pt_sync_key ? 'included' : '—', syncKey ? 'set' : '—'],
     ];
 
     const rowHtml = rows.map(([label, incoming, current]) =>
@@ -158,12 +183,24 @@ function backupConfirm(){
   if(d.su_combined_color){ suCombinedColor = d.su_combined_color; localStorage.setItem('su_combined_color', d.su_combined_color); }
   if(d.pt_amit){ amitAdjustments = d.pt_amit; saveAmitAdjustments(); }
   if(d.pt_cgt_loss_carry_in) localStorage.setItem('pt_cgt_loss_carry_in', JSON.stringify(d.pt_cgt_loss_carry_in));
+  if(d.pt_pf_snapshots){ pfSnapshots = d.pt_pf_snapshots; savePfSnapshots(); }
+  if(d.pt_cg_overrides){ CG_OVERRIDES = d.pt_cg_overrides; saveCGOverrides(); }
+  if(d.pt_price_20270630) localStorage.setItem('pt_price_20270630', JSON.stringify(d.pt_price_20270630));
+  if(d.pt_price_20270630_auto_saved) localStorage.setItem('pt_price_20270630_auto_saved', d.pt_price_20270630_auto_saved);
+  if(d.pt_pf_backfill_date) localStorage.setItem('pt_pf_backfill_date', d.pt_pf_backfill_date);
+  if(d.pt_super_last_fy)    localStorage.setItem('pt_super_last_fy',    d.pt_super_last_fy);
+  if(d.pt_price_feed_url)   localStorage.setItem('pt_price_feed_url',   d.pt_price_feed_url);
+  if(d.pt_sync_key)      { syncKey = d.pt_sync_key; localStorage.setItem('pt_sync_key', d.pt_sync_key); }
+  if(d.pt_sync_gist_id)    localStorage.setItem('pt_sync_gist_id', d.pt_sync_gist_id);
+  if(d.pt_sync_device)   { syncDevice = d.pt_sync_device; localStorage.setItem('pt_sync_device', d.pt_sync_device); }
+  if(d.pt_last_sync)       localStorage.setItem('pt_last_sync', d.pt_last_sync);
   // Worker code is embedded in the app — no need to restore it
 
   _pendingRestore = null;
   $('backup-preview').style.display = 'none';
 
   // Re-render everything
+  try { resetMtmCache(); } catch(e){} // pfSnapshots just changed — drop the stale mark-to-market date cache
   refreshAllBrokerSelects();
   renderH(); renderT(); renderR(); renderHD();
   renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards();
@@ -172,8 +209,9 @@ function backupConfirm(){
   try { renderSpending(); } catch(e){}
   try { renderTax(); } catch(e){}
   try { renderOwnershipGrid(); } catch(e){}
+  try { syncInitUI(); } catch(e){} // repopulate Settings → Cloud Sync fields with restored token/gist ID/device
 
-  backupStatus('✓ Restore complete — ' + trades.length + ' trades, ' + dividends.length + ' dividends, ' + properties.length + ' properties.', 'var(--green)');
+  backupStatus('✓ Restore complete — ' + trades.length + ' trades, ' + dividends.length + ' dividends, ' + properties.length + ' properties, ' + Object.keys(pfSnapshots).length + ' days of portfolio history.', 'var(--green)');
   notify('Backup restored ✓');
 }
 
