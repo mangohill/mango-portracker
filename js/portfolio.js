@@ -875,10 +875,17 @@ function scopedCashFlowTrades(scopeFn){
 //
 // pct is recomputed from the summed $ figures rather than averaged, so it
 // stays a true (combinedNow − combinedPast) / combinedPast for Value
-// Change. For TWR/MWR this becomes a value-weighted blend of each source's
-// own (correctly mode-computed) $ gain over the summed starting value —
-// not a literally re-chained/re-solved joint TWR/IRR, but a much closer
-// answer than "no data", built entirely from real per-source numbers.
+// Change — pct_i for that mode is itself defined as amt_i/pastValue_i, so
+// a value-weighted average of the per-source pct is mathematically
+// identical to sumAmt/sumPast, just computed the other way round.
+// For TWR/MWR this MUST go through the per-source pct too (not be
+// re-derived from amt/pastValue): amt is deliberately mode-invariant — see
+// investmentGainDollars() — it's the same $ accounting identity for every
+// mode, only pct differs (chained legs for TWR, solved IRR for MWR).
+// Re-deriving pct from sumAmt/sumPast here silently discarded that and
+// made TWR and MWR always render identical whenever a scope spans more
+// than one source (i.e. almost always) — this weighted-average-of-pct
+// approach fixes that while staying numerically exact for Value Change.
 //
 // If a source has no valid data for a given window (e.g. a stock bought
 // last month has no 5Y history), it's simply left out of that window's sum
@@ -895,19 +902,19 @@ function calcPortfolioChangeBySource(scopeFn, calcFn){
     result: calcFn(h=>scopeFn(h) && (h.source||'(none)')===src)
   }));
   const rows = PF_CHANGE_RANGES.map((r,idx)=>{
-    let sumAmt=0, sumPast=0, included=0;
+    let sumAmt=0, sumPast=0, sumPctWeighted=0, included=0;
     const breakdown = []; // per-source outcome for this window, for diagnostics
     perSource.forEach(({src, result})=>{
       const row = result.rows[idx];
       const ok = row && row.pct!=null && row.amt!=null && row.pastValue!=null;
-      if(ok){ sumAmt += row.amt; sumPast += row.pastValue; included++; }
+      if(ok){ sumAmt += row.amt; sumPast += row.pastValue; sumPctWeighted += row.pct * row.pastValue; included++; }
       breakdown.push({ src: labelFor(src), ok, reason: ok ? null : (row && row.reason || 'no-snapshot') });
     });
     const detail = breakdown.map(b => `${b.src}: ${b.ok ? 'ok' : b.reason}`).join(' · ');
     if(included===0) return { label:r.label, pct:null, amt:null, reason:'no-snapshot', detail };
     return {
       label: r.label,
-      pct: sumPast>0 ? (sumAmt/sumPast*100) : null,
+      pct: sumPast>0 ? (sumPctWeighted/sumPast) : null,
       amt: sumAmt,
       pastValue: sumPast,
       partial: included<sources.length,
