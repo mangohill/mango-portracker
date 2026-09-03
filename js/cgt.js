@@ -33,6 +33,31 @@
 // • Estimates only — not tax advice. Confirm with your accountant.
 // ─────────────────────────────────────────────────────────────────────────
 
+// ── One-time migration: pt_price_20270630* → pt_price_cgt_cutoff* ──────
+// These localStorage keys (and the matching DOM id / function names
+// throughout this file) used to be named after the literal cutoff date.
+// Renamed to CGT_CUTOFF_DATE-relative names so they don't lie about what
+// they store if that constant (helpers.js) ever changes. Runs once per
+// browser at script load — copies old → new key and deletes the old one;
+// after that first run it's a no-op forever (new key already exists).
+// Backups/Cloud Sync taken before this rename shipped still restore
+// correctly — backup.js / properties.js fall back to the old JSON
+// property name on import.
+(function migrateCgtCutoffKeys(){
+  try{
+    const pairs = [
+      ['pt_price_20270630', 'pt_price_cgt_cutoff'],
+      ['pt_price_20270630_auto_saved', 'pt_price_cgt_cutoff_auto_saved'],
+    ];
+    pairs.forEach(([oldKey, newKey])=>{
+      if(localStorage.getItem(oldKey) != null && localStorage.getItem(newKey) == null){
+        localStorage.setItem(newKey, localStorage.getItem(oldKey));
+        localStorage.removeItem(oldKey);
+      }
+    });
+  }catch(e){}
+})();
+
 // ── AMIT COST BASE ADJUSTMENTS ───────────────────────────────────────────
 // Stored per symbol per distribution (record) date, as entered from each
 // fund's annual tax statement.
@@ -686,8 +711,8 @@ function renderCGT(){
         <div class="fgi" style="flex:0 0 180px"><label class="fl">Sale price / unit ($)</label>
           <input class="fi" id="cgt-sim-price" type="number" step="any" placeholder="Leave empty = current price" onchange="cgtRunSimulation()"></div>
         <div class="fgi" style="flex:0 0 220px"><label class="fl">Price on 30/06/2027 ($)</label>
-          <div style="display:flex;gap:6px"><input class="fi" id="cgt-sim-price-20270630" type="number" step="any" placeholder="Optional - stored per symbol" onchange="(function(){ cgtSavePrice20270630(); cgtRunSimulation(); })()">
-          <button class="btn" onclick="cgtFetchPrice20270630()">Fetch</button></div></div>
+          <div style="display:flex;gap:6px"><input class="fi" id="cgt-sim-price-cutoff" type="number" step="any" placeholder="Optional - stored per symbol" onchange="(function(){ cgtSaveCutoffPrice(); cgtRunSimulation(); })()">
+          <button class="btn" onclick="cgtFetchCutoffPrice()">Fetch</button></div></div>
         <div class="fgi" style="flex:0 0 180px"><label class="fl">Sell date</label>
           <input class="fi" type="date" id="cgt-sim-selldate" value="${new Date().toISOString().slice(0,10)}" onchange="cgtUpdateSlider(); cgtRunSimulation();"></div>
         <div style="width:100%">
@@ -812,7 +837,7 @@ function renderCGT(){
   // Initialize slider state after DOM is updated
   setTimeout(cgtUpdateSlider, 0);
   // Attempt auto-snapshot of prices for 30/06/2027 if that date has been reached
-  try{ setTimeout(cgtAutoSnapshotPrice20270630, 200); }catch(e){}
+  try{ setTimeout(cgtAutoSnapshotCutoffPrice, 200); }catch(e){}
 }
 
 // ── EDIT EXISTING AMIT ENTRY ─────────────────────────────────────────────
@@ -1134,7 +1159,7 @@ function summarizeCGTEvents(events){
 
 // ── FIFO vs LIFO SIMULATION (SELL NOW, USING CURRENT PRICE) ───────────
 function simulateMatchingForSymbol(parcelsList, price, method, sellUnits=null, opts={}){
-  const cutoff = new Date('2027-06-30');
+  const cutoff = new Date(CGT_CUTOFF_DATE);
   const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date();
   const list = (parcelsList||[]).map(p=>({ units: p.units, cost: p.cost, date: p.date, source: p.source }));
   let totalAvailable = list.reduce((s,p)=>s+(p.units||0),0);
@@ -1190,12 +1215,12 @@ function marginalTaxOnGain(gain, baseIncome, fy){
 }
 
 function computeTaxOnLots(lots, opts){
-  // opts: { useDiscountBefore2027:true, cpiRate:0, saleDate:'YYYY-MM-DD', price20270630: number }
+  // opts: { useDiscountBefore2027:true, cpiRate:0, saleDate:'YYYY-MM-DD', priceCutoff: number }
   // Returns breakdown: { taxableTotal, taxablePre, taxablePost }
-  const cutoff = new Date('2027-06-30');
+  const cutoff = new Date(CGT_CUTOFF_DATE);
   const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date();
   const useDiscountBefore2027 = opts && opts.useDiscountBefore2027 !== false;
-  const priceAtCutoff = opts && (opts.price20270630 != null) ? Number(opts.price20270630) : null;
+  const priceAtCutoff = opts && (opts.priceCutoff != null) ? Number(opts.priceCutoff) : null;
   let taxablePre = 0;
   let taxablePost = 0;
 
@@ -1324,25 +1349,25 @@ function cgtRunSimulation(){
   }
 
   const sellDateStr = $('cgt-sim-selldate') ? $('cgt-sim-selldate').value : new Date().toISOString().slice(0,10);
-  const explicitPrice2027 = parseFloat($('cgt-sim-price-20270630')?.value);
-  const price20270630 = !isNaN(explicitPrice2027) ? explicitPrice2027 : cgtLoadPrice20270630(sym);
+  const explicitPrice2027 = parseFloat($('cgt-sim-price-cutoff')?.value);
+  const priceCutoff = !isNaN(explicitPrice2027) ? explicitPrice2027 : cgtLoadCutoffPrice(sym);
   const fifo = simulateMatchingForSymbol(list, salePricePerUnit, 'FIFO', sellUnits, { saleDate: sellDateStr });
   const lifo = simulateMatchingForSymbol(list, salePricePerUnit, 'LIFO', sellUnits, { saleDate: sellDateStr });
 
   // Compute inferred taxable breakdown (pre/post) based on dates and available price@30/06/2027
   const cumInflVal = (function(){ const v = parseFloat($('cgt-sim-cum-infl')?.value); return isNaN(v)? null : v; })();
-  const fifoBreak = computeTaxOnLots(fifo.lots, { useDiscountBefore2027:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, price20270630 });
-  const lifoBreak = computeTaxOnLots(lifo.lots, { useDiscountBefore2027:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, price20270630 });
+  const fifoBreak = computeTaxOnLots(fifo.lots, { useDiscountBefore2027:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, priceCutoff });
+  const lifoBreak = computeTaxOnLots(lifo.lots, { useDiscountBefore2027:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, priceCutoff });
 
   // If any lot crosses the 30/06/2027 cutoff and no price@30/06/2027 is provided, warn the user
   const saleDateObj = new Date(sellDateStr);
-  const cutoff = new Date('2027-06-30');
+  const cutoff = new Date(CGT_CUTOFF_DATE);
   const anyCrosses = fifo.lots.concat(lifo.lots).some(l=>{
     if(!l.buyDate) return false;
     const bd = new Date(l.buyDate);
     return bd < (new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate()+1)) && saleDateObj > cutoff;
   });
-  const needsCutoffPrice = anyCrosses && !(price20270630 != null);
+  const needsCutoffPrice = anyCrosses && !(priceCutoff != null);
 
   // If income not provided, try to load previous FY tax record for this person
   if(income == null){
@@ -1544,7 +1569,7 @@ function cgtRunSimulation(){
 
     // Render results and store last simulation (fifoFull/lifoFull already computed above when possible)
     $('cgt-sim-results').innerHTML = html;
-    cgtLastSim = { sym, person, price: salePricePerUnit, units: sellUnits, fifo, lifo, opts:{cpi, cumulativeInflation: cumInflVal, saleDate: sellDateStr, marginalRate: explicitMarginalRate, price20270630: parseFloat($('cgt-sim-price-20270630')?.value)||cgtLoadPrice20270630(sym)||null}, fifoTaxable: fifoBreak.taxableTotal, lifoTaxable: lifoBreak.taxableTotal, fifoFull, lifoFull };
+    cgtLastSim = { sym, person, price: salePricePerUnit, units: sellUnits, fifo, lifo, opts:{cpi, cumulativeInflation: cumInflVal, saleDate: sellDateStr, marginalRate: explicitMarginalRate, priceCutoff: parseFloat($('cgt-sim-price-cutoff')?.value)||cgtLoadCutoffPrice(sym)||null}, fifoTaxable: fifoBreak.taxableTotal, lifoTaxable: lifoBreak.taxableTotal, fifoFull, lifoFull };
   }catch(e){ console.warn('cgtRunSimulation: results render failed', e); }
 }
 
@@ -1553,7 +1578,7 @@ function cgtExportLotsCSV(method){
   const sim = cgtLastSim;
   const methodKey = (method||'FIFO').toUpperCase();
   const lots = methodKey==='LIFO' ? sim.lifo.lots : sim.fifo.lots;
-  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, price20270630: sim.opts.price20270630 };
+  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, priceCutoff: sim.opts.priceCutoff };
   const rows = [];
   rows.push(['Method','Symbol','Units','BuyDate','Cost','Proceeds','Gain','HeldDays','Taxable']);
   let totalUnits=0, totalCost=0, totalProceeds=0, totalGain=0, totalTaxable=0;
@@ -1588,7 +1613,7 @@ function cgtShowExportPreview(method){
   const sim = cgtLastSim;
   const methodKey = (method||'FIFO').toUpperCase();
   const lots = methodKey==='LIFO' ? sim.lifo.lots : sim.fifo.lots;
-  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, price20270630: sim.opts.price20270630 };
+  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, priceCutoff: sim.opts.priceCutoff };
   let rowsHtml = lots.length ? `<table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)"><th>Units</th><th>Buy Date</th><th>Cost</th><th>Proceeds</th><th>Gain</th><th>HeldDays</th><th>Taxable</th></tr></thead><tbody>` : '<div class="empty">No lots selected</div>';
   let totalUnits=0, totalCost=0, totalProceeds=0, totalGain=0, totalTaxable=0;
   for(const l of lots){
@@ -1637,8 +1662,8 @@ function cgtShowMethodDetails(method){
   const opts = sim.opts || {};
   const saleDate = opts.saleDate ? new Date(opts.saleDate) : new Date();
   const marginalRateOverride = (opts.marginalRate != null && !isNaN(opts.marginalRate)) ? opts.marginalRate : null;
-  const priceAt20270630 = opts.price20270630 != null ? opts.price20270630 : null;
-  const cutoff = new Date('2027-06-30');
+  const priceAtCutoff = opts.priceCutoff != null ? opts.priceCutoff : null;
+  const cutoff = new Date(CGT_CUTOFF_DATE);
   const isPost = (saleDate > cutoff);
 
   let rowsHtml = lots.length ? `<table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)"><th>Units</th><th>Buy Date</th><th>Cost</th><th>Proceeds</th><th>Gain</th><th>HeldDays</th><th>Calc</th><th>Taxable</th></tr></thead><tbody>` : '<div class="empty">No lots selected</div>';
@@ -1659,9 +1684,9 @@ function cgtShowMethodDetails(method){
       totalTaxablePre += taxable||0;
     } else if(boughtBeforeCutoff && saleDate > cutoff){
       // split into pre/post rows
-      if(priceAt20270630 && priceAt20270630 > 0){
+      if(priceAtCutoff && priceAtCutoff > 0){
         const units = l.units || 1;
-        const valueAtCutoff = units * priceAt20270630;
+        const valueAtCutoff = units * priceAtCutoff;
         const gainPre = Math.max(0, valueAtCutoff - l.cost);
         const preHeldDays = Math.max(0, Math.floor((cutoff - buyDate) / 86400000));
         const longPre = preHeldDays > 365;
@@ -1762,7 +1787,7 @@ function cgtShowMethodDetails(method){
       <button onclick="closeHudPopup('cgt-method-details')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">✕</button>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
-      Sell date: ${saleDate.toISOString().slice(0,10)} · ${opts && opts.cumulativeInflation!=null ? ('Cumulative inflation: '+n2(opts.cumulativeInflation)+'%') : ('CPI: '+n2(opts.cpi||0)+'%')} · Mode: inferred (date split) · Sale price/unit: ${n2(sim.price)}${marginalRateOverride!=null?(' · Marginal %: '+n2(marginalRateOverride)):''}${priceAt20270630!=null?(' · Price@30/06/2027: '+n2(priceAt20270630)):''}
+      Sell date: ${saleDate.toISOString().slice(0,10)} · ${opts && opts.cumulativeInflation!=null ? ('Cumulative inflation: '+n2(opts.cumulativeInflation)+'%') : ('CPI: '+n2(opts.cpi||0)+'%')} · Mode: inferred (date split) · Sale price/unit: ${n2(sim.price)}${marginalRateOverride!=null?(' · Marginal %: '+n2(marginalRateOverride)):''}${priceAtCutoff!=null?(' · Price@30/06/2027: '+n2(priceAtCutoff)):''}
       <br>Income used: ${n2(baseIncome||0)}${$('cgt-sim-income-note') && $('cgt-sim-income-note').textContent ? ' (' + $('cgt-sim-income-note').textContent + ')' : ''}
     </div>
     <div style="max-height:360px;overflow:auto;margin-bottom:8px">${rowsHtml}</div>
@@ -1785,28 +1810,28 @@ function cgtShowMethodDetails(method){
 
 // Run built-in example scenarios for manual testing and validation
 function cgtRunExampleScenarios(){
-  const cutoff = new Date('2027-06-30');
+  const cutoff = new Date(CGT_CUTOFF_DATE);
   const scenarios = [];
 
   // Scenario A: bought well before cutoff, sold after, price@cutoff provided
   scenarios.push({
     name: 'Buy 2018 → Sell 2028 (price@cutoff available)',
     lots: [{ units:100, buyDate:'2018-01-15', cost:1000, proceeds:1800, gain:800, heldDays: Math.floor((new Date('2028-01-01')-new Date('2018-01-15'))/86400000) }],
-    opts: { saleDate: '2028-01-01', price20270630: 12, cpiRate:2.5 }
+    opts: { saleDate: '2028-01-01', priceCutoff: 12, cpiRate:2.5 }
   });
 
   // Scenario B: bought before cutoff, sold after, no price@cutoff (fallback)
   scenarios.push({
     name: 'Buy 2019 → Sell 2028 (no cutoff price, fallback)',
     lots: [{ units:50, buyDate:'2019-05-20', cost:500, proceeds:900, gain:400, heldDays: Math.floor((new Date('2028-02-01')-new Date('2019-05-20'))/86400000) }],
-    opts: { saleDate: '2028-02-01', price20270630: null, cpiRate:2.5 }
+    opts: { saleDate: '2028-02-01', priceCutoff: null, cpiRate:2.5 }
   });
 
   // Scenario C: bought after cutoff
   scenarios.push({
     name: 'Buy 2028 → Sell 2029 (post-2027 acquisition)',
     lots: [{ units:10, buyDate:'2028-03-01', cost:1000, proceeds:1200, gain:200, heldDays: Math.floor((new Date('2029-03-01')-new Date('2028-03-01'))/86400000) }],
-    opts: { saleDate: '2029-03-01', price20270630: null, cpiRate:2.5 }
+    opts: { saleDate: '2029-03-01', priceCutoff: null, cpiRate:2.5 }
   });
 
   let out = '<div style="font-size:13px"><b>Example scenarios</b></div>';
@@ -1846,8 +1871,8 @@ function cgtUpdateSlider(){
   const availableUnits = fullList.reduce((s,p)=>s + (p.units * share), 0);
   const price = prices[priceSymbol(sym)] || 0;
   // load stored 30/06/2027 price for this symbol (if any)
-  const stored30 = cgtLoadPrice20270630(sym);
-  if(stored30 != null){ const el30 = $('cgt-sim-price-20270630'); if(el30) el30.value = stored30; }
+  const stored30 = cgtLoadCutoffPrice(sym);
+  if(stored30 != null){ const el30 = $('cgt-sim-price-cutoff'); if(el30) el30.value = stored30; }
 
   if(mode === 'dollars'){
     if(price <= 0 || availableUnits <= 0){ slider.disabled = true; slider.max = 0; slider.value = 0; if(label) label.textContent='—'; return; }
@@ -1908,20 +1933,20 @@ function cgtOnPersonChange(){
   try{ setTimeout(()=>{ cgtRunSimulation(); }, 50); }catch(e){ }
 }
 
-function cgtSavePrice20270630(){
+function cgtSaveCutoffPrice(){
   try{
     const sym = $('cgt-sim-symbol') ? $('cgt-sim-symbol').value : null;
     if(!sym) return;
-    const v = parseFloat($('cgt-sim-price-20270630')?.value);
-    const map = JSON.parse(localStorage.getItem('pt_price_20270630')||'{}');
+    const v = parseFloat($('cgt-sim-price-cutoff')?.value);
+    const map = JSON.parse(localStorage.getItem('pt_price_cgt_cutoff')||'{}');
     if(!isNaN(v)) map[sym] = v; else delete map[sym];
-    localStorage.setItem('pt_price_20270630', JSON.stringify(map));
+    localStorage.setItem('pt_price_cgt_cutoff', JSON.stringify(map));
   }catch(e){ }
 }
 
-function cgtLoadPrice20270630(sym){
+function cgtLoadCutoffPrice(sym){
   try{
-    const map = JSON.parse(localStorage.getItem('pt_price_20270630')||'{}');
+    const map = JSON.parse(localStorage.getItem('pt_price_cgt_cutoff')||'{}');
     return map[sym];
   }catch(e){ return null; }
 }
@@ -1929,18 +1954,18 @@ function cgtLoadPrice20270630(sym){
 // Fetch price for 30/06/2027 from a configurable price-feed endpoint.
 // Configure the feed URL in localStorage under key 'pt_price_feed_url'.
 // The feed is expected to accept query params `symbol` and `date` and return JSON: { price: number }
-function cgtFetchPrice20270630(){
+function cgtFetchCutoffPrice(){
   const sym = $('cgt-sim-symbol') ? $('cgt-sim-symbol').value : null;
   if(!sym){ notify('Select a symbol first','err'); return; }
   const feedUrl = localStorage.getItem('pt_price_feed_url');
   if(!feedUrl){ notify('No price-feed configured. Set localStorage key pt_price_feed_url', 'err'); return; }
-  const date = '2027-06-30';
+  const date = CGT_CUTOFF_DATE;
   const url = (feedUrl.indexOf('?')>-1) ? (feedUrl + '&symbol=' + encodeURIComponent(sym) + '&date=' + encodeURIComponent(date)) : (feedUrl + '?symbol=' + encodeURIComponent(sym) + '&date=' + encodeURIComponent(date));
   notify('Fetching price for '+sym+' at '+date+'...','');
   fetch(url).then(r=>r.json()).then(j=>{
     if(j && (j.price||j.price===0)){
-      $('cgt-sim-price-20270630').value = Number(j.price);
-      cgtSavePrice20270630();
+      $('cgt-sim-price-cutoff').value = Number(j.price);
+      cgtSaveCutoffPrice();
       notify('Loaded price '+n2(j.price),'ok');
       cgtRunSimulation();
     } else {
@@ -1996,11 +2021,11 @@ function cgtAutoFillIncome(person){
 
 // Auto-snapshot current prices for portfolio symbols on 2027-06-30.
 // Runs once (sets a saved flag) to avoid duplicate captures.
-function cgtAutoSnapshotPrice20270630(){
+function cgtAutoSnapshotCutoffPrice(){
   try{
-    const savedFlag = localStorage.getItem('pt_price_20270630_auto_saved');
+    const savedFlag = localStorage.getItem('pt_price_cgt_cutoff_auto_saved');
     const today = new Date();
-    const target = new Date('2027-06-30');
+    const target = new Date(CGT_CUTOFF_DATE);
     if(today < target) return; // not reached yet
     if(savedFlag) return; // already auto-saved
     // gather symbols from trades (portfolio symbols) and holdings
@@ -2008,7 +2033,7 @@ function cgtAutoSnapshotPrice20270630(){
     (trades||[]).forEach(t=>{ if(t.symbol) syms.add(t.symbol); });
     // also include symbols from properties/tracked parcels if present
     try{ const { openParcels } = computeCGTSummary(); Object.keys(openParcels||{}).forEach(s=>{ if(!s.startsWith('_stash_')) syms.add(s); }); }catch(e){}
-    const map = JSON.parse(localStorage.getItem('pt_price_20270630')||'{}');
+    const map = JSON.parse(localStorage.getItem('pt_price_cgt_cutoff')||'{}');
     let any = false;
     syms.forEach(sym=>{
       const p = prices[priceSymbol(sym)];
@@ -2017,12 +2042,12 @@ function cgtAutoSnapshotPrice20270630(){
       }
     });
     if(any){
-      localStorage.setItem('pt_price_20270630', JSON.stringify(map));
-      localStorage.setItem('pt_price_20270630_auto_saved', new Date().toISOString());
+      localStorage.setItem('pt_price_cgt_cutoff', JSON.stringify(map));
+      localStorage.setItem('pt_price_cgt_cutoff_auto_saved', new Date().toISOString());
       notify('Auto-saved portfolio prices for 30/06/2027','ok');
     } else {
       // still set flag to avoid reattempt loops; user can fetch manually later
-      localStorage.setItem('pt_price_20270630_auto_saved', new Date().toISOString());
+      localStorage.setItem('pt_price_cgt_cutoff_auto_saved', new Date().toISOString());
     }
   }catch(e){ /* ignore */ }
 }

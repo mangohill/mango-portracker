@@ -304,7 +304,7 @@ function monthEndOrToday(monthStr){
 }
 
 function renderAnalytics(){
-  _anPriceDatesCache = null; // pfSnapshots may have changed since last render (backfill, price refresh)
+  invalidatePriceCaches(); // pfSnapshots may have changed since last render — savePfSnapshots() already invalidates this on every actual mutation; this is a harmless redundant safety net
   const period  = $('an-period').value;
   const groupBy = $('an-group').value;
   const chartType = $('an-chart').value;

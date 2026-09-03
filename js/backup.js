@@ -40,11 +40,12 @@ function backupExport(){
       pt_pf_snapshots: pfSnapshots,
       // Manual CoinGecko symbol→id overrides (Settings → Set CoinGecko ID)
       pt_cg_overrides: CG_OVERRIDES,
-      // CGT simulator's saved/auto-snapshotted prices for 30/06/2027
-      pt_price_20270630: JSON.parse(localStorage.getItem('pt_price_20270630')||'{}'),
-      pt_price_20270630_auto_saved: localStorage.getItem('pt_price_20270630_auto_saved') || '',
+      // CGT simulator's saved/auto-snapshotted price at the CGT_CUTOFF_DATE cutoff (cgt.js)
+      pt_price_cgt_cutoff: JSON.parse(localStorage.getItem('pt_price_cgt_cutoff')||'{}'),
+      pt_price_cgt_cutoff_auto_saved: localStorage.getItem('pt_price_cgt_cutoff_auto_saved') || '',
       // Minor cache/config flags — small, no reason to drop them from the backup
       pt_pf_backfill_date: localStorage.getItem('pt_pf_backfill_date') || '',
+      pt_pf_pruned_date:   localStorage.getItem('pt_pf_pruned_date') || '',
       pt_super_last_fy:    localStorage.getItem('pt_super_last_fy') || '',
       pt_price_feed_url:   localStorage.getItem('pt_price_feed_url') || '',
       // GitHub Gist Cloud Sync device/credential state — included so a restore
@@ -185,9 +186,13 @@ function backupConfirm(){
   if(d.pt_cgt_loss_carry_in) localStorage.setItem('pt_cgt_loss_carry_in', JSON.stringify(d.pt_cgt_loss_carry_in));
   if(d.pt_pf_snapshots){ pfSnapshots = d.pt_pf_snapshots; savePfSnapshots(); }
   if(d.pt_cg_overrides){ CG_OVERRIDES = d.pt_cg_overrides; saveCGOverrides(); }
-  if(d.pt_price_20270630) localStorage.setItem('pt_price_20270630', JSON.stringify(d.pt_price_20270630));
-  if(d.pt_price_20270630_auto_saved) localStorage.setItem('pt_price_20270630_auto_saved', d.pt_price_20270630_auto_saved);
+  // pt_price_20270630 fallback: backups taken before the CGT cutoff-key rename used that property name
+  { const cutoffPrices = d.pt_price_cgt_cutoff || d.pt_price_20270630;
+    if(cutoffPrices) localStorage.setItem('pt_price_cgt_cutoff', JSON.stringify(cutoffPrices)); }
+  { const cutoffAutoSaved = d.pt_price_cgt_cutoff_auto_saved || d.pt_price_20270630_auto_saved;
+    if(cutoffAutoSaved) localStorage.setItem('pt_price_cgt_cutoff_auto_saved', cutoffAutoSaved); }
   if(d.pt_pf_backfill_date) localStorage.setItem('pt_pf_backfill_date', d.pt_pf_backfill_date);
+  if(d.pt_pf_pruned_date)   localStorage.setItem('pt_pf_pruned_date',   d.pt_pf_pruned_date);
   if(d.pt_super_last_fy)    localStorage.setItem('pt_super_last_fy',    d.pt_super_last_fy);
   if(d.pt_price_feed_url)   localStorage.setItem('pt_price_feed_url',   d.pt_price_feed_url);
   if(d.pt_sync_key)      { syncKey = d.pt_sync_key; localStorage.setItem('pt_sync_key', d.pt_sync_key); }
@@ -1207,6 +1212,7 @@ renderH(); renderT(); renderR();
 const wcBox = $('worker-code-box');
 setTimeout(syncAutoLoad, 800); // auto-pull on page open if configured
 setTimeout(()=>{ syncHoldingsToWorker(); backfillPortfolioHistory(); }, 1200); // pick up any 5pm snapshots recorded while the app was closed
+setTimeout(()=>{ try{ prunePfSnapshotHistory(); }catch(e){} }, 1800); // downsample old daily snapshots once/day — keeps pfSnapshots bounded long-term
 if(wcBox) wcBox.value = Array.isArray(WORKER_CODE) ? WORKER_CODE.join('\n') : WORKER_CODE;
 
 // ── Pure-JS PDF extractor (no CDN, replaces PDF.js) ─────────────────────
