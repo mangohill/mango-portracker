@@ -15,18 +15,6 @@ function localDateStr(d){
   return `${y}-${m}-${day}`;
 }
 
-// CGT discount/Div 296-style legislative cutoff date used throughout
-// cgt.js's FIFO/LIFO simulation, discount-eligibility, and price-snapshot
-// logic. Was previously the literal string '2027-06-30' repeated ~7 times
-// across cgt.js — if this date is ever wrong, gets extended, or needs to
-// model a different scenario, change it once here.
-// The pt_price_20270630* localStorage keys, cgt-sim-price-20270630 DOM id,
-// and cgtSavePrice20270630/cgtFetchPrice20270630-style function names that
-// used to hardcode this date have also been renamed to cutoff-relative
-// names — see the migration shim at the top of cgt.js, which moves anyone's
-// existing localStorage/backup data across on first load.
-const CGT_CUTOFF_DATE = '2027-06-30';
-
 function csvSafe(v){
   // Prevent CSV/XLSX formula injection by prefixing formula chars with apostrophe
   if(v == null) return '';
@@ -144,78 +132,57 @@ let dvFYFilter = 'ALL';
 // from the Analytics "Value Over Time" chart (which applies today's prices
 // retroactively rather than real historical prices).
 let pfSnapshots = (()=>{try{return JSON.parse(localStorage.getItem('pt_pf_snapshots')||'{}');}catch(e){return {};}})();
-function savePfSnapshots(){
-  localStorage.setItem('pt_pf_snapshots', JSON.stringify(pfSnapshots));
-  invalidatePriceCaches();
-}
 
-// Single choke point for anything that changes pfSnapshots. Every mutation
-// site — live snapshot capture, backfill/prune merge, JSON restore, Cloud
-// Sync pull — already calls savePfSnapshots() to persist the change, so
-// invalidating date-lookup caches here (instead of scattering resetMtmCache()
-// calls across each mutation site) means a future mutation path can't
-// forget to invalidate them. resetMtmCache() (portfolio.js) and Analytics'
-// own cache reset now just call this too — kept as harmless redundant
-// safety nets at their render entry points, not the source of truth.
-function invalidatePriceCaches(){
-  if(typeof _mtmSymDatesCache !== 'undefined') _mtmSymDatesCache = null;
-  if(typeof _anPriceDatesCache !== 'undefined') _anPriceDatesCache = null;
-}
-
-// ── Portfolio history pruning ───────────────────────────────────────
-// pfSnapshots gains one new entry every day from the 5pm cron with no
-// ceiling — left alone it grows by ~365 rows/year forever. Recent history
-// (last PF_PRUNE_DAILY_MONTHS, matching the accuracy window TWR/MWR already
-// document elsewhere) stays at full daily resolution; older than that is
-// downsampled to weekly, and older than PF_PRUNE_MONTHLY_YEARS to monthly —
-// mirroring the same daily/monthly tiering the Worker's own backfill already
-// applies server-side. Throttled to run at most once per day (like the
-// backfill guard in prices.js) since it's an O(n) scan over every stored date.
-const PF_PRUNE_DAILY_MONTHS  = 14; // keep full daily resolution this recent
-const PF_PRUNE_MONTHLY_YEARS = 3;  // beyond this, monthly only; weekly in between
-
-function _isoWeekKey(dateStr){
-  const d = new Date(Date.UTC(+dateStr.slice(0,4), +dateStr.slice(5,7)-1, +dateStr.slice(8,10)));
-  const dayNum = (d.getUTCDay() + 6) % 7; // Mon=0..Sun=6
-  d.setUTCDate(d.getUTCDate() - dayNum + 3); // nearest Thursday
-  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
-  const weekNum = 1 + Math.round(((d - firstThursday) / 86400000 - 3 + ((firstThursday.getUTCDay()+6)%7)) / 7);
-  return d.getUTCFullYear() + '-W' + String(weekNum).padStart(2,'0');
-}
-
-function prunePfSnapshotHistory(force){
+// ── SNAPSHOT DOWNSAMPLING ────────────────────────────────────────────
+// pfSnapshots gains one entry per day forever with no eviction — daily
+// resolution is ~365 entries/year, and a few more years of that is a real
+// localStorage-size risk (typical browser cap is 5-10MB/origin). TWR/MWR
+// accuracy already tapers for older windows by design (see PF_CHANGE_RANGES'
+// widening `tol` in portfolio.js), so anything older than the daily window
+// below costs nothing to downsample to one snapshot per calendar month —
+// the latest day in that month, matching how older holdings were already
+// historically backfilled at monthly resolution. Runs from savePfSnapshots()
+// so every mutation path gets it automatically.
+const SNAPSHOT_DAILY_WINDOW_YEARS = 2;
+function pruneOldSnapshots(){
   const todayStr = localDateStr();
-  if(!force && localStorage.getItem('pt_pf_pruned_date') === todayStr) return 0;
+  const cutoff = new Date(todayStr+'T00:00:00');
+  cutoff.setFullYear(cutoff.getFullYear() - SNAPSHOT_DAILY_WINDOW_YEARS);
+  const cutoffStr = localDateStr(cutoff);
 
-  const dailyCutoffD = new Date(todayStr + 'T00:00:00');
-  dailyCutoffD.setMonth(dailyCutoffD.getMonth() - PF_PRUNE_DAILY_MONTHS);
-  const dailyCutoff = localDateStr(dailyCutoffD);
-
-  const monthlyCutoffD = new Date(todayStr + 'T00:00:00');
-  monthlyCutoffD.setFullYear(monthlyCutoffD.getFullYear() - PF_PRUNE_MONTHLY_YEARS);
-  const monthlyCutoff = localDateStr(monthlyCutoffD);
-
-  const seenWeek = new Set(), seenMonth = new Set();
+  const keepPerMonth = {}; // 'YYYY-MM' -> latest date string in that month to keep
+  for(const d of Object.keys(pfSnapshots)){
+    if(d >= cutoffStr) continue; // within the daily-resolution window — leave untouched
+    const month = d.slice(0,7);
+    if(!keepPerMonth[month] || d > keepPerMonth[month]) keepPerMonth[month] = d;
+  }
+  const keepSet = new Set(Object.values(keepPerMonth));
   let removed = 0;
-  Object.keys(pfSnapshots).sort().forEach(d=>{
-    if(d >= dailyCutoff) return; // recent — keep full daily resolution
-    if(d < monthlyCutoff){
-      const monthKey = d.slice(0,7); // YYYY-MM — keep first date seen per month
-      if(seenMonth.has(monthKey)){ delete pfSnapshots[d]; removed++; }
-      else seenMonth.add(monthKey);
-      return;
-    }
-    const weekKey = _isoWeekKey(d); // keep first date seen per ISO week
-    if(seenWeek.has(weekKey)){ delete pfSnapshots[d]; removed++; }
-    else seenWeek.add(weekKey);
-  });
-
-  localStorage.setItem('pt_pf_pruned_date', todayStr);
-  if(removed){
-    savePfSnapshots();
-    console.log(`[PF Prune] Downsampled ${removed} old daily snapshots (weekly beyond ${PF_PRUNE_DAILY_MONTHS}mo, monthly beyond ${PF_PRUNE_MONTHLY_YEARS}yr)`);
+  for(const d of Object.keys(pfSnapshots)){
+    if(d < cutoffStr && !keepSet.has(d)){ delete pfSnapshots[d]; removed++; }
   }
   return removed;
+}
+
+// ── CENTRAL CACHE INVALIDATION ───────────────────────────────────────
+// pfSnapshots has a couple of derived read caches (the mark-to-market
+// symbol-date index in portfolio.js, the historical-price index in
+// analytics.js). These used to be invalidated by hand at each mutation
+// site — easy to add a new pfSnapshots mutation path later and forget the
+// reset, which is exactly how stale-cache bugs like this happen. Call this
+// instead of remembering which cache(s) apply; it's already wired into
+// savePfSnapshots() below, which every mutation path already calls, so no
+// call site needs to remember anything. Any future cache built on top of
+// pfSnapshots (or `prices`) should register its reset here too.
+function onDataChanged(){
+  try{ if(typeof resetMtmCache==='function') resetMtmCache(); }catch(e){}
+  try{ if(typeof resetAnalyticsPriceCache==='function') resetAnalyticsPriceCache(); }catch(e){}
+}
+
+function savePfSnapshots(){
+  pruneOldSnapshots();
+  onDataChanged();
+  localStorage.setItem('pt_pf_snapshots', JSON.stringify(pfSnapshots));
 }
 
 // CoinGecko symbol→id

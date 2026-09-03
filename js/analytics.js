@@ -286,6 +286,9 @@ function periodBounds(period){
 // live price (old behaviour), then cost, only when no historical point
 // exists yet for that date (e.g. before the worker's backfill history starts).
 let _anPriceDatesCache = null;
+// Central invalidation (see onDataChanged() in helpers.js) calls this by
+// name instead of reaching into this file's module-level cache directly.
+function resetAnalyticsPriceCache(){ _anPriceDatesCache = null; }
 function historicalPriceOnOrBefore(sym, dateStr){
   if(typeof pfSnapshots === 'undefined') return null;
   if(!_anPriceDatesCache) _anPriceDatesCache = Object.keys(pfSnapshots).sort().reverse();
@@ -304,7 +307,7 @@ function monthEndOrToday(monthStr){
 }
 
 function renderAnalytics(){
-  invalidatePriceCaches(); // pfSnapshots may have changed since last render — savePfSnapshots() already invalidates this on every actual mutation; this is a harmless redundant safety net
+  resetAnalyticsPriceCache(); // pfSnapshots may have changed since last render (backfill, price refresh)
   const period  = $('an-period').value;
   const groupBy = $('an-group').value;
   const chartType = $('an-chart').value;

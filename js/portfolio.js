@@ -667,7 +667,7 @@ function isDailyPricedSym(sym){
 // non-trading days. Rebuilt lazily; call resetMtmCache() after anything
 // that can change pfSnapshots (backfill, prune, a fresh price refresh).
 let _mtmSymDatesCache = null;
-function resetMtmCache(){ invalidatePriceCaches(); }
+function resetMtmCache(){ _mtmSymDatesCache = null; }
 function _buildMtmSymDatesCache(){
   const cache = {};
   for(const d of Object.keys(pfSnapshots)){
@@ -1165,7 +1165,7 @@ function calcPortfolioChangeMWR(scopeFn){
 function renderPortfolioChange(scopeFn, isFiltered){
   const wrap = $('pf-change-wrap');
   if(!wrap) return;
-  resetMtmCache(); // pfSnapshots may have changed (backfill/prune/price refresh) since last render
+  onDataChanged(); // defensive: savePfSnapshots() already does this on every mutation, but a cheap no-op re-reset here costs nothing
 
   const scoped = calcH().filter(scopeFn);
   if(!scoped.length){ wrap.style.display = 'none'; return; }

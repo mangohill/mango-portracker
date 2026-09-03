@@ -33,28 +33,40 @@
 // • Estimates only — not tax advice. Confirm with your accountant.
 // ─────────────────────────────────────────────────────────────────────────
 
-// ── One-time migration: pt_price_20270630* → pt_price_cgt_cutoff* ──────
-// These localStorage keys (and the matching DOM id / function names
-// throughout this file) used to be named after the literal cutoff date.
-// Renamed to CGT_CUTOFF_DATE-relative names so they don't lie about what
-// they store if that constant (helpers.js) ever changes. Runs once per
-// browser at script load — copies old → new key and deletes the old one;
-// after that first run it's a no-op forever (new key already exists).
-// Backups/Cloud Sync taken before this rename shipped still restore
-// correctly — backup.js / properties.js fall back to the old JSON
-// property name on import.
-(function migrateCgtCutoffKeys(){
+// ── CGT CUTOFF DATE ───────────────────────────────────────────────────
+// The Div 296/CGT-indexation legislation splits gains at this one date —
+// the 50% discount applies to gains accrued up to it; gains accruing after
+// it use cost-base indexation plus a 30% minimum tax-rate floor instead.
+// Every place that cares about "the cutoff" — Date comparisons, the sim
+// input field, its localStorage key, and the save/load/fetch/auto-snapshot
+// functions — reads from this constant and the labels derived from it, so
+// modelling a different date (or the real cutoff eventually moving) is a
+// one-line change here instead of an error-prone find-and-replace.
+const CGT_CUTOFF_DATE = '2027-06-30'; // ISO yyyy-mm-dd
+function cgtCutoffDateObj(){ return new Date(CGT_CUTOFF_DATE); }
+function cgtFmtDMY(d){ return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear(); }
+function cgtFmtLong(d){
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return d.getDate()+' '+MONTHS[d.getMonth()]+' '+d.getFullYear();
+}
+const CGT_CUTOFF_LABEL = cgtFmtDMY(cgtCutoffDateObj());       // e.g. "30/06/2027"
+const CGT_CUTOFF_LABEL_LONG = cgtFmtLong(cgtCutoffDateObj()); // e.g. "30 June 2027"
+const CGT_POST_CUTOFF_LABEL_LONG = (()=>{
+  const d = cgtCutoffDateObj(); d.setDate(d.getDate()+1); return cgtFmtLong(d); // e.g. "1 July 2027"
+})();
+
+// One-time migration: the cutoff-price storage keys used to be named after
+// the specific date (pt_price_20270630[_auto_saved]). Copy any existing
+// data across to the cutoff-agnostic keys once; the old keys are left in
+// place (harmless leftovers) rather than deleted.
+(function migrateCgtCutoffStorageKeys(){
   try{
-    const pairs = [
-      ['pt_price_20270630', 'pt_price_cgt_cutoff'],
-      ['pt_price_20270630_auto_saved', 'pt_price_cgt_cutoff_auto_saved'],
-    ];
-    pairs.forEach(([oldKey, newKey])=>{
-      if(localStorage.getItem(oldKey) != null && localStorage.getItem(newKey) == null){
-        localStorage.setItem(newKey, localStorage.getItem(oldKey));
-        localStorage.removeItem(oldKey);
-      }
-    });
+    if(localStorage.getItem('pt_price_cutoff')==null && localStorage.getItem('pt_price_20270630')!=null){
+      localStorage.setItem('pt_price_cutoff', localStorage.getItem('pt_price_20270630'));
+    }
+    if(localStorage.getItem('pt_price_cutoff_auto_saved')==null && localStorage.getItem('pt_price_20270630_auto_saved')!=null){
+      localStorage.setItem('pt_price_cutoff_auto_saved', localStorage.getItem('pt_price_20270630_auto_saved'));
+    }
   }catch(e){}
 })();
 
@@ -660,9 +672,9 @@ function renderCGT(){
         <b>Core rules:</b> FIFO parcel matching · corporate actions treated as CGT-free rollovers (cost base + acquisition date carry over) ·
         capital losses offset short-term gains before long-term, then the 50% discount is applied ·
         AMIT cost base floored at $0 (any excess is flagged, not auto-realised as a gain).<br><br>
-        <b>From 1 July 2027:</b> Gains accrued up to 30 June 2027 continue to receive the 50% CGT discount (if held &gt;12 months).
-        Gains accruing from 1 July 2027 are calculated with cost-base indexation and are subject to a 30% minimum tax rate floor on that post-cutoff portion.
-        The simulation section lets you model this split using a price at 30/06/2027 and CPI / cumulative inflation inputs.
+        <b>From ${CGT_POST_CUTOFF_LABEL_LONG}:</b> Gains accrued up to ${CGT_CUTOFF_LABEL_LONG} continue to receive the 50% CGT discount (if held &gt;12 months).
+        Gains accruing from ${CGT_POST_CUTOFF_LABEL_LONG} are calculated with cost-base indexation and are subject to a 30% minimum tax rate floor on that post-cutoff portion.
+        The simulation section lets you model this split using a price at ${CGT_CUTOFF_LABEL} and CPI / cumulative inflation inputs.
       </div>
     </div>
 
@@ -692,7 +704,7 @@ function renderCGT(){
       </div>
       ${cgtFifoCollapsed ? '' : `
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:8px">
-        Estimates only. 50% discount applies to long-term gains up to 30/06/2027. Post-2027 portions are inferred and treated using indexation + 30% minimum where applicable.
+        Estimates only. 50% discount applies to long-term gains up to ${CGT_CUTOFF_LABEL}. Post-cutoff portions are inferred and treated using indexation + 30% minimum where applicable.
       </div>
 
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:end">
@@ -710,7 +722,7 @@ function renderCGT(){
         </div>
         <div class="fgi" style="flex:0 0 180px"><label class="fl">Sale price / unit ($)</label>
           <input class="fi" id="cgt-sim-price" type="number" step="any" placeholder="Leave empty = current price" onchange="cgtRunSimulation()"></div>
-        <div class="fgi" style="flex:0 0 220px"><label class="fl">Price on 30/06/2027 ($)</label>
+        <div class="fgi" style="flex:0 0 220px"><label class="fl">Price on ${CGT_CUTOFF_LABEL} ($)</label>
           <div style="display:flex;gap:6px"><input class="fi" id="cgt-sim-price-cutoff" type="number" step="any" placeholder="Optional - stored per symbol" onchange="(function(){ cgtSaveCutoffPrice(); cgtRunSimulation(); })()">
           <button class="btn" onclick="cgtFetchCutoffPrice()">Fetch</button></div></div>
         <div class="fgi" style="flex:0 0 180px"><label class="fl">Sell date</label>
@@ -727,9 +739,9 @@ function renderCGT(){
         </div>
         <div class="fgi" style="flex:0 0 140px"><label class="fl">Marginal tax % (override)</label>
           <input class="fi" id="cgt-sim-marginal-rate" type="number" step="any" placeholder="Auto from prev FY" onchange="cgtRunSimulation()"></div>
-        <div class="fgi" style="flex:0 0 140px"><label class="fl">CPI % (annual) <span title="Annual CPI used to compound from 30/06/2027 to sale when cumulative inflation not provided">ℹ</span></label>
+        <div class="fgi" style="flex:0 0 140px"><label class="fl">CPI % (annual) <span title="Annual CPI used to compound from ${CGT_CUTOFF_LABEL} to sale when cumulative inflation not provided">ℹ</span></label>
           <input class="fi" id="cgt-sim-cpi" type="number" step="any" value="2.5" onchange="cgtRunSimulation()"></div>
-        <div class="fgi" style="flex:0 0 220px"><label class="fl">Cumulative inflation (cutoff→sale) % (optional) <span title="Provide the total inflation between 30/06/2027 and the sale (e.g. 8 for 8%). If left blank, the app will compound the annual CPI over the exact period.">ℹ</span></label>
+        <div class="fgi" style="flex:0 0 220px"><label class="fl">Cumulative inflation (cutoff→sale) % (optional) <span title="Provide the total inflation between ${CGT_CUTOFF_LABEL} and the sale (e.g. 8 for 8%). If left blank, the app will compound the annual CPI over the exact period.">ℹ</span></label>
           <input class="fi" id="cgt-sim-cum-infl" type="number" step="any" placeholder="e.g. 8 for 8% total" onchange="cgtRunSimulation()"></div>
           <div style="display:flex;gap:8px;align-items:center">
             <button class="btn btn-g" onclick="cgtRunSimulation()">Run simulation</button>
@@ -836,7 +848,7 @@ function renderCGT(){
   `;
   // Initialize slider state after DOM is updated
   setTimeout(cgtUpdateSlider, 0);
-  // Attempt auto-snapshot of prices for 30/06/2027 if that date has been reached
+  // Attempt auto-snapshot of prices at the cutoff date if it's been reached
   try{ setTimeout(cgtAutoSnapshotCutoffPrice, 200); }catch(e){}
 }
 
@@ -1159,7 +1171,7 @@ function summarizeCGTEvents(events){
 
 // ── FIFO vs LIFO SIMULATION (SELL NOW, USING CURRENT PRICE) ───────────
 function simulateMatchingForSymbol(parcelsList, price, method, sellUnits=null, opts={}){
-  const cutoff = new Date(CGT_CUTOFF_DATE);
+  const cutoff = new Date('2027-06-30');
   const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date();
   const list = (parcelsList||[]).map(p=>({ units: p.units, cost: p.cost, date: p.date, source: p.source }));
   let totalAvailable = list.reduce((s,p)=>s+(p.units||0),0);
@@ -1215,20 +1227,20 @@ function marginalTaxOnGain(gain, baseIncome, fy){
 }
 
 function computeTaxOnLots(lots, opts){
-  // opts: { useDiscountBefore2027:true, cpiRate:0, saleDate:'YYYY-MM-DD', priceCutoff: number }
+  // opts: { useDiscountBeforeCutoff:true, cpiRate:0, saleDate:'YYYY-MM-DD', priceAtCutoff: number }
   // Returns breakdown: { taxableTotal, taxablePre, taxablePost }
-  const cutoff = new Date(CGT_CUTOFF_DATE);
+  const cutoff = cgtCutoffDateObj();
   const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date();
-  const useDiscountBefore2027 = opts && opts.useDiscountBefore2027 !== false;
-  const priceAtCutoff = opts && (opts.priceCutoff != null) ? Number(opts.priceCutoff) : null;
+  const useDiscountBeforeCutoff = opts && opts.useDiscountBeforeCutoff !== false;
+  const priceAtCutoff = opts && (opts.priceAtCutoff != null) ? Number(opts.priceAtCutoff) : null;
   let taxablePre = 0;
   let taxablePost = 0;
 
-  // If sale is on or before cutoff, treat all as pre-2027
+  // If sale is on or before cutoff, treat all as pre-cutoff
   if(saleDate <= cutoff){
     for(const l of lots){
       const longTerm = l.heldDays > 365;
-      const val = (longTerm && l.gain > 0 && useDiscountBefore2027) ? l.gain * 0.5 : l.gain;
+      const val = (longTerm && l.gain > 0 && useDiscountBeforeCutoff) ? l.gain * 0.5 : l.gain;
       taxablePre += val;
     }
     return { taxableTotal: +((taxablePre + taxablePost).toFixed(2)), taxablePre: +taxablePre.toFixed(2), taxablePost: +taxablePost.toFixed(2) };
@@ -1237,14 +1249,14 @@ function computeTaxOnLots(lots, opts){
   for(const l of lots){
     const buyDate = l.buyDate ? new Date(l.buyDate) : null;
     if(!buyDate){
-      // unknown buy date -> treat full gain as post-2027
+      // unknown buy date -> treat full gain as post-cutoff
       taxablePost += l.gain;
       continue;
     }
 
     const boughtBeforeCutoff = buyDate < (new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate()+1));
     if(!boughtBeforeCutoff){
-      // acquired on/after 1 July 2027 => whole gain is post-2027
+      // acquired on/after the day after cutoff => whole gain is post-cutoff
       taxablePost += l.gain;
       continue;
     }
@@ -1257,7 +1269,7 @@ function computeTaxOnLots(lots, opts){
         const gainPre = Math.max(0, valueAtCutoff - l.cost);
         const preHeldDays = Math.max(0, Math.floor((cutoff - buyDate) / 86400000));
         const longPre = preHeldDays > 365;
-        const tPre = (longPre && gainPre > 0 && useDiscountBefore2027) ? gainPre * 0.5 : gainPre;
+        const tPre = (longPre && gainPre > 0 && useDiscountBeforeCutoff) ? gainPre * 0.5 : gainPre;
 
         // Index the cutoff value forward to the sale date (cumulative inflation after cutoff)
         const yearsAfterCutoff = Math.max(0, (saleDate - cutoff) / (365*86400000));
@@ -1280,14 +1292,14 @@ function computeTaxOnLots(lots, opts){
       const preDays = Math.max(0, Math.min((cutoff - buyDate) / 86400000, totalDays));
       const propPre = preDays / totalDays;
       const gainPre = Math.max(0, l.gain * propPre);
-      const tPre = (preDays > 365 && gainPre > 0 && useDiscountBefore2027) ? gainPre * 0.5 : gainPre;
+      const tPre = (preDays > 365 && gainPre > 0 && useDiscountBeforeCutoff) ? gainPre * 0.5 : gainPre;
       const tPost = l.gain - gainPre;
       taxablePre += tPre;
       taxablePost += tPost;
       continue;
     }
 
-    // default: treat as post-2027
+    // default: treat as post-cutoff
     taxablePost += l.gain;
   }
 
@@ -1349,25 +1361,25 @@ function cgtRunSimulation(){
   }
 
   const sellDateStr = $('cgt-sim-selldate') ? $('cgt-sim-selldate').value : new Date().toISOString().slice(0,10);
-  const explicitPrice2027 = parseFloat($('cgt-sim-price-cutoff')?.value);
-  const priceCutoff = !isNaN(explicitPrice2027) ? explicitPrice2027 : cgtLoadCutoffPrice(sym);
+  const explicitCutoffPrice = parseFloat($('cgt-sim-price-cutoff')?.value);
+  const cutoffPrice = !isNaN(explicitCutoffPrice) ? explicitCutoffPrice : cgtLoadCutoffPrice(sym);
   const fifo = simulateMatchingForSymbol(list, salePricePerUnit, 'FIFO', sellUnits, { saleDate: sellDateStr });
   const lifo = simulateMatchingForSymbol(list, salePricePerUnit, 'LIFO', sellUnits, { saleDate: sellDateStr });
 
-  // Compute inferred taxable breakdown (pre/post) based on dates and available price@30/06/2027
+  // Compute inferred taxable breakdown (pre/post) based on dates and available price@cutoff
   const cumInflVal = (function(){ const v = parseFloat($('cgt-sim-cum-infl')?.value); return isNaN(v)? null : v; })();
-  const fifoBreak = computeTaxOnLots(fifo.lots, { useDiscountBefore2027:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, priceCutoff });
-  const lifoBreak = computeTaxOnLots(lifo.lots, { useDiscountBefore2027:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, priceCutoff });
+  const fifoBreak = computeTaxOnLots(fifo.lots, { useDiscountBeforeCutoff:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, priceAtCutoff: cutoffPrice });
+  const lifoBreak = computeTaxOnLots(lifo.lots, { useDiscountBeforeCutoff:true, cpiRate:cpi, cumulativeInflation:cumInflVal, saleDate: sellDateStr, priceAtCutoff: cutoffPrice });
 
-  // If any lot crosses the 30/06/2027 cutoff and no price@30/06/2027 is provided, warn the user
+  // If any lot crosses the cutoff and no price@cutoff is provided, warn the user
   const saleDateObj = new Date(sellDateStr);
-  const cutoff = new Date(CGT_CUTOFF_DATE);
+  const cutoff = cgtCutoffDateObj();
   const anyCrosses = fifo.lots.concat(lifo.lots).some(l=>{
     if(!l.buyDate) return false;
     const bd = new Date(l.buyDate);
     return bd < (new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate()+1)) && saleDateObj > cutoff;
   });
-  const needsCutoffPrice = anyCrosses && !(priceCutoff != null);
+  const needsCutoffPrice = anyCrosses && !(cutoffPrice != null);
 
   // If income not provided, try to load previous FY tax record for this person
   if(income == null){
@@ -1440,7 +1452,7 @@ function cgtRunSimulation(){
 
   const fifoPreTaxPay = taxByRate(fifoBreak.taxablePre);
   const lifoPreTaxPay = taxByRate(lifoBreak.taxablePre);
-  // For post-2027 portion apply 30% floor when comparing to marginal rate
+  // For post-cutoff portion apply 30% floor when comparing to marginal rate
   function taxPostPortion(postTaxable){
     const byRate = taxByRate(postTaxable);
     const floor = +(postTaxable * 0.30).toFixed(2);
@@ -1468,7 +1480,7 @@ function cgtRunSimulation(){
     const hasPH = !!(personRec.privateHealth || taxRec.privateHealthFamily);
     const deps = +(taxRec.dependants||0);
 
-    // Compute full tax delta but honour the post-2027 30% minimum floor.
+    // Compute full tax delta but honour the post-cutoff 30% minimum floor.
     // Accepts pre/post breakdown so we can attribute tax increments correctly.
     function fullTaxDelta(taxablePre, taxablePost){
       taxablePre = +taxablePre || 0;
@@ -1511,7 +1523,7 @@ function cgtRunSimulation(){
   }catch(e){ /* ignore, fallback to table estimate */ }
 
   // Build results HTML
-  const warningHtml = needsCutoffPrice ? `<div style="background:#fff3cd;border:1px solid #ffeeba;color:#856404;padding:8px;border-radius:4px;margin-bottom:8px">Warning: No price recorded for 30/06/2027 — time‑apportionment fallback used for lots crossing the cutoff; results are approximate.</div>` : '';
+  const warningHtml = needsCutoffPrice ? `<div style="background:#fff3cd;border:1px solid #ffeeba;color:#856404;padding:8px;border-radius:4px;margin-bottom:8px">Warning: No price recorded for ${CGT_CUTOFF_LABEL} — time‑apportionment fallback used for lots crossing the cutoff; results are approximate.</div>` : '';
 
   const html = `
     ${warningHtml}
@@ -1536,7 +1548,7 @@ function cgtRunSimulation(){
       </tbody>
     </table></div>
     <div style="margin-top:8px;font-size:12px;color:var(--text3)">
-      Notes: Amounts accrued before 1 July 2027 retain the 50% discount for long‑term gains. Portions accruing from 1 July 2027 use cost‑base indexation and are taxed at the marginal estimate but subject to a 30% minimum floor where applicable.
+      Notes: Amounts accrued before ${CGT_POST_CUTOFF_LABEL_LONG} retain the 50% discount for long‑term gains. Portions accruing from ${CGT_POST_CUTOFF_LABEL_LONG} use cost‑base indexation and are taxed at the marginal estimate but subject to a 30% minimum floor where applicable.
     </div>
   `;
 
@@ -1569,7 +1581,7 @@ function cgtRunSimulation(){
 
     // Render results and store last simulation (fifoFull/lifoFull already computed above when possible)
     $('cgt-sim-results').innerHTML = html;
-    cgtLastSim = { sym, person, price: salePricePerUnit, units: sellUnits, fifo, lifo, opts:{cpi, cumulativeInflation: cumInflVal, saleDate: sellDateStr, marginalRate: explicitMarginalRate, priceCutoff: parseFloat($('cgt-sim-price-cutoff')?.value)||cgtLoadCutoffPrice(sym)||null}, fifoTaxable: fifoBreak.taxableTotal, lifoTaxable: lifoBreak.taxableTotal, fifoFull, lifoFull };
+    cgtLastSim = { sym, person, price: salePricePerUnit, units: sellUnits, fifo, lifo, opts:{cpi, cumulativeInflation: cumInflVal, saleDate: sellDateStr, marginalRate: explicitMarginalRate, priceAtCutoff: parseFloat($('cgt-sim-price-cutoff')?.value)||cgtLoadCutoffPrice(sym)||null}, fifoTaxable: fifoBreak.taxableTotal, lifoTaxable: lifoBreak.taxableTotal, fifoFull, lifoFull };
   }catch(e){ console.warn('cgtRunSimulation: results render failed', e); }
 }
 
@@ -1578,7 +1590,7 @@ function cgtExportLotsCSV(method){
   const sim = cgtLastSim;
   const methodKey = (method||'FIFO').toUpperCase();
   const lots = methodKey==='LIFO' ? sim.lifo.lots : sim.fifo.lots;
-  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, priceCutoff: sim.opts.priceCutoff };
+  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, priceAtCutoff: sim.opts.priceAtCutoff };
   const rows = [];
   rows.push(['Method','Symbol','Units','BuyDate','Cost','Proceeds','Gain','HeldDays','Taxable']);
   let totalUnits=0, totalCost=0, totalProceeds=0, totalGain=0, totalTaxable=0;
@@ -1613,7 +1625,7 @@ function cgtShowExportPreview(method){
   const sim = cgtLastSim;
   const methodKey = (method||'FIFO').toUpperCase();
   const lots = methodKey==='LIFO' ? sim.lifo.lots : sim.fifo.lots;
-  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, priceCutoff: sim.opts.priceCutoff };
+  const opts = { cpiRate: sim.opts.cpi, cumulativeInflation: sim.opts.cumulativeInflation, saleDate: sim.opts.saleDate, priceAtCutoff: sim.opts.priceAtCutoff };
   let rowsHtml = lots.length ? `<table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)"><th>Units</th><th>Buy Date</th><th>Cost</th><th>Proceeds</th><th>Gain</th><th>HeldDays</th><th>Taxable</th></tr></thead><tbody>` : '<div class="empty">No lots selected</div>';
   let totalUnits=0, totalCost=0, totalProceeds=0, totalGain=0, totalTaxable=0;
   for(const l of lots){
@@ -1662,8 +1674,8 @@ function cgtShowMethodDetails(method){
   const opts = sim.opts || {};
   const saleDate = opts.saleDate ? new Date(opts.saleDate) : new Date();
   const marginalRateOverride = (opts.marginalRate != null && !isNaN(opts.marginalRate)) ? opts.marginalRate : null;
-  const priceAtCutoff = opts.priceCutoff != null ? opts.priceCutoff : null;
-  const cutoff = new Date(CGT_CUTOFF_DATE);
+  const priceAtCutoff = opts.priceAtCutoff != null ? opts.priceAtCutoff : null;
+  const cutoff = cgtCutoffDateObj();
   const isPost = (saleDate > cutoff);
 
   let rowsHtml = lots.length ? `<table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)"><th>Units</th><th>Buy Date</th><th>Cost</th><th>Proceeds</th><th>Gain</th><th>HeldDays</th><th>Calc</th><th>Taxable</th></tr></thead><tbody>` : '<div class="empty">No lots selected</div>';
@@ -1708,7 +1720,7 @@ function cgtShowMethodDetails(method){
         totalTaxablePre += (taxablePre||0);
         totalTaxablePost += (taxablePost||0);
 
-        const preCalc = `Pre@30/06/2027: value ${n2(valueAtCutoff)} - cost ${n2(l.cost)} = gain ${n2(gainPre)}; ${longPre? '50% discount → ' + n2(taxablePre) : 'No discount → ' + n2(taxablePre)}`;
+        const preCalc = `Pre@${CGT_CUTOFF_LABEL}: value ${n2(valueAtCutoff)} - cost ${n2(l.cost)} = gain ${n2(gainPre)}; ${longPre? '50% discount → ' + n2(taxablePre) : 'No discount → ' + n2(taxablePre)}`;
         const postCalc = `Post: indexed base ${n2(indexedBase)} (value@cutoff ${n2(valueAtCutoff)} * CPI factor ${nN(factorAfter,6)}) → gain ${n2(gainPost)} → taxable ${n2(taxablePost)}`;
 
         rowsHtml += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:6px">${nN(l.units,6)}</td><td style="padding:6px">${l.buyDate||''}</td><td style="padding:6px">${n2(l.cost)}</td><td style="padding:6px">${n2(valueAtCutoff)}</td><td style="padding:6px">${n2(gainPre)}</td><td style="padding:6px">${preHeldDays}</td><td style="padding:6px">${escHtml(preCalc)}</td><td style="padding:6px">${n2(taxablePre)}</td></tr>`;
@@ -1732,7 +1744,7 @@ function cgtShowMethodDetails(method){
         rowsHtml += `<tr style="background:rgba(0,0,0,0.02);border-bottom:1px solid var(--border)"><td style="padding:6px">${nN(l.units,6)}</td><td style="padding:6px"></td><td style="padding:6px">${n2(l.cost)}</td><td style="padding:6px">${n2(l.gain*(1-propPre))}</td><td style="padding:6px">${n2(l.gain - gainPre)}</td><td style="padding:6px">${Math.max(0, Math.floor((saleDate - cutoff) / 86400000))}</td><td style="padding:6px">${escHtml(postCalc)}</td><td style="padding:6px">${n2(taxablePost)}</td></tr>`;
       }
     } else {
-      // Default post-2027 treatment for lots that do not cross the cutoff: apply indexation
+      // Default post-cutoff treatment for lots that do not cross the cutoff: apply indexation
       const factor = Math.pow(1 + ((opts.cpi||0)/100), years);
       const adjCost = l.cost * factor;
       taxable = l.proceeds - adjCost;
@@ -1759,7 +1771,7 @@ function cgtShowMethodDetails(method){
     if(methodKey==='FIFO' && sim.fifoFull) full = sim.fifoFull.delta; else if(methodKey==='LIFO' && sim.lifoFull) full = sim.lifoFull.delta;
   }catch(e){ }
 
-  // compute post-2027 totals and 30% floor for display
+  // compute post-cutoff totals and 30% floor for display
   // taxByRate mirrors the helper defined inside cgtRunSimulation — it's
   // redefined here because that one is local to cgtRunSimulation and isn't
   // in scope in this function (this only matters when a lot has a nonzero
@@ -1775,8 +1787,8 @@ function cgtShowMethodDetails(method){
   const postFloor = +(totalTaxablePost * 0.30).toFixed(2);
   let displayMarginal = null;
   if(marginal != null){
-    // Apply 30% minimum floor to the post-2027 portion only, but keep
-    // the pre-2027 marginal tax for the pre portion. Sum both parts.
+    // Apply 30% minimum floor to the post-cutoff portion only, but keep
+    // the pre-cutoff marginal tax for the pre portion. Sum both parts.
     const postUsed = Math.max(postByRate, postFloor);
     displayMarginal = +(preByRate + postUsed).toFixed(2);
   }
@@ -1787,7 +1799,7 @@ function cgtShowMethodDetails(method){
       <button onclick="closeHudPopup('cgt-method-details')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">✕</button>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:8px">
-      Sell date: ${saleDate.toISOString().slice(0,10)} · ${opts && opts.cumulativeInflation!=null ? ('Cumulative inflation: '+n2(opts.cumulativeInflation)+'%') : ('CPI: '+n2(opts.cpi||0)+'%')} · Mode: inferred (date split) · Sale price/unit: ${n2(sim.price)}${marginalRateOverride!=null?(' · Marginal %: '+n2(marginalRateOverride)):''}${priceAtCutoff!=null?(' · Price@30/06/2027: '+n2(priceAtCutoff)):''}
+      Sell date: ${saleDate.toISOString().slice(0,10)} · ${opts && opts.cumulativeInflation!=null ? ('Cumulative inflation: '+n2(opts.cumulativeInflation)+'%') : ('CPI: '+n2(opts.cpi||0)+'%')} · Mode: inferred (date split) · Sale price/unit: ${n2(sim.price)}${marginalRateOverride!=null?(' · Marginal %: '+n2(marginalRateOverride)):''}${priceAtCutoff!=null?(' · Price@'+CGT_CUTOFF_LABEL+': '+n2(priceAtCutoff)):''}
       <br>Income used: ${n2(baseIncome||0)}${$('cgt-sim-income-note') && $('cgt-sim-income-note').textContent ? ' (' + $('cgt-sim-income-note').textContent + ')' : ''}
     </div>
     <div style="max-height:360px;overflow:auto;margin-bottom:8px">${rowsHtml}</div>
@@ -1810,28 +1822,28 @@ function cgtShowMethodDetails(method){
 
 // Run built-in example scenarios for manual testing and validation
 function cgtRunExampleScenarios(){
-  const cutoff = new Date(CGT_CUTOFF_DATE);
+  const cutoff = cgtCutoffDateObj();
   const scenarios = [];
 
   // Scenario A: bought well before cutoff, sold after, price@cutoff provided
   scenarios.push({
     name: 'Buy 2018 → Sell 2028 (price@cutoff available)',
     lots: [{ units:100, buyDate:'2018-01-15', cost:1000, proceeds:1800, gain:800, heldDays: Math.floor((new Date('2028-01-01')-new Date('2018-01-15'))/86400000) }],
-    opts: { saleDate: '2028-01-01', priceCutoff: 12, cpiRate:2.5 }
+    opts: { saleDate: '2028-01-01', priceAtCutoff: 12, cpiRate:2.5 }
   });
 
   // Scenario B: bought before cutoff, sold after, no price@cutoff (fallback)
   scenarios.push({
     name: 'Buy 2019 → Sell 2028 (no cutoff price, fallback)',
     lots: [{ units:50, buyDate:'2019-05-20', cost:500, proceeds:900, gain:400, heldDays: Math.floor((new Date('2028-02-01')-new Date('2019-05-20'))/86400000) }],
-    opts: { saleDate: '2028-02-01', priceCutoff: null, cpiRate:2.5 }
+    opts: { saleDate: '2028-02-01', priceAtCutoff: null, cpiRate:2.5 }
   });
 
   // Scenario C: bought after cutoff
   scenarios.push({
-    name: 'Buy 2028 → Sell 2029 (post-2027 acquisition)',
+    name: 'Buy 2028 → Sell 2029 (post-cutoff acquisition)',
     lots: [{ units:10, buyDate:'2028-03-01', cost:1000, proceeds:1200, gain:200, heldDays: Math.floor((new Date('2029-03-01')-new Date('2028-03-01'))/86400000) }],
-    opts: { saleDate: '2029-03-01', priceCutoff: null, cpiRate:2.5 }
+    opts: { saleDate: '2029-03-01', priceAtCutoff: null, cpiRate:2.5 }
   });
 
   let out = '<div style="font-size:13px"><b>Example scenarios</b></div>';
@@ -1840,7 +1852,7 @@ function cgtRunExampleScenarios(){
     const br = computeTaxOnLots(s.lots, s.opts);
     out += `<div style="margin-bottom:10px;padding:8px;border:1px solid var(--border);border-radius:6px">`;
     out += `<div style="font-weight:700">${escHtml(s.name)}</div>`;
-    out += `<div>Taxable pre-2027: ${n2(br.taxablePre)} · Taxable post-2027: ${n2(br.taxablePost)} · Total taxable: ${n2(br.taxableTotal)}</div>`;
+    out += `<div>Taxable pre-cutoff: ${n2(br.taxablePre)} · Taxable post-cutoff: ${n2(br.taxablePost)} · Total taxable: ${n2(br.taxableTotal)}</div>`;
     out += `</div>`;
   }
   out += '</div>';
@@ -1870,9 +1882,9 @@ function cgtUpdateSlider(){
   const share = (typeof ownerShare==='function') ? ownerShare(sym, person) : (getSymbolOwner(sym)===person?1:(getSymbolOwner(sym)==='joint'?0.5:0));
   const availableUnits = fullList.reduce((s,p)=>s + (p.units * share), 0);
   const price = prices[priceSymbol(sym)] || 0;
-  // load stored 30/06/2027 price for this symbol (if any)
-  const stored30 = cgtLoadCutoffPrice(sym);
-  if(stored30 != null){ const el30 = $('cgt-sim-price-cutoff'); if(el30) el30.value = stored30; }
+  // load stored cutoff price for this symbol (if any)
+  const storedCutoffPrice = cgtLoadCutoffPrice(sym);
+  if(storedCutoffPrice != null){ const elCutoff = $('cgt-sim-price-cutoff'); if(elCutoff) elCutoff.value = storedCutoffPrice; }
 
   if(mode === 'dollars'){
     if(price <= 0 || availableUnits <= 0){ slider.disabled = true; slider.max = 0; slider.value = 0; if(label) label.textContent='—'; return; }
@@ -1938,20 +1950,20 @@ function cgtSaveCutoffPrice(){
     const sym = $('cgt-sim-symbol') ? $('cgt-sim-symbol').value : null;
     if(!sym) return;
     const v = parseFloat($('cgt-sim-price-cutoff')?.value);
-    const map = JSON.parse(localStorage.getItem('pt_price_cgt_cutoff')||'{}');
+    const map = JSON.parse(localStorage.getItem('pt_price_cutoff')||'{}');
     if(!isNaN(v)) map[sym] = v; else delete map[sym];
-    localStorage.setItem('pt_price_cgt_cutoff', JSON.stringify(map));
+    localStorage.setItem('pt_price_cutoff', JSON.stringify(map));
   }catch(e){ }
 }
 
 function cgtLoadCutoffPrice(sym){
   try{
-    const map = JSON.parse(localStorage.getItem('pt_price_cgt_cutoff')||'{}');
+    const map = JSON.parse(localStorage.getItem('pt_price_cutoff')||'{}');
     return map[sym];
   }catch(e){ return null; }
 }
 
-// Fetch price for 30/06/2027 from a configurable price-feed endpoint.
+// Fetch the cutoff-date price from a configurable price-feed endpoint.
 // Configure the feed URL in localStorage under key 'pt_price_feed_url'.
 // The feed is expected to accept query params `symbol` and `date` and return JSON: { price: number }
 function cgtFetchCutoffPrice(){
@@ -2019,13 +2031,13 @@ function cgtAutoFillIncome(person){
   }catch(e){ /* ignore */ }
 }
 
-// Auto-snapshot current prices for portfolio symbols on 2027-06-30.
+// Auto-snapshot current prices for portfolio symbols on the cutoff date.
 // Runs once (sets a saved flag) to avoid duplicate captures.
 function cgtAutoSnapshotCutoffPrice(){
   try{
-    const savedFlag = localStorage.getItem('pt_price_cgt_cutoff_auto_saved');
+    const savedFlag = localStorage.getItem('pt_price_cutoff_auto_saved');
     const today = new Date();
-    const target = new Date(CGT_CUTOFF_DATE);
+    const target = cgtCutoffDateObj();
     if(today < target) return; // not reached yet
     if(savedFlag) return; // already auto-saved
     // gather symbols from trades (portfolio symbols) and holdings
@@ -2033,7 +2045,7 @@ function cgtAutoSnapshotCutoffPrice(){
     (trades||[]).forEach(t=>{ if(t.symbol) syms.add(t.symbol); });
     // also include symbols from properties/tracked parcels if present
     try{ const { openParcels } = computeCGTSummary(); Object.keys(openParcels||{}).forEach(s=>{ if(!s.startsWith('_stash_')) syms.add(s); }); }catch(e){}
-    const map = JSON.parse(localStorage.getItem('pt_price_cgt_cutoff')||'{}');
+    const map = JSON.parse(localStorage.getItem('pt_price_cutoff')||'{}');
     let any = false;
     syms.forEach(sym=>{
       const p = prices[priceSymbol(sym)];
@@ -2042,12 +2054,12 @@ function cgtAutoSnapshotCutoffPrice(){
       }
     });
     if(any){
-      localStorage.setItem('pt_price_cgt_cutoff', JSON.stringify(map));
-      localStorage.setItem('pt_price_cgt_cutoff_auto_saved', new Date().toISOString());
-      notify('Auto-saved portfolio prices for 30/06/2027','ok');
+      localStorage.setItem('pt_price_cutoff', JSON.stringify(map));
+      localStorage.setItem('pt_price_cutoff_auto_saved', new Date().toISOString());
+      notify('Auto-saved portfolio prices for '+CGT_CUTOFF_LABEL,'ok');
     } else {
       // still set flag to avoid reattempt loops; user can fetch manually later
-      localStorage.setItem('pt_price_cgt_cutoff_auto_saved', new Date().toISOString());
+      localStorage.setItem('pt_price_cutoff_auto_saved', new Date().toISOString());
     }
   }catch(e){ /* ignore */ }
 }
