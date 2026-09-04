@@ -200,25 +200,55 @@ function prunePfSnapshotHistory(force){
   monthlyCutoffD.setFullYear(monthlyCutoffD.getFullYear() - PF_PRUNE_MONTHLY_YEARS);
   const monthlyCutoff = localDateStr(monthlyCutoffD);
 
-  const seenWeek = new Set(), seenMonth = new Set();
-  let removed = 0;
+  // IMPORTANT: a historical snapshot day almost never has every held symbol
+  // priced — crypto, ETFs and LICs were routinely fetched/backfilled on
+  // different days within the same week/month (e.g. crypto on the 6th,
+  // ETFs on the 12th, LICs only at month-end), so full coverage for a
+  // given period only exists as the UNION of several days' .prices maps,
+  // not any single day's. Collapsing a bucket by keeping one day and
+  // deleting the rest (the original approach here) silently drops every
+  // symbol that was only ever priced on one of the discarded days —
+  // breaking mark-to-market completeness for that whole period even
+  // though the data existed. So each bucket is merged into its surviving
+  // date's .prices instead of discarded — bounds pfSnapshots' size the
+  // same way, without losing price coverage. Later (more recent) days
+  // win when the same symbol appears more than once in a bucket.
+  const buckets = {}; // bucketKey -> [dates...] ascending
   Object.keys(pfSnapshots).sort().forEach(d=>{
     if(d >= dailyCutoff) return; // recent — keep full daily resolution
-    if(d < monthlyCutoff){
-      const monthKey = d.slice(0,7); // YYYY-MM — keep first date seen per month
-      if(seenMonth.has(monthKey)){ delete pfSnapshots[d]; removed++; }
-      else seenMonth.add(monthKey);
-      return;
-    }
-    const weekKey = _isoWeekKey(d); // keep first date seen per ISO week
-    if(seenWeek.has(weekKey)){ delete pfSnapshots[d]; removed++; }
-    else seenWeek.add(weekKey);
+    const key = (d < monthlyCutoff) ? ('M:' + d.slice(0,7)) : ('W:' + _isoWeekKey(d));
+    (buckets[key] ||= []).push(d);
   });
+
+  let removed = 0;
+  for(const key in buckets){
+    const groupDates = buckets[key];
+    if(groupDates.length <= 1) continue; // nothing to collapse in this bucket
+
+    const keepDate = groupDates[groupDates.length - 1]; // most recent in bucket — matches the existing "typically month-end" convention
+    const mergedPrices = {};
+    let mergedAll = null, mergedStocks = null, mergedCrypto = null;
+    for(const d of groupDates){
+      const e = pfSnapshots[d];
+      if(!e) continue;
+      if(e.prices) Object.assign(mergedPrices, e.prices); // ascending order — later day's price wins on conflict
+      if(e.all    != null) mergedAll    = e.all;
+      if(e.stocks != null) mergedStocks = e.stocks;
+      if(e.crypto != null) mergedCrypto = e.crypto;
+    }
+    pfSnapshots[keepDate] = {
+      all: mergedAll, stocks: mergedStocks, crypto: mergedCrypto,
+      prices: Object.keys(mergedPrices).length ? mergedPrices : undefined,
+    };
+    for(const d of groupDates){
+      if(d !== keepDate){ delete pfSnapshots[d]; removed++; }
+    }
+  }
 
   localStorage.setItem('pt_pf_pruned_date', todayStr);
   if(removed){
     savePfSnapshots();
-    console.log(`[PF Prune] Downsampled ${removed} old daily snapshots (weekly beyond ${PF_PRUNE_DAILY_MONTHS}mo, monthly beyond ${PF_PRUNE_MONTHLY_YEARS}yr)`);
+    console.log(`[PF Prune] Downsampled ${removed} old daily snapshots into merged weekly/monthly entries (weekly beyond ${PF_PRUNE_DAILY_MONTHS}mo, monthly beyond ${PF_PRUNE_MONTHLY_YEARS}yr) — price coverage preserved via merge`);
   }
   return removed;
 }
