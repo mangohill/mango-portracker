@@ -667,7 +667,7 @@ function isDailyPricedSym(sym){
 // non-trading days. Rebuilt lazily; call resetMtmCache() after anything
 // that can change pfSnapshots (backfill, prune, a fresh price refresh).
 let _mtmSymDatesCache = null;
-function resetMtmCache(){ invalidatePriceCaches(); }
+function resetMtmCache(){ _mtmSymDatesCache = null; }
 function _buildMtmSymDatesCache(){
   const cache = {};
   for(const d of Object.keys(pfSnapshots)){

@@ -154,12 +154,17 @@ function savePfSnapshots(){
 // Sync pull — already calls savePfSnapshots() to persist the change, so
 // invalidating date-lookup caches here (instead of scattering resetMtmCache()
 // calls across each mutation site) means a future mutation path can't
-// forget to invalidate them. resetMtmCache() (portfolio.js) and Analytics'
-// own cache reset now just call this too — kept as harmless redundant
-// safety nets at their render entry points, not the source of truth.
+// forget to invalidate them. Calls each cache owner's own reset function
+// (rather than reaching into portfolio.js's/analytics.js's module-level
+// cache variables directly) so this stays correct even if either file
+// later renames its internal cache variable — the exact class of bug this
+// central function exists to prevent. resetMtmCache() (portfolio.js) and
+// resetAnalyticsPriceCache() (analytics.js) also call this on their own
+// render entry points — kept as harmless redundant safety nets, not the
+// source of truth.
 function invalidatePriceCaches(){
-  if(typeof _mtmSymDatesCache !== 'undefined') _mtmSymDatesCache = null;
-  if(typeof _anPriceDatesCache !== 'undefined') _anPriceDatesCache = null;
+  try{ if(typeof resetMtmCache==='function') resetMtmCache(); }catch(e){}
+  try{ if(typeof resetAnalyticsPriceCache==='function') resetAnalyticsPriceCache(); }catch(e){}
 }
 
 // ── Portfolio history pruning ───────────────────────────────────────
