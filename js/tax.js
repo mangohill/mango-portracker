@@ -359,7 +359,7 @@ function renderOwnershipGrid(){
     personsList.innerHTML = getAllPersons().map(p=>`
       <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;
         padding:3px 10px;border-radius:16px;
-        background:${getPersonColour(p)}33;color:${getPersonColour(p)};
+        background:${getPersonColourAlpha(p,'33')};color:${getPersonColour(p)};
         font-family:var(--mono)">
         ${escHtml(getPersonLabel(p))}
         ${p!=='lumia'&&p!=='chilli'?`

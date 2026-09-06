@@ -53,6 +53,22 @@ function getPersonColour(key){
   const hue = Math.abs(hash)%360;
   return `hsl(${hue},60%,60%)`;
 }
+// getPersonColour() returns a bare colour meant for solid text/dot colour —
+// a 6-digit hex for lumia/chilli/joint, but hsl(h,s%,l%) for every custom
+// person (there's no fixed palette to fall back to). Every badge background
+// tint across the app was built by string-concatenating a 2-digit hex alpha
+// suffix straight onto that colour, e.g. getPersonColour(key)+'22' — valid
+// CSS for a hex colour, but for an hsl(...) string it silently produces
+// "hsl(210,60%,60%)22", which the browser just drops. That's why custom
+// people showed as plain coloured text with no badge/glow behind it while
+// Lumia/Chilli (hardcoded hex) kept working. Use this instead anywhere a
+// translucent badge/chip background is built from a person's colour.
+function getPersonColourAlpha(key, hexAlpha){
+  const c = getPersonColour(key);
+  if(c.startsWith('#')) return c + hexAlpha;
+  const alpha = (parseInt(hexAlpha,16)/255).toFixed(3);
+  return c.replace(/^hsl\(([\d.]+),\s*([\d.]+%),\s*([\d.]+%)\)$/, `hsl($1 $2 $3 / ${alpha})`);
+}
 function saveStockOwners(){ localStorage.setItem('pt_stock_owners', JSON.stringify(stockOwners)); }
 function saveExtraPersons(){ localStorage.setItem('pt_extra_persons', JSON.stringify(extraPersons)); }
 function getSymbolOwner(sym){ return stockOwners[sym]||'joint'; }
@@ -103,7 +119,7 @@ function changeSymbolOwner(sym, newOwner){
   // Refresh all owner badges for this symbol
   document.querySelectorAll(`[data-owner-sym="${escHtml(sym)}"]`).forEach(el=>{
     el.textContent = getPersonLabel(newOwner);
-    el.style.background = getPersonColour(newOwner)+'33';
+    el.style.background = getPersonColourAlpha(newOwner,'33');
     el.style.color = getPersonColour(newOwner);
   });
   renderTax();

@@ -1040,7 +1040,7 @@ function renderDividends(){
     return `<tr>
       <td>${d.date}</td>
       <td><b>${displaySymbol(d.symbol)}</b></td>
-      <td><span style="font-size:10px;padding:2px 6px;border-radius:12px;background:${getPersonColour(getSymbolOwner(d.symbol))}22;color:${getPersonColour(getSymbolOwner(d.symbol))}">${getPersonLabel(getSymbolOwner(d.symbol))}</span></td>
+      <td><span style="font-size:10px;padding:2px 6px;border-radius:12px;background:${getPersonColourAlpha(getSymbolOwner(d.symbol),'22')};color:${getPersonColour(getSymbolOwner(d.symbol))}">${getPersonLabel(getSymbolOwner(d.symbol))}</span></td>
       <td><span class="badge b-etf" style="font-size:10px">${TYPE_LABEL[d.type]||d.type}</span></td>
       <td style="text-align:right" class="pos">$${(+d.amount).toFixed(2)}</td>
       <td style="text-align:right;font-family:var(--mono);color:var(--blue);font-size:12px">$${grossUpDiv(+d.amount||0,d.frankingPct||0).toFixed(2)}</td>

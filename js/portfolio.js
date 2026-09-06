@@ -385,7 +385,7 @@ function renderH(){
     const cur=h._cur,mv=h._mv,pl=h._pl,pp=h._pp,avg=h._avg;
     const plC=pl==null?'':(pl>=0?'pos':'neg');
     return `<tr>
-      <td><b>${displaySymbol(h.symbol)}</b></td><td><span style="font-size:10px;padding:1px 6px;border-radius:10px;background:${getPersonColour(getSymbolOwner(h.symbol))}22;color:${getPersonColour(getSymbolOwner(h.symbol))}">${getPersonLabel(getSymbolOwner(h.symbol))}</span></td><td>${bT(h.assetType)}</td>
+      <td><b>${displaySymbol(h.symbol)}</b></td><td><span style="font-size:10px;padding:1px 6px;border-radius:10px;background:${getPersonColourAlpha(getSymbolOwner(h.symbol),'22')};color:${getPersonColour(getSymbolOwner(h.symbol))}">${getPersonLabel(getSymbolOwner(h.symbol))}</span></td><td>${bT(h.assetType)}</td>
       <td style="text-align:right">${nN(h.units,8)}</td>
       <td style="text-align:right">${n2(avg,dec(avg))}</td>
       <td style="text-align:right">${cur!=null?n2(cur,dec(cur)):'<span style="color:var(--text3)">—</span>'}</td>

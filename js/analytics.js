@@ -817,7 +817,7 @@ function renderHD(){
     <td style="white-space:nowrap">
       <span style="display:inline-flex;align-items:center;gap:4px;
         font-size:10px;padding:2px 6px;border-radius:12px;
-        background:${getPersonColour(getSymbolOwner(h.symbol))}33;
+        background:${getPersonColourAlpha(getSymbolOwner(h.symbol),'33')};
         color:${getPersonColour(getSymbolOwner(h.symbol))}">
         <select class="owner-select" data-owner-sym="${escHtml(h.symbol)}"
           style="background:transparent;border:none;color:inherit;font-size:10px;
