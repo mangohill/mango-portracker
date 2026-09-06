@@ -987,6 +987,10 @@ function renderDividends(){
     return true;
   });
 
+  // _owner is the display label, not the raw key, so sorting matches what's
+  // actually shown in the column (and reads sensibly for custom persons).
+  filtered = filtered.map(d => ({...d, _owner: getPersonLabel(getSymbolOwner(d.symbol))}));
+
   // Sort — default to most-recent-first by date whenever nothing's been explicitly chosen
   if(!getSort('dv-body').col) SORT_STATE['dv-body'] = {col:'date', dir:-1};
   const {col, dir} = getSort('dv-body');
@@ -1004,7 +1008,7 @@ function renderDividends(){
   $('dv-body').closest('table').querySelector('thead tr').innerHTML =
     th('date','Date') +
     th('symbol','Symbol') +
-    '<th>Owner</th>' +
+    th('_owner','Owner') +
     th('type','Type') +
     th('amount','Cash (AUD)','text-align:right') +
     '<th style="text-align:right">Grossed-up</th>' +

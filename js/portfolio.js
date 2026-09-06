@@ -337,13 +337,16 @@ function renderH(){
   // (fresh load, or after switchTab's per-tab sort reset)
   if(!getSort('hb').col) SORT_STATE['hb'] = {col:'symbol', dir:1};
   const {col, dir} = getSort('hb');
+  // _owner is the display label ("Lumia", "Jake", "Joint"...), not the raw
+  // key — sorting/display should both go off what's actually on screen.
   if(col){
     f = sortRows(f.map(h=>{
       const cur=prices[priceSymbol(h.symbol)]??null;
       const mv=cur!=null?cur*h.units:null;
       const pl=mv!=null?mv-h.costBasis:null;
       const pp=pl!=null&&h.costBasis>0?(pl/h.costBasis)*100:null;
-      return {...h,_cur:cur,_mv:mv,_pl:pl,_pp:pp,_avg:h.units>0?h.costBasis/h.units:0};
+      return {...h,_cur:cur,_mv:mv,_pl:pl,_pp:pp,_avg:h.units>0?h.costBasis/h.units:0,
+              _owner:getPersonLabel(getSymbolOwner(h.symbol))};
     }),col,dir,'assetType','symbol');
   } else {
     f = f.map(h=>{
@@ -352,7 +355,8 @@ function renderH(){
       const pl=mv!=null?mv-h.costBasis:null;
       return {...h,_cur:cur,_mv:mv,_pl:pl,
               _pp:pl!=null&&h.costBasis>0?(pl/h.costBasis)*100:null,
-              _avg:h.units>0?h.costBasis/h.units:0};
+              _avg:h.units>0?h.costBasis/h.units:0,
+              _owner:getPersonLabel(getSymbolOwner(h.symbol))};
     });
   }
 
@@ -366,7 +370,7 @@ function renderH(){
   // tap-to-reveal detail row first.
   $('hb').closest('table').querySelector('thead tr').innerHTML =
     th('symbol','Symbol',null,0) +
-    '<th data-pri="9">Owner</th>' +
+    th('_owner','Owner',null,9) +
     th('assetType','Type',null,8) +
     th('units','Units','text-align:right',1) +
     th('_avg','Avg Cost','text-align:right',10) +
@@ -1022,6 +1026,33 @@ function investmentGainDollars(scopeFn, startDate, todayStr, startVal, endVal){
 // daily for the last ~13 months, sparser further back (worker backfill
 // tiers), so recent windows (1D–6M) are exact and 1Y/5Y/ALL are a close
 // approximation built from real historical prices.
+// Modified-Dietz sub-period return: weights each cash flow by how much of
+// the leg it was actually invested for (days remaining ÷ leg length),
+// instead of assuming — as a flat "(vB - cf - vA) / vA" does — that every
+// contribution landed at the very end of the leg. With dense (~daily) legs
+// this barely matters, a cash flow can only be a day or two off from "at
+// the end" anyway. But sparse pre-backfill legs can span months, and a
+// large contribution landing mid-leg was being treated as if it earned
+// zero return for the WHOLE leg while still being subtracted in full from
+// the end value — on a real portfolio this produced a single leg reporting
+// -268%, which then compounds the entire chain into nonsense (-300% TWR
+// against a sane -54% MWR for the same window). Weighting by time-in-leg
+// keeps one sparse, cash-flow-heavy leg from dominating the chain.
+// Returns null for a leg with no valid starting base to divide by.
+function legReturnFactor(vAval, vBval, dAstr, dBstr, cfEntries){
+  const cd = (new Date(dBstr) - new Date(dAstr)) / 86400000;
+  let cfTotal = 0, weightedBase = vAval;
+  for(const [d, amt] of cfEntries){
+    cfTotal += amt;
+    if(cd > 0){
+      const daysRemaining = (new Date(dBstr) - new Date(d)) / 86400000;
+      weightedBase += amt * (daysRemaining / cd);
+    }
+  }
+  if(weightedBase <= 0) return null; // degenerate — cash flow swamped the base, leg unusable
+  return 1 + (vBval - cfTotal - vAval) / weightedBase;
+}
+
 function calcPortfolioChangeTWR(scopeFn){
   const todayStr = localDateStr();
   const holdings = calcH().filter(scopeFn);
@@ -1063,22 +1094,28 @@ function calcPortfolioChangeTWR(scopeFn){
     const legs = scopeDates.filter(d => d>=startDate && d<=anchorStr);
     if(!legs.length || legs[0]!==startDate) legs.unshift(startDate);
 
-    let chain = 1;
+    let chain = 1, skippedLegs = 0;
     for(let i=0;i<legs.length-1;i++){
       const dA=legs[i], dB=legs[i+1];
       const vA = markToMarketAt(dA, scopeFn), vB = markToMarketAt(dB, scopeFn);
       if(!vA.complete || !vB.complete || vA.value==null || vB.value==null || vA.value<=0) continue;
-      let cf = 0;
-      for(const [d,amt] of Object.entries(cfByDate)) if(d>dA && d<=dB) cf += amt;
-      chain *= (1 + (vB.value - cf - vA.value) / vA.value);
+      const cfEntries = Object.entries(cfByDate).filter(([d])=> d>dA && d<=dB);
+      const factor = legReturnFactor(vA.value, vB.value, dA, dB, cfEntries);
+      // A non-positive factor here isn't a real >100% loss inside one leg —
+      // that's not possible for unleveraged holdings — it's the leg's cash
+      // flow overwhelming a sparse/stale valuation. Skip it (contribute
+      // nothing to the chain) rather than let it corrupt the whole window.
+      if(factor==null || factor<=0){ skippedLegs++; continue; }
+      chain *= factor;
     }
+    if(skippedLegs) console.warn(`[TWR] ${r.label}: skipped ${skippedLegs} degenerate leg(s) — sparse history + a large cash flow inside one leg produced a >100% single-leg swing; excluded from the chain rather than compounded.`);
     // Final leg from the last available snapshot to today's live value
     const lastLeg = legs[legs.length-1];
     const vLast = markToMarketAt(lastLeg, scopeFn), vNow = markToMarketLive(scopeFn);
     if(vLast.complete && vNow.complete && vLast.value>0 && vNow.value!=null){
-      let cf = 0;
-      for(const [d,amt] of Object.entries(cfByDate)) if(d>lastLeg && d<=todayStr) cf += amt;
-      chain *= (1 + (vNow.value - cf - vLast.value) / vLast.value);
+      const cfEntries = Object.entries(cfByDate).filter(([d])=> d>lastLeg && d<=todayStr);
+      const factor = legReturnFactor(vLast.value, vNow.value, lastLeg, todayStr, cfEntries);
+      if(factor!=null && factor>0) chain *= factor;
     } else if(lastLeg!==anchorStr){
       return { label:r.label, pct:null, reason:'incomplete' };
     }

@@ -765,7 +765,10 @@ function renderHD(){
     const pct  = pnl!=null&&h.costBasis>0?+(pnl/h.costBasis*100).toFixed(2):null;
     const alloc= totalVal>0&&mkt!=null?+(mkt/totalVal*100).toFixed(2):null;
     const ntrades = trades.filter(t=>t.symbol===h.symbol).length;
-    return {...h, avg, cur, mkt, pnl, pct, alloc, ntrades};
+    // _owner is the display label, not the raw key, so sorting matches what's
+    // actually shown in the column (and reads sensibly for custom persons).
+    const _owner = getPersonLabel(getSymbolOwner(h.symbol));
+    return {...h, avg, cur, mkt, pnl, pct, alloc, ntrades, _owner};
   });
 
   // Filter
@@ -796,7 +799,7 @@ function renderHD(){
   const th=(c,label,sty)=>sortTh(TID,c,label,'renderHD',sty);
   $('hd-body').closest('table').querySelector('thead tr').innerHTML =
     th('symbol','Symbol') +
-    '<th>Owner</th>' +
+    th('_owner','Owner') +
     th('assetType','Type') +
     th('units','Units','text-align:right') +
     th('avg','Avg Cost','text-align:right') +
