@@ -467,12 +467,8 @@ function renderH(){
   if($('cs-cb')) $('cs-cb').textContent = cbSub;
   if($('cs-pos')) $('cs-pos').textContent = viewLabel ? viewLabel+' positions' : 'Open';
 
-  // Highlight cards wrapper to show active filter
+  // Filter-active highlight removed per user preference (was: blue outline on cardsEl).
   const cardsEl = $('portfolio-cards');
-  if(cardsEl){
-    cardsEl.style.outline = portfolioView===0 ? '' : '2px solid var(--blue)';
-    cardsEl.style.borderRadius = portfolioView===0 ? '' : '7px';
-  }
 
   if($('cv')) $('cv').textContent = tv ? n2(tv) : '—';
   if($('cc')) $('cc').textContent = n2(tc);
