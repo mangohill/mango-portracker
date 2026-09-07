@@ -191,7 +191,18 @@ tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--pink);}
 .rtbl-detail-label{ color:var(--text3); white-space:nowrap; }
 
 
-/* ── Corporate Action pills ──────────────────────────────────────── */
+/* ── Value-change flash pulse (Market Value / Cost Basis / P&L) ──── */
+@keyframes flashPos{0%{background:var(--green-dim);box-shadow:0 0 0 1px var(--green) inset}100%{background:transparent;box-shadow:0 0 0 0 transparent inset}}
+@keyframes flashNeg{0%{background:var(--red-dim);box-shadow:0 0 0 1px var(--red) inset}100%{background:transparent;box-shadow:0 0 0 0 transparent inset}}
+@keyframes flashAth{0%{background:var(--gold-dim);box-shadow:0 0 0 1px var(--gold) inset,0 0 22px -4px var(--gold)}100%{background:transparent;box-shadow:0 0 0 0 transparent inset}}
+.card.flash-pos{animation:flashPos 900ms ease-out;}
+.card.flash-neg{animation:flashNeg 900ms ease-out;}
+.card.flash-ath{animation:flashAth 1400ms ease-out;}
+
+/* ── Market Value sparkline ──────────────────────────────────────── */
+.mv-spark-wrap{height:28px;margin-top:9px;pointer-events:none;}
+.mv-spark-wrap canvas{width:100%!important;height:100%!important;}
+
 .ca-pill {
   padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 700;
   cursor: pointer; border: 1px solid var(--border2);

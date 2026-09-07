@@ -470,15 +470,17 @@ function renderH(){
   // Filter-active highlight removed per user preference (was: blue outline on cardsEl).
   const cardsEl = $('portfolio-cards');
 
-  if($('cv')) $('cv').textContent = tv ? n2(tv) : '—';
-  if($('cc')) $('cc').textContent = n2(tc);
+  if($('cv')) animateValue($('cv'), tv || null, {format:v=>n2(v)});
+  if($('cc')) animateValue($('cc'), tc, {format:v=>n2(v)});
   if($('cp')){
-    $('cp').textContent = tpl!=null ? (tpl>=0?'+':'')+n2(tpl) : '—';
     $('cp').className = 'card-value '+(tpl==null?'neu':tpl>=0?'pos':'neg');
+    animateValue($('cp'), tpl, {format:v=>(v>=0?'+':'')+n2(v)});
   }
-  if($('cpp')) $('cpp').textContent = tpp!=null ? (tpp>=0?'+':'')+tpp.toFixed(2)+'%' : '—';
-  if($('cpos')) $('cpos').textContent = viewH.length;
-  if($('ctrd')) $('ctrd').textContent = viewTrades.length;
+  if($('cpp')) animateValue($('cpp'), tpp, {flash:false, format:v=>(v>=0?'+':'')+v.toFixed(2)+'%'});
+  if($('cpos')) animateValue($('cpos'), viewH.length, {flash:false, format:v=>Math.round(v).toString()});
+  if($('ctrd')) animateValue($('ctrd'), viewTrades.length, {flash:false, format:v=>Math.round(v).toString()});
+  if(typeof renderMvSparkline==='function') renderMvSparkline(portfolioView);
+  if(typeof checkAthMilestone==='function') checkAthMilestone(tv||null, portfolioView);
 
   // cpt sub — price loaded count (always all)
   const priceCount = allH.filter(h=>prices[priceSymbol(h.symbol)]!=null).length;
