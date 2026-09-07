@@ -714,6 +714,7 @@ function renderTax(){
     <div style="font-family:var(--mono);font-size:13px;font-weight:600">🧾 TAX ESTIMATE</div>
     <select class="fsm" onchange="taxFY=+this.value;renderTax()">${fyOpts}</select>
     <span style="font-size:11px;color:var(--text3)">Australian tax law · Estimates only · Not financial advice</span>
+    <button class="btn" style="margin-left:auto" onclick="generateEofyPack(${fy})">📦 EOFY Pack</button>
   </div>
 
   <!-- Side by side income inputs -->
