@@ -2207,10 +2207,6 @@ function renderPropCards(){
                        .reduce((s,p)=>s+(+p.weeklyRent||0)*52,0);
   const monthlyRepay= heldProperties.reduce((s,p)=>s+propMetrics(p).repay,0);
 
-  // Portfolio net worth
-  const holdingsVal = calcH().reduce((s,h)=>s+(prices[priceSymbol(h.symbol)]?prices[priceSymbol(h.symbol)]*h.units:0),0);
-  const netWorth    = holdingsVal + totalEquity;
-
   // Debt toggle
   const debtVal   = propDebtNet ? netDebt   : totalDebt;
   const debtLabel = propDebtNet ? 'Net Debt' : 'Total Debt';
@@ -2235,7 +2231,6 @@ function renderPropCards(){
     {l:'Unrealised Gain', v:n2(totalGain),   s:clr(totalGain),   sub:'vs purchase price',      fn:''},
     {l:rentLabel,         v:n2(rentVal),     s:'pos',            sub:rentSub,                  fn:'togglePropRent()'},
     {l:repayLabel,        v:n2(repayVal),    s:'neg',            sub:repaySub,                 fn:'togglePropRepay()'},
-    {l:'Net Worth',       v:n2(netWorth),    s:clr(netWorth),    sub:'Equity + portfolio',     fn:''},
   ];
   $('pw-cards').innerHTML = cards.map(c=>
     `<div class="card"${c.fn?` onclick="${c.fn}" style="cursor:pointer" title="Click to toggle"`:''}>

@@ -191,7 +191,18 @@ tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--pink);}
 .rtbl-detail-label{ color:var(--text3); white-space:nowrap; }
 
 
-/* ── Value-change flash pulse (Market Value / Cost Basis / P&L) ──── */
+/* ── Portfolio Change chips ──────────────────────────────────────── */
+.pfc-chip{position:relative;text-align:center;border-radius:10px;padding:10px 8px 9px;background:var(--surface2);border:1px solid var(--border);transition:border-color .2s;}
+.pfc-chip.pfc-pos{background:var(--green-dim);}
+.pfc-chip.pfc-neg{background:var(--red-dim);}
+.pfc-chip.pfc-best{border-color:var(--green);box-shadow:0 0 0 1px var(--green) inset,0 0 16px -5px var(--green-glow);}
+.pfc-chip.pfc-worst{border-color:var(--red);box-shadow:0 0 0 1px var(--red) inset,0 0 16px -5px var(--red-glow);}
+.pfc-bar-track{height:3px;border-radius:2px;background:var(--border2);margin-top:7px;overflow:hidden;}
+.pfc-bar-fill{height:100%;border-radius:2px;transition:width .6s cubic-bezier(.22,1,.36,1);}
+.pfc-bar-fill.pfc-bar-pos{background:var(--green);}
+.pfc-bar-fill.pfc-bar-neg{background:var(--red);}
+
+
 @keyframes flashPos{0%{background:var(--green-dim);box-shadow:0 0 0 1px var(--green) inset}100%{background:transparent;box-shadow:0 0 0 0 transparent inset}}
 @keyframes flashNeg{0%{background:var(--red-dim);box-shadow:0 0 0 1px var(--red) inset}100%{background:transparent;box-shadow:0 0 0 0 transparent inset}}
 @keyframes flashAth{0%{background:var(--gold-dim);box-shadow:0 0 0 1px var(--gold) inset,0 0 22px -4px var(--gold)}100%{background:transparent;box-shadow:0 0 0 0 transparent inset}}

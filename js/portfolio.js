@@ -1236,36 +1236,50 @@ function renderPortfolioChange(scopeFn, isFiltered){
     result = calcPortfolioChangeBySource(scopeFn, calcPortfolioChangeMWR);
   }
 
+  // Highlight the strongest and weakest period so the row has a takeaway,
+  // not just a wall of equally-weighted numbers. Only marked when there's
+  // real variation to point at.
+  const priced = result.rows.filter(r => r.pct != null);
+  let bestLabel = null, worstLabel = null;
+  if(priced.length > 1){
+    const sorted = [...priced].sort((a,b) => b.pct - a.pct);
+    if(sorted[0].pct !== sorted[sorted.length-1].pct){
+      bestLabel = sorted[0].label;
+      worstLabel = sorted[sorted.length-1].label;
+    }
+  }
+  const maxAbsPct = Math.max(0.01, ...priced.map(r => Math.abs(r.pct)));
+
   $('pf-change-row').innerHTML = result.rows.map(r=>{
     if(r.pct==null){
       const hint = r.reason==='incomplete' ? 'Incomplete prices'
         : r.reason==='no-snapshot' ? 'No history yet'
         : r.reason==='no-converge' ? "Couldn't solve"
         : '';
-      return `<div style="text-align:center">
-        <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
+      return `<div class="pfc-chip">
+        <div style="font-size:10px;color:var(--text3);letter-spacing:.06em;margin-bottom:4px">${r.label}</div>
         <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text3)">—</div>
-        ${hint ? `<div style="font-size:9px;color:var(--text3);margin-top:2px" ${r.detail?`title="${escHtml(r.detail)}"`:''}>${hint}${r.detail?' ⓘ':''}</div>` : ''}
+        ${hint ? `<div style="font-size:9px;color:var(--text3);margin-top:3px" ${r.detail?`title="${escHtml(r.detail)}"`:''}>${hint}${r.detail?' ⓘ':''}</div>` : ''}
       </div>`;
     }
-    const cls = r.pct>=0 ? 'pos' : 'neg';
-    const amtLine = (r.amt!=null)
-      ? `<div class="${cls}" style="font-size:9px;margin-top:2px">${r.amt>=0?'+':''}${n2(r.amt)}</div>`
-      : '';
-    // Raw value at the START of this window (before the % / $ change was
-    // applied to it) — shown so you can independently check the math
-    // yourself: pastValue + amt should always equal today's current value.
-    const pastLine = (r.pastValue!=null)
-      ? `<div style="font-size:9px;margin-top:2px;color:var(--blue)">was ${n2(r.pastValue)}</div>`
+    const isPos = r.pct >= 0;
+    const cls = isPos ? 'pos' : 'neg';
+    const chipMark = r.label===bestLabel ? ' pfc-best' : r.label===worstLabel ? ' pfc-worst' : '';
+    const subLine = (r.amt!=null || r.pastValue!=null)
+      ? `<div style="font-size:9px;margin-top:5px;color:var(--text3)">${r.amt!=null?`<span class="${cls}">${r.amt>=0?'+':''}${n2(r.amt)}</span>`:''}${r.amt!=null&&r.pastValue!=null?' · ':''}${r.pastValue!=null?`was ${n2(r.pastValue)}`:''}</div>`
       : '';
     const partialLine = r.partial
-      ? `<div style="font-size:8px;margin-top:1px;color:var(--gold)" title="${escHtml(r.detail||'Some sources have no data this far back — sum excludes them for this window')}">partial · ${r.coverage} ⓘ</div>`
+      ? `<div style="font-size:8px;margin-top:2px;color:var(--gold)" title="${escHtml(r.detail||'Some sources have no data this far back — sum excludes them for this window')}">partial · ${r.coverage} ⓘ</div>`
       : '';
-    return `<div style="text-align:center">
-      <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">${r.label}</div>
-      <div class="${cls}" style="font-family:var(--mono);font-size:15px;font-weight:600">${r.pct>=0?'+':''}${r.pct.toFixed(2)}%</div>
-      ${amtLine}
-      ${pastLine}
+    const barPct = Math.min(100, Math.abs(r.pct) / maxAbsPct * 100);
+    return `<div class="pfc-chip pfc-${cls}${chipMark}">
+      ${chipMark ? `<div style="position:absolute;top:6px;right:8px;font-size:8px;font-weight:700;letter-spacing:.04em;color:var(--${isPos?'green':'red'})">${r.label===bestLabel?'BEST':'WORST'}</div>` : ''}
+      <div style="font-size:10px;color:var(--text3);letter-spacing:.06em;margin-bottom:4px">${r.label}</div>
+      <div class="${cls}" style="font-family:var(--mono);font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:3px">
+        <span style="font-size:10px">${isPos?'▲':'▼'}</span>${Math.abs(r.pct).toFixed(2)}%
+      </div>
+      <div class="pfc-bar-track"><div class="pfc-bar-fill pfc-bar-${cls}" style="width:${barPct}%"></div></div>
+      ${subLine}
       ${partialLine}
     </div>`;
   }).join('');
