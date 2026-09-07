@@ -10,12 +10,13 @@ function switchTab(name,el){
   refreshAllBrokerSelects();
   if(name==='trades'){ renderT(); setDate(); setCaType('merger'); const cd=$('ca-date');if(cd&&!cd.value)cd.value=new Date().toISOString().slice(0,10); const dd=$('dv-date');if(dd&&!dd.value)dd.value=new Date().toISOString().slice(0,10); }
   if(name==='add'){renderR();setDate();setCaType('merger');const cd=$('ca-date');if(cd&&!cd.value)cd.value=new Date().toISOString().slice(0,10);}
-  if(name==='analytics'){ renderAnalytics(); }
+  if(name==='analytics'){ renderAnalytics(); if(typeof renderBenchmarkSection==='function') renderBenchmarkSection(); }
   if(name==='holdings2'){ renderHD(); }
   if(name==='dividends'){ dvFYFilter='ALL'; renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards(); }
   if(name==='spending'){ initSpending(); }
   if(name==='super'){ renderSuperAccounts(); renderSuperCards(); renderSuperChart(); syncSuperColorPickers(); }
   if(name==='cgt'){ if(typeof renderCGT === 'function') renderCGT(); else console.warn('renderCGT() not available'); }
+  if(name==='networth'){ if(typeof renderNetWorth === 'function') renderNetWorth(); }
   if(name==='property'){ renderProperties(); renderPropCards(); if($('pf-splits-wrap')&&!$('pf-splits-wrap').children.length) renderSplitRows([]); if(typeof togglePropDRVisibility==='function') togglePropDRVisibility(); }
   if(name==='settings'){ renderPrices(); loadCFUrl(); syncInitUI(); renderOwnershipGrid(); }
   if(name==='tax'){ renderTax(); }
@@ -250,6 +251,7 @@ async function refreshPrices(){
 
   syncHoldingsToWorker();
   backfillPortfolioHistory();
+  if(typeof snapshotBenchmarks==='function') snapshotBenchmarks();
 }
 
 // ── DAILY 5PM AUTO-SNAPSHOT (via Cloudflare Worker Cron Trigger) ──────
