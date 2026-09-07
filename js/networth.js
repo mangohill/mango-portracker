@@ -20,6 +20,22 @@ function nwPropertyEquity(){
   return properties.filter(p => !p.sold).reduce((s,p) => s + propMetrics(p).equity, 0);
 }
 
+// Property's real annual cash effect: rent − running costs (rates,
+// insurance, maintenance) − mortgage repayments (P&I, i.e. what actually
+// leaves your account each month). Deliberately NOT equity/value — a
+// property can't be spent, only lived in or sold, so it has no place
+// compounding in a liquid FIRE balance. This number is what actually
+// helps or hurts your ability to invest elsewhere; it's negative for a
+// typical negatively-geared investment property, which is realistic.
+function nwPropertyCashFlow(){
+  if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
+  return properties.filter(p => !p.sold).reduce((s,p) => {
+    const m = propMetrics(p);
+    const expenses = +p.annualExpenses || 0;
+    return s + (m.annualRent - expenses - m.repay);
+  }, 0);
+}
+
 function nwSuperBalance(){
   if(typeof superAccounts === 'undefined') return 0;
   return superAccounts.reduce((s,a) => s + (+a.balance || 0), 0);
@@ -86,12 +102,21 @@ function renderNetWorth(){
     </div>` : `<div style="color:var(--text3);font-size:12px">No portfolio, property, or super data yet.</div>`;
 
   // ── FIRE projection ──────────────────────────────────────────────
+  // Starting balance is liquid capital only (Portfolio + Super) —
+  // property equity is deliberately excluded, since it can't be drawn
+  // down like an investment balance. Its real effect on FIRE timing
+  // comes through as cash flow instead: positive (rent covers costs)
+  // speeds things up, negative (negatively geared) slows them down.
+  const liquidStart = portfolioVal + superBal;
+  const propertyCF = nwPropertyCashFlow();
+  const effectiveAnnualContrib = monthlyContrib*12 + propertyCF;
+
   const years = [], balances = [];
-  let bal = netWorth, y = 0;
+  let bal = liquidStart, y = 0;
   const rate = growthPct/100;
   const maxYears = 60;
   while(bal < fireNumber && y < maxYears){
-    bal = bal*(1+rate) + monthlyContrib*12;
+    bal = bal*(1+rate) + effectiveAnnualContrib;
     y++;
     years.push(y); balances.push(bal);
   }
@@ -121,8 +146,11 @@ function renderNetWorth(){
         </div>
         <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
           <div class="card"><div class="card-label">FIRE Number</div><div class="card-value neu">${n2(fireNumber)}</div><div class="card-sub">25× annual spend</div></div>
-          <div class="card"><div class="card-label">Time to FIRE</div><div class="card-value ${reached?'pos':'neu'}">${fireLabel}</div><div class="card-sub">At current net worth + contributions</div></div>
+          <div class="card"><div class="card-label">Time to FIRE</div><div class="card-value ${reached?'pos':'neu'}">${fireLabel}</div><div class="card-sub">Liquid balance + contributions</div></div>
+          <div class="card"><div class="card-label">Liquid Starting Balance</div><div class="card-value neu">${n2(liquidStart)}</div><div class="card-sub">Portfolio + Super only</div></div>
+          <div class="card"><div class="card-label">Property Cash Flow</div><div class="card-value ${propertyCF>=0?'pos':'neg'}">${propertyCF>=0?'+':''}${n2(propertyCF)}/yr</div><div class="card-sub">Rent − outgoings − mortgage</div></div>
         </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Property equity (${n2(propertyEq)}) isn't counted in the liquid balance above — it can't be drawn down like an investment. Instead, its actual annual cash effect (${propertyCF>=0?'currently boosting':'currently reducing'} your yearly contribution by ${n2(Math.abs(propertyCF))}) is folded into the projection.</div>
         <div style="height:220px"><canvas id="nw-fire-chart"></canvas></div>
         <div style="font-size:11px;color:var(--text3);margin-top:8px">Rough compound-growth estimate only — ignores tax, fees, sequence-of-returns risk, and inflation on the spend figure. Not financial advice.</div>
       </div>
@@ -137,7 +165,7 @@ function renderNetWorth(){
       data: {
         labels: ['Now', ...years.map(y=>'Yr '+y)],
         datasets: [
-          { label:'Projected net worth', data:[netWorth, ...balances], borderColor:'#8b5cf6', backgroundColor:'rgba(139,92,246,0.12)', fill:true, tension:0.25, pointRadius:0 },
+          { label:'Projected liquid balance', data:[liquidStart, ...balances], borderColor:'#8b5cf6', backgroundColor:'rgba(139,92,246,0.12)', fill:true, tension:0.25, pointRadius:0 },
           { label:'FIRE number', data:Array(years.length+1).fill(fireNumber), borderColor:'#fbbf24', borderDash:[6,4], pointRadius:0 },
         ],
       },
