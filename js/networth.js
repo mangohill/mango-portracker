@@ -20,20 +20,19 @@ function nwPropertyEquity(){
   return properties.filter(p => !p.sold).reduce((s,p) => s + propMetrics(p).equity, 0);
 }
 
-// Property's real annual cash effect: rent − running costs (rates,
-// insurance, maintenance) − mortgage repayments (P&I, i.e. what actually
-// leaves your account each month). Deliberately NOT equity/value — a
-// property can't be spent, only lived in or sold, so it has no place
-// compounding in a liquid FIRE balance. This number is what actually
-// helps or hurts your ability to invest elsewhere; it's negative for a
-// typical negatively-geared investment property, which is realistic.
+// Property's real annual cash effect, using the exact same "Net Annual
+// Income" figure already shown per-property in the Property dashboard
+// (annualRent − expenses − annualInterest) — not a separately-derived
+// number, so this always matches what you see there. Only counts actual
+// rentals (propType !== 'ppor'), same as the dashboard's own rental
+// aggregates; a home you live in has no rental income to net off.
+// Deliberately interest-only, not full P&I repayments: principal paid
+// down builds equity (already excluded from the liquid FIRE balance
+// below), so folding it in again here would double-count it.
 function nwPropertyCashFlow(){
   if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
-  return properties.filter(p => !p.sold).reduce((s,p) => {
-    const m = propMetrics(p);
-    const expenses = +p.annualExpenses || 0;
-    return s + (m.annualRent - expenses - m.repay);
-  }, 0);
+  return properties.filter(p => !p.sold && p.propType !== 'ppor')
+    .reduce((s,p) => s + propMetrics(p).annualNetRent, 0);
 }
 
 function nwSuperBalance(){
@@ -148,9 +147,9 @@ function renderNetWorth(){
           <div class="card"><div class="card-label">FIRE Number</div><div class="card-value neu">${n2(fireNumber)}</div><div class="card-sub">25× annual spend</div></div>
           <div class="card"><div class="card-label">Time to FIRE</div><div class="card-value ${reached?'pos':'neu'}">${fireLabel}</div><div class="card-sub">Liquid balance + contributions</div></div>
           <div class="card"><div class="card-label">Liquid Starting Balance</div><div class="card-value neu">${n2(liquidStart)}</div><div class="card-sub">Portfolio + Super only</div></div>
-          <div class="card"><div class="card-label">Property Cash Flow</div><div class="card-value ${propertyCF>=0?'pos':'neg'}">${propertyCF>=0?'+':''}${n2(propertyCF)}/yr</div><div class="card-sub">Rent − outgoings − mortgage</div></div>
+          <div class="card"><div class="card-label">Net Rental Income</div><div class="card-value ${propertyCF>=0?'pos':'neg'}">${propertyCF>=0?'+':''}${n2(propertyCF)}/yr</div><div class="card-sub">Sum of each rental's Net Annual Income</div></div>
         </div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Property equity (${n2(propertyEq)}) isn't counted in the liquid balance above — it can't be drawn down like an investment. Instead, its actual annual cash effect (${propertyCF>=0?'currently boosting':'currently reducing'} your yearly contribution by ${n2(Math.abs(propertyCF))}) is folded into the projection.</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Property equity (${n2(propertyEq)}) isn't counted in the liquid balance above — it can't be drawn down like an investment. Instead, its Net Rental Income (same figure shown per-property in the Property tab — rent minus expenses minus interest, excluding your own home) ${propertyCF>=0?'is currently boosting':'is currently reducing'} your yearly contribution by ${n2(Math.abs(propertyCF))}.</div>
         <div style="height:220px"><canvas id="nw-fire-chart"></canvas></div>
         <div style="font-size:11px;color:var(--text3);margin-top:8px">Rough compound-growth estimate only — ignores tax, fees, sequence-of-returns risk, and inflation on the spend figure. Not financial advice.</div>
       </div>
