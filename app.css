@@ -161,11 +161,20 @@ tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--pink);}
    Force exactly 5 equal columns in the tablet range so nothing wraps,
    with slightly smaller type so the numbers still fit each column. ── */
 @media(min-width:681px) and (max-width:1024px){
-  #portfolio-cards, #div-cards{ grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
-  #portfolio-cards .card, #div-cards .card{ padding:12px 10px; }
-  #portfolio-cards .card-value, #div-cards .card-value{ font-size:16px; }
-  #portfolio-cards .card-label, #div-cards .card-label{ font-size:9px; }
-  #portfolio-cards .card-sub, #div-cards .card-sub{ font-size:10px; }
+  #div-cards{ grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
+  #div-cards .card{ padding:12px 10px; }
+  #div-cards .card-value{ font-size:16px; }
+  #div-cards .card-label{ font-size:9px; }
+  #div-cards .card-sub{ font-size:10px; }
+
+  /* #portfolio-cards is now a .hero-wrap (hero card + a secondary 4-card
+     row), not itself a flat 5-card grid — only the secondary row needs the
+     same tablet-width squeeze treatment as Dividends' cards. */
+  #portfolio-cards .cards{ grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+  #portfolio-cards .cards .card{ padding:12px 10px; }
+  #portfolio-cards .cards .card-value{ font-size:16px; }
+  #portfolio-cards .cards .card-label{ font-size:9px; }
+  #portfolio-cards .cards .card-sub{ font-size:10px; }
 
   /* Holdings Detail filter bar — 6 controls (Search, Sort, Show, Type,
      Owner, Source) overflow one flex row at tablet widths, leaving
@@ -223,3 +232,61 @@ tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--pink);}
 .ca-pill.active {
   border-color: transparent; background: var(--grad); color: #fff;
 }
+/* ── Hero readout — the one card that gets to be biggest on the page.
+   Everything else (secondary stat cards, tables, badges) stays at the
+   normal .card scale so this is the only place the eye lands first. ── */
+.hero-wrap{ display:flex; flex-direction:column; gap:12px; margin-bottom:24px; }
+.hero-card{ padding:22px 24px; }
+.hero-card::before{ background:var(--grad); height:3px; }
+.hero-card .card-value{ font-size:38px; }
+@media(max-width:680px){ .hero-card .card-value{ font-size:30px; } }
+
+/* ── Net Worth Attitude Indicator ──────────────────────────────────
+   Real ADI behaviour: the aircraft symbol is permanently fixed dead
+   center (no motion, ever) — only the horizon moves. Roll (1D% change)
+   rotates the horizon; pitch (5D% change) shifts it vertically so the
+   correct %-labeled ladder line lands on the fixed aircraft. The bezel
+   arrow rotates with roll in the SAME direction as the aircraft would
+   bank, while the horizon rotates OPPOSITE by the same magnitude — this
+   is the classic ADI illusion and was confirmed against a real diagram.
+   1% = 1 degree of rotation / 6px of vertical shift, directly, with no
+   translation multiplier — the number you see on the ladder IS the
+   number driving it.
+   Both .adi-horizon and .adi-pointer use a CSS *transition* (not a
+   one-shot @keyframes animation) on their transform, driven by inline
+   --hroll/--hy/--rollpct custom properties set from JS. This means the
+   dial smoothly settles on first load (transitioning from the 0/0
+   authored default) AND smoothly re-settles on every later data
+   refresh (price refresh, filter change) — a one-shot keyframe would
+   only ever play once and freeze on subsequent updates. ────────────── */
+.adi-hero{ display:flex; align-items:center; gap:20px; flex-wrap:wrap; justify-content:space-between; }
+.adi-readout{ flex:1; min-width:180px; }
+.adi-axes{ display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; }
+.adi-axis{ font-family:var(--mono); font-size:11px; color:var(--text3); }
+.adi-axis b{ color:var(--text2); }
+.adi-axis b.pos{ color:var(--green); text-shadow:0 0 8px var(--green-glow); }
+.adi-axis b.neg{ color:var(--red); text-shadow:0 0 8px var(--red-glow); }
+.adi-dial-wrap{ flex-shrink:0; }
+.adi-svg{ width:180px; height:180px; display:block; }
+@media(min-width:480px){ .adi-svg{ width:220px; height:220px; } }
+
+.adi-horizon{
+  transform-box: view-box; transform-origin: 150px 150px;
+  transform: translate(0px, var(--hy, 0px)) rotate(var(--hroll, 0deg));
+  transition: transform 1.1s cubic-bezier(.22,1.4,.36,1);
+}
+.adi-pointer{
+  transform-box: view-box; transform-origin: 150px 150px;
+  transform: rotate(var(--rollpct, 0deg));
+  transition: transform 1.1s cubic-bezier(.22,1.4,.36,1);
+}
+.adi-sweep-ring{
+  transform-box: view-box; transform-origin: 150px 150px;
+  animation: adiSweep 7s linear infinite;
+}
+@keyframes adiSweep{ from{ stroke-dasharray:40 700; stroke-dashoffset:0; } to{ stroke-dasharray:40 700; stroke-dashoffset:-740; } }
+@media(prefers-reduced-motion: reduce){
+  .adi-horizon,.adi-pointer{ transition:none; }
+  .adi-sweep-ring{ animation:none; }
+}
+@media(max-width:479px){ .adi-hero{ flex-direction:column; align-items:center; text-align:center; } .adi-readout{ width:100%; } .adi-axes{ justify-content:center; } }
