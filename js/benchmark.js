@@ -210,7 +210,10 @@ function renderBenchmarkSection(){
   }
 
   el.innerHTML = `
-    <div style="height:240px"><canvas id="bm-chart"></canvas></div>
+    <div style="height:240px;position:relative">
+      <canvas id="bm-chart"></canvas>
+      <div id="bm-empty-msg" style="display:none;color:var(--text3);font-size:12px;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;padding:0 20px"></div>
+    </div>
     <div id="bm-slider-wrap" style="display:flex;align-items:center;gap:10px;margin-top:12px">
       <input type="range" id="bm-slider" class="bm-range" min="0" max="${dates.length-1}" step="1" value="${dates.length-1}" style="flex:1">
     </div>
@@ -220,6 +223,7 @@ function renderBenchmarkSection(){
   const sliderWrap = document.getElementById('bm-slider-wrap');
   const slider = document.getElementById('bm-slider');
   const label = document.getElementById('bm-window-label');
+  const emptyMsg = document.getElementById('bm-empty-msg');
   if(!hasFullWindow){ sliderWrap.style.display = 'none'; }
 
   if(_bmChart){ _bmChart.destroy(); _bmChart = null; }
@@ -230,14 +234,28 @@ function renderBenchmarkSection(){
     const startIdx = hasFullWindow ? windowStartIdx(endIdx) : 0;
     const winDates = dates.slice(startIdx, endIdx+1);
 
+    label.textContent = winDates.length > 1 ? `${winDates[0]}  →  ${winDates[winDates.length-1]}` : (winDates[0] || '');
+
+    // A window can legitimately land on just 1 point — a real gap of 12+
+    // months with no other "complete" day in between, most often right
+    // after the very first complete day the app has. A single point can't
+    // be drawn as a line (Chart.js just renders nothing), so show an
+    // explicit message instead of silently leaving a blank canvas.
+    if(winDates.length < 2){
+      if(_bmChart){ _bmChart.destroy(); _bmChart = null; }
+      ctx.style.display = 'none';
+      emptyMsg.style.display = 'flex';
+      emptyMsg.textContent = `Only one complete day (${winDates[0]||'—'}) in this window — try dragging to a different position.`;
+      return;
+    }
+    ctx.style.display = '';
+    emptyMsg.style.display = 'none';
     const pfBase = pfRaw[winDates[0]];
     const pfSeries = winDates.map(d => pfBase ? (pfRaw[d]/pfBase*100) : null);
     const stwBase = firstAvailable(stwRaw, winDates);
     const btcBase = firstAvailable(btcRaw, winDates);
     const stwSeries = stwBase != null ? winDates.map(d => stwRaw[d] != null ? (stwRaw[d]/stwBase*100) : null) : null;
     const btcSeries = btcBase != null ? winDates.map(d => btcRaw[d] != null ? (btcRaw[d]/btcBase*100) : null) : null;
-
-    label.textContent = winDates.length > 1 ? `${winDates[0]}  →  ${winDates[winDates.length-1]}` : winDates[0];
 
     const datasets = [{ label:'Portfolio', data:pfSeries, borderColor:'#8b5cf6', backgroundColor:'transparent', pointRadius:0, tension:0.2 }];
     if(stwSeries) datasets.push({ label:'ASX 200 (STW)', data:stwSeries, borderColor:'#22d3ee', backgroundColor:'transparent', pointRadius:0, tension:0.2 });
