@@ -219,15 +219,38 @@ function mkChart(id, cfg){
   return charts[id];
 }
 
+// Vertical fade from a solid-ish tint at the line down to transparent,
+// like the FIRE and sparkline charts elsewhere in the app — replaces the
+// old flat single-alpha fill under the combined-view line.
+function mkGradient(canvasId, hexColor){
+  const canvas = $(canvasId);
+  if(!canvas) return hexColor+'22';
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, canvas.clientHeight || 300);
+  g.addColorStop(0, hexColor+'55');
+  g.addColorStop(1, hexColor+'02');
+  return g;
+}
+
 // ── CHART DEFAULTS ────────────────────────────────────────────────────
-Chart.defaults.color = '#87a598';
-Chart.defaults.borderColor = '#1c2b23';
+// Previously hardcoded to the very first dark-green-terminal theme
+// (#87a598 text, #1c2b23 borders) from before the app's visual redesign
+// — completely disconnected from the current palette. Read the live CSS
+// variables instead so charts always match whatever theme is active.
+function cssVar(name, fallback){
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+Chart.defaults.color = cssVar('--text3', '#9a9ea6');
+Chart.defaults.borderColor = cssVar('--border', '#26282c');
 if(typeof Chart !== 'undefined' && Chart.defaults && Chart.defaults.font){
-  Chart.defaults.font.family = "'IBM Plex Mono','Menlo','Consolas','Courier New',monospace";
+  Chart.defaults.font.family = "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
   Chart.defaults.font.size = 11;
 }
 
-const PALETTE = ['#38c6ff','#29ffa0','#ffb000','#ff4d4d','#b98bff','#00e5c7','#ff8a5c','#ffe066','#5ee6b0','#4d8fd6'];
+// Matches the app's current vibrant accent set (violet/pink/cyan/amber)
+// plus the badge hues, instead of the old theme's neon green/blue/orange.
+const PALETTE = ['#8b5cf6','#22d3ee','#fbbf24','#ec4899','#34d399','#60a5fa','#fb923c','#a78bfa','#f472b6','#2dd4bf'];
 
 // ── DATE HELPERS ──────────────────────────────────────────────────────
 function filterByPeriod(arr, period){
@@ -398,9 +421,9 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
     const data   = h.map(x=>+(prices[priceSymbol(x.symbol)]*x.units).toFixed(2));
     mkChart('an-main-chart',{
       type:'doughnut',
-      data:{ labels, datasets:[{data, backgroundColor:PALETTE, borderColor:'#0e1512', borderWidth:2}] },
+      data:{ labels, datasets:[{data, backgroundColor:PALETTE, borderColor:cssVar('--surface','#151619'), borderWidth:2}] },
       options:{ responsive:true, maintainAspectRatio:false,
-        plugins:{ legend:{ position:'right', labels:{color:'#8899aa',font:{size:11}} } } }
+        plugins:{ legend:{ position:'right', labels:{color:cssVar('--text2','#9a9ea6'),font:{size:11}} } } }
     });
     return;
   }
@@ -419,13 +442,13 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
     mkChart('an-main-chart',{
       type:'bar',
       data:{ labels, datasets:[
-        {label:'Buy',  data:labels.map(k=>+monthly[k].buy.toFixed(2)),  backgroundColor:'rgba(41,255,160,0.6)', borderColor:'#29ffa0', borderWidth:1},
-        {label:'Sell', data:labels.map(k=>+monthly[k].sell.toFixed(2)), backgroundColor:'rgba(255,77,77,0.6)',  borderColor:'#ff4d4d', borderWidth:1},
+        {label:'Buy',  data:labels.map(k=>+monthly[k].buy.toFixed(2)),  backgroundColor:'rgba(34,197,94,0.55)', borderColor:cssVar('--green','#22c55e'), borderWidth:1, borderRadius:3},
+        {label:'Sell', data:labels.map(k=>+monthly[k].sell.toFixed(2)), backgroundColor:'rgba(240,72,63,0.55)', borderColor:cssVar('--red','#f0483f'),  borderWidth:1, borderRadius:3},
       ]},
       options:{ responsive:true, maintainAspectRatio:false, scales:{
-        x:{ticks:{color:'#4a5568'}},
-        y:{ticks:{color:'#4a5568', callback:v=>'$'+v.toLocaleString()}}
-      }, plugins:{legend:{labels:{color:'#8899aa'}}} }
+        x:{ticks:{color:cssVar('--text3','#65686f')}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')}},
+        y:{ticks:{color:cssVar('--text3','#65686f'), callback:v=>'$'+v.toLocaleString()}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')}}
+      }, plugins:{legend:{labels:{color:cssVar('--text2','#9a9ea6')}}} }
     });
     return;
   }
@@ -536,9 +559,12 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
     return {
       label: g, data,
       borderColor: PALETTE[i%PALETTE.length],
-      backgroundColor: PALETTE[i%PALETTE.length]+'22',
+      backgroundColor: groupBy==='combined' ? mkGradient('an-main-chart', PALETTE[i%PALETTE.length]) : PALETTE[i%PALETTE.length]+'22',
       borderWidth: 2, fill: groupBy==='combined', tension: 0.3,
       pointRadius: allDates.length>24?0:3,
+      pointBackgroundColor: PALETTE[i%PALETTE.length],
+      pointBorderColor: cssVar('--surface','#151619'),
+      pointHoverRadius: 5,
     };
   });
 
@@ -576,14 +602,64 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
     options:{ responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
       scales:{
-        x:{ ticks:{color:'#4a5568', maxTicksLimit:12} },
-        y:{ ticks:{color:'#4a5568', callback:v=>'$'+v.toLocaleString()}, grid:{color:'#1c2b23'} }
+        x:{ ticks:{color:cssVar('--text3','#65686f'), maxTicksLimit:12}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')} },
+        y:{ ticks:{color:cssVar('--text3','#65686f'), callback:v=>'$'+v.toLocaleString()}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')} }
       },
       plugins:{ legend:{display:false},
-        tooltip:{ callbacks:{ label:ctx=>' '+ctx.dataset.label+': $'+ctx.parsed.y.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) } }
+        tooltip:{
+          backgroundColor: cssVar('--surface2','#1e2024'),
+          borderColor: cssVar('--border2','#33363b'), borderWidth:1,
+          titleColor: cssVar('--text','#f2f3f5'), bodyColor: cssVar('--text2','#9ca0a8'),
+          padding:10, boxPadding:4,
+          callbacks:{ label:ctx=>' '+ctx.dataset.label+': $'+ctx.parsed.y.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}) }
+        }
       }
     }
   });
+
+  renderAnInsights(chartType, groups, datasets, allDates);
+}
+
+// ── Insights strip ────────────────────────────────────────────────────
+// Turns the same series already drawn on the chart into three plain-
+// English takeaways, so the chart isn't the only way to extract meaning
+// from it — reuses the "All"/combined series when present, otherwise
+// the first visible group.
+function renderAnInsights(chartType, groups, datasets, allDates){
+  const el = $('an-insights');
+  if(!el) return;
+  if(chartType==='alloc' || chartType==='trades' || !datasets.length || allDates.length<2){
+    el.style.display = 'none';
+    return;
+  }
+  const series = datasets[0].data;
+  const first = series.find(v=>v!=null), last = [...series].reverse().find(v=>v!=null);
+  if(first==null || last==null){ el.style.display='none'; return; }
+
+  const totalChange = last - first;
+  const totalPct = first!==0 ? (totalChange/Math.abs(first)*100) : null;
+
+  // Best/worst single-month MOVE (delta between consecutive points), not
+  // the raw level — that's what's actually interesting month to month.
+  let bestIdx=-1, worstIdx=-1, bestDelta=-Infinity, worstDelta=Infinity;
+  for(let i=1;i<series.length;i++){
+    if(series[i]==null || series[i-1]==null) continue;
+    const d = series[i]-series[i-1];
+    if(d>bestDelta){ bestDelta=d; bestIdx=i; }
+    if(d<worstDelta){ worstDelta=d; worstIdx=i; }
+  }
+
+  const fmtMoney = v => (v>=0?'+':'−')+'$'+Math.abs(v).toLocaleString('en-AU',{maximumFractionDigits:0});
+  const label = chartType==='pnl' ? 'Total P&L change' : chartType==='cost' ? 'Total cost change' : 'Total change';
+
+  const chips = [
+    `<div><div style="font-size:10px;color:var(--text3)">${label}</div><div style="font-family:var(--mono);font-weight:700;font-size:14px" class="${totalChange>=0?'pos':'neg'}">${fmtMoney(totalChange)}${totalPct!=null?` (${totalPct>=0?'+':''}${totalPct.toFixed(1)}%)`:''}</div></div>`,
+  ];
+  if(bestIdx>0) chips.push(`<div><div style="font-size:10px;color:var(--text3)">Best month</div><div style="font-family:var(--mono);font-weight:700;font-size:14px" class="pos">${allDates[bestIdx]} · ${fmtMoney(bestDelta)}</div></div>`);
+  if(worstIdx>0) chips.push(`<div><div style="font-size:10px;color:var(--text3)">Worst month</div><div style="font-family:var(--mono);font-weight:700;font-size:14px" class="neg">${allDates[worstIdx]} · ${fmtMoney(worstDelta)}</div></div>`);
+
+  el.style.display = 'flex';
+  el.innerHTML = chips.join('');
 }
 
 function renderAllocChart(holdings){
@@ -594,13 +670,14 @@ function renderAllocChart(holdings){
   });
   const labels = Object.keys(byType);
   const data   = labels.map(k=>+byType[k].toFixed(2));
-  const colors = {crypto:'#ffb000', stock:'#38c6ff', etf:'#b47bff'};
+  const colors = {crypto:'#fbbf24', stock:'#22d3ee', etf:'#a78bfa'};
   mkChart('an-alloc-chart',{
     type:'doughnut',
-    data:{ labels, datasets:[{data, backgroundColor:labels.map(l=>colors[l]||PALETTE[0]), borderColor:'#0e1512', borderWidth:2}] },
+    data:{ labels, datasets:[{data, backgroundColor:labels.map(l=>colors[l]||PALETTE[0]), borderColor:cssVar('--surface','#151619'), borderWidth:2}] },
     options:{ responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom', labels:{color:'#8899aa',font:{size:11}}},
-        tooltip:{ callbacks:{ label:ctx=>' '+ctx.label+': $'+ctx.parsed.toLocaleString('en-AU',{minimumFractionDigits:2}) } }
+      plugins:{ legend:{position:'bottom', labels:{color:cssVar('--text2','#9a9ea6'),font:{size:11}}},
+        tooltip:{ backgroundColor:cssVar('--surface2','#1e2024'), borderColor:cssVar('--border2','#33363b'), borderWidth:1, titleColor:cssVar('--text','#f2f3f5'), bodyColor:cssVar('--text2','#9ca0a8'),
+          callbacks:{ label:ctx=>' '+ctx.label+': $'+ctx.parsed.toLocaleString('en-AU',{minimumFractionDigits:2}) } }
       }
     }
   });
@@ -619,15 +696,15 @@ function renderAnnualChart(){
   mkChart('an-annual-chart',{
     type:'bar',
     data:{ labels:years, datasets:[
-      {label:'Cumulative Invested', data:invested, backgroundColor:'rgba(56,198,255,0.5)', borderColor:'#38c6ff', borderWidth:1, yAxisID:'y'},
-      {label:'Dividends (year)',    data:divByYear, backgroundColor:'rgba(41,255,160,0.7)', borderColor:'#29ffa0', borderWidth:1, yAxisID:'y'},
+      {label:'Cumulative Invested', data:invested, backgroundColor:'rgba(139,92,246,0.45)', borderColor:cssVar('--violet','#8b5cf6'), borderWidth:1, borderRadius:3, yAxisID:'y'},
+      {label:'Dividends (year)',    data:divByYear, backgroundColor:'rgba(34,197,94,0.55)', borderColor:cssVar('--green','#22c55e'), borderWidth:1, borderRadius:3, yAxisID:'y'},
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       scales:{
-        x:{ticks:{color:'#4a5568'}},
-        y:{ticks:{color:'#4a5568', callback:v=>'$'+v.toLocaleString()}, grid:{color:'#1c2b23'}}
+        x:{ticks:{color:cssVar('--text3','#65686f')}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')}},
+        y:{ticks:{color:cssVar('--text3','#65686f'), callback:v=>'$'+v.toLocaleString()}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')}}
       },
-      plugins:{legend:{labels:{color:'#8899aa'}}}
+      plugins:{legend:{labels:{color:cssVar('--text2','#9a9ea6')}}}
     }
   });
 }
