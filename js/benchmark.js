@@ -8,10 +8,20 @@
 //   • BTC-AUD — via the same CoinGecko endpoint already used for crypto
 //     holdings, so no worker dependency for this half.
 //
-// Like the existing portfolio-value history, this only starts recording
-// from the day it's added — there's no way to backfill benchmark prices
-// for dates before this feature existed, so don't expect history before
-// today. Storage: localStorage key pt_benchmarks, {date: {stw, btc}}.
+// Two ways benchmark days get filled in:
+//   1. snapshotBenchmarks() — an immediate client-side fetch, used to show
+//      today's value right away without waiting on the cron/backfill.
+//   2. backfillBenchmarkHistory() below — pulls whatever the Worker's 5pm
+//      Cron Trigger recorded for STW.AX/bitcoin on days you never opened
+//      the app, from the same ?priceHistory=1 endpoint and KV blob that
+//      backfillPortfolioHistory() (prices.js) already reads. The Worker's
+//      cron and full-history backfill now always include STW/bitcoin
+//      (see BENCHMARK_ASX_SYMS/BENCHMARK_CRYPTO_IDS in the worker code),
+//      independent of whether you actually hold them — so a month away
+//      from the app no longer leaves a gap in this chart, and running
+//      Settings → RUN BACKFILL also pulls STW/BTC's full history back to
+//      2018, the same as any real holding.
+// Storage: localStorage key pt_benchmarks, {date: {stw, btc}}.
 
 let benchmarkHistory = (()=>{
   try{ return JSON.parse(localStorage.getItem('pt_benchmarks')||'{}'); }
@@ -43,6 +53,59 @@ async function snapshotBenchmarks(){
   saveBenchmarkHistory();
 }
 
+// ── Backfill missed benchmark days ────────────────────────────────────
+// Same shape as backfillPortfolioHistory() in prices.js: ask the Worker
+// for everything it has recorded since the day after our latest known
+// benchmark date, and fill in whatever comes back. Because the Worker's
+// cron/backfill now always fetch STW.AX + bitcoin (regardless of your
+// actual holdings), this recovers every day you didn't have the app open
+// — not just a start/end comparison. Throttled to once per calendar day
+// (same guard style as the portfolio backfill); pass forceSince to bypass
+// it, e.g. after a manual full backfill.
+async function backfillBenchmarkHistory(forceSince){
+  const workerURL = typeof getWorkerURL === 'function' ? getWorkerURL() : (localStorage.getItem('cf_worker_url')||'');
+  if(!workerURL) return;
+
+  const todayStr = typeof localDateStr === 'function' ? localDateStr() : new Date().toISOString().slice(0,10);
+  if(!forceSince && localStorage.getItem('pt_bm_backfill_date') === todayStr) return;
+
+  const knownDates = Object.keys(benchmarkHistory).sort();
+  let since = forceSince || '1970-01-01';
+  if(!forceSince && knownDates.length){
+    const dayAfterLast = new Date(knownDates[knownDates.length-1]+'T00:00:00');
+    dayAfterLast.setDate(dayAfterLast.getDate()+1);
+    since = dayAfterLast.toISOString().slice(0,10);
+  }
+
+  let history;
+  try{
+    const r = await fetch(`${workerURL}?priceHistory=1&since=${since}`);
+    if(!r.ok) return;
+    history = await r.json();
+  }catch(e){ console.warn('Benchmark backfill fetch failed:', e); return; }
+
+  let filled = 0;
+  for(const dateKey of Object.keys(history)){
+    const dayPrices = history[dateKey];
+    if(!dayPrices || typeof dayPrices !== 'object') continue;
+    const stw = dayPrices['STW.AX'];
+    const btc = dayPrices['bitcoin'];
+    if(stw == null && btc == null) continue;
+    benchmarkHistory[dateKey] = {
+      ...(benchmarkHistory[dateKey]||{}),
+      ...(stw!=null ? {stw:+stw} : {}),
+      ...(btc!=null ? {btc:+btc} : {}),
+    };
+    filled++;
+  }
+
+  if(filled){
+    saveBenchmarkHistory();
+    if(typeof renderBenchmarkSection === 'function') renderBenchmarkSection();
+  }
+  localStorage.setItem('pt_bm_backfill_date', todayStr);
+}
+
 let _bmChart = null;
 function renderBenchmarkSection(){
   const el = document.getElementById('bm-body');
@@ -51,8 +114,10 @@ function renderBenchmarkSection(){
   const bmDates = Object.keys(benchmarkHistory).sort();
   if(bmDates.length < 2){
     el.innerHTML = `<div style="color:var(--text3);font-size:12px">
-      Tracking starts from your next price refresh — come back after a couple of days to see the comparison
-      (${bmDates.length===0?'no days recorded yet':'1 day recorded so far'}).
+      Not enough benchmark history yet to chart a comparison
+      (${bmDates.length===0?'no days recorded yet':'1 day recorded so far'}) —
+      it fills in from the Worker's daily 5pm snapshot even on days you don't open the app,
+      so this should catch up on its own soon.
     </div>`;
     return;
   }

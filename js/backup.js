@@ -665,6 +665,14 @@ const WORKER_CODE = [
   "const DAILY_SINCE   = \"2025-07-01\";",
   "const HISTORY_START = \"2018-01-01\";",
   "",
+  "// ── Benchmarks — always fetched at 5pm and always included in a full",
+  "// backfill, independent of what's actually held. This is what makes",
+  "// benchmark.js's ASX 200 (STW) / BTC comparison chart resilient to",
+  "// missed logins: the cron and backfill below no longer skip these just",
+  "// because you don't personally hold STW or bitcoin.",
+  "const BENCHMARK_ASX_SYMS   = [\"STW.AX\"];",
+  "const BENCHMARK_CRYPTO_IDS = [\"bitcoin\"];",
+  "",
   "// ── Shared: fetch a single ASX/Yahoo price ────────────────────────────",
   "async function fetchYahooPrice(sym) {",
   "  try {",
@@ -702,8 +710,12 @@ const WORKER_CODE = [
   "    env.PT_KV.get('held:asx'),",
   "    env.PT_KV.get('held:crypto'),",
   "  ]);",
-  "  const asxSyms   = heldAsxRaw    ? JSON.parse(heldAsxRaw)    : [];",
-  "  const cryptoIds = heldCryptoRaw ? JSON.parse(heldCryptoRaw) : [];",
+  "  const heldAsx    = heldAsxRaw    ? JSON.parse(heldAsxRaw)    : [];",
+  "  const heldCrypto = heldCryptoRaw ? JSON.parse(heldCryptoRaw) : [];",
+  "  // Union with the benchmark set so STW/BTC get a price recorded every",
+  "  // 5pm even on days/portfolios where you don't actually hold them.",
+  "  const asxSyms   = [...new Set([...heldAsx,    ...BENCHMARK_ASX_SYMS])];",
+  "  const cryptoIds = [...new Set([...heldCrypto, ...BENCHMARK_CRYPTO_IDS])];",
   "",
   "  const prices = {};",
   "  await Promise.all(asxSyms.map(async sym => {",
@@ -912,8 +924,14 @@ const WORKER_CODE = [
   "  // fetched at all. Falls back to the current-only list if -all hasn't",
   "  // been populated yet (e.g. right after this is first deployed, before",
   "  // the app's next syncHoldings call).",
-  "  const asxSyms   = heldAsxAllRaw    ? JSON.parse(heldAsxAllRaw)    : (heldAsxRaw    ? JSON.parse(heldAsxRaw)    : []); // e.g. \"DHHF.AX\"",
-  "  const cryptoIds = heldCryptoAllRaw ? JSON.parse(heldCryptoAllRaw) : (heldCryptoRaw ? JSON.parse(heldCryptoRaw) : []); // e.g. \"bitcoin\"",
+  "  // Also union in the benchmark set here — same reasoning as runDailySnapshot,",
+  "  // but for the one-off full-history pull: this is what lets STW/BTC get",
+  "  // their entire back-to-2018 history fetched via RUN BACKFILL even if",
+  "  // they've never been an actual holding.",
+  "  const asxSymsHeld   = heldAsxAllRaw    ? JSON.parse(heldAsxAllRaw)    : (heldAsxRaw    ? JSON.parse(heldAsxRaw)    : []); // e.g. \"DHHF.AX\"",
+  "  const cryptoIdsHeld = heldCryptoAllRaw ? JSON.parse(heldCryptoAllRaw) : (heldCryptoRaw ? JSON.parse(heldCryptoRaw) : []); // e.g. \"bitcoin\"",
+  "  const asxSyms   = [...new Set([...asxSymsHeld,   ...BENCHMARK_ASX_SYMS])];",
+  "  const cryptoIds = [...new Set([...cryptoIdsHeld, ...BENCHMARK_CRYPTO_IDS])];",
   "",
   "  const work = [",
   "    ...asxSyms.map(key => ({ type: 'asx', key })),",
@@ -1226,7 +1244,7 @@ refreshAllBrokerSelects();
 renderH(); renderT(); renderR();
 const wcBox = $('worker-code-box');
 setTimeout(syncAutoLoad, 800); // auto-pull on page open if configured
-setTimeout(()=>{ syncHoldingsToWorker(); backfillPortfolioHistory(); }, 1200); // pick up any 5pm snapshots recorded while the app was closed
+setTimeout(()=>{ syncHoldingsToWorker(); backfillPortfolioHistory(); if(typeof backfillBenchmarkHistory==='function') backfillBenchmarkHistory(); }, 1200); // pick up any 5pm snapshots recorded while the app was closed (portfolio + benchmark)
 setTimeout(()=>{ try{ prunePfSnapshotHistory(); }catch(e){} }, 1800); // downsample old daily snapshots once/day — keeps pfSnapshots bounded long-term
 if(wcBox) wcBox.value = Array.isArray(WORKER_CODE) ? WORKER_CODE.join('\n') : WORKER_CODE;
 

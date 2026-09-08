@@ -89,8 +89,9 @@ async function runBackfill(){
     status.style.color = 'var(--green)';
 
     await backfillPortfolioHistory(since); // force-pull from `since`, bypassing the once-per-day guard
+    if(typeof backfillBenchmarkHistory==='function') await backfillBenchmarkHistory(since); // same for the ASX 200/BTC comparison chart
     status.textContent = status.textContent.replace('Pulling into local history…', 'Done ✓');
-    notify('✓ Historical backfill complete — Portfolio Change should now cover longer ranges', 'ok');
+    notify('✓ Historical backfill complete — Portfolio Change and Benchmarks should now cover longer ranges', 'ok');
   }catch(e){
     status.textContent = 'Backfill failed: ' + e.message;
     status.style.color = 'var(--red)';
