@@ -502,48 +502,7 @@ function renderH(){
     return true;
   };
   renderPortfolioChange(changeScopeFn, hasTableFilter);
-  updateADI(changeScopeFn);
   if(typeof refreshResponsiveTables === 'function') refreshResponsiveTables();
-}
-
-// ── NET WORTH ATTITUDE INDICATOR ────────────────────────────────────────
-// Reads 1D/5D simple mark-to-market % change (the "value" mode, not TWR/MWR
-// — this dial is meant to answer "did my money go up or down", not a
-// contribution-timing-adjusted return) for whatever scope is currently
-// active (All/Stocks/Crypto + any table filters), same as the Portfolio
-// Change table right below it. Roll = 1D%, pitch = 5D%, both 1:1 direct
-// (no degree conversion) — see the CSS block for the geometry rationale.
-const ADI_PX_PER_PCT = 6;
-function updateADI(scopeFn){
-  const horizonEl = $('adi-horizon'), pointerEl = $('adi-pointer');
-  if(!horizonEl || !pointerEl) return; // markup not present (e.g. older cached HTML)
-
-  let day1Pct = null, day5Pct = null;
-  try{
-    const result = calcPortfolioChangeBySource(scopeFn, calcPortfolioChangeUnified);
-    const r1d = result.rows[0], r5d = result.rows[1]; // PF_CHANGE_RANGES[0]='1D', [1]='5D'
-    day1Pct = (r1d && r1d.pct!=null) ? r1d.pct : null;
-    day5Pct = (r5d && r5d.pct!=null) ? r5d.pct : null;
-  }catch(e){ console.warn('[ADI] could not compute 1D/5D change', e); }
-
-  const rollPct = Math.max(-35, Math.min(35, day1Pct ?? 0));
-  const horizonRoll = -rollPct; // opposite direction to the bezel arrow, same magnitude
-  const pitchPct = Math.max(-20, Math.min(20, day5Pct ?? 0));
-  const horizonY = pitchPct * ADI_PX_PER_PCT; // direct 1:1 — the '-5' ladder line sits at exactly this y for pitchPct=-5
-
-  horizonEl.style.setProperty('--hroll', horizonRoll+'deg');
-  horizonEl.style.setProperty('--hy', horizonY+'px');
-  pointerEl.style.setProperty('--rollpct', rollPct+'deg');
-
-  const el1d = $('adi-1d'), el5d = $('adi-5d');
-  if(el1d){
-    el1d.textContent = day1Pct!=null ? (day1Pct>=0?'+':'')+day1Pct.toFixed(2)+'%' : '—';
-    el1d.className = day1Pct==null ? '' : day1Pct>=0 ? 'pos' : 'neg';
-  }
-  if(el5d){
-    el5d.textContent = day5Pct!=null ? (day5Pct>=0?'+':'')+day5Pct.toFixed(2)+'%' : '—';
-    el5d.className = day5Pct==null ? '' : day5Pct>=0 ? 'pos' : 'neg';
-  }
 }
 
 // ── PORTFOLIO CHANGE (1D/5D/1M/6M/1Y/5Y/ALL) ───────────────────────────
