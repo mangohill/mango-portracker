@@ -122,24 +122,54 @@ function renderBenchmarkSection(){
     return;
   }
 
-  const pfDates = typeof pfSnapshots !== 'undefined' ? Object.keys(pfSnapshots) : [];
-  const commonDates = bmDates.filter(d => pfDates.includes(d) && pfSnapshots[d].all != null);
-  if(commonDates.length < 2){
-    el.innerHTML = `<div style="color:var(--text3);font-size:12px">Not enough overlapping days between portfolio and benchmark history yet.</div>`;
+  const pfDates = typeof pfSnapshots !== 'undefined'
+    ? Object.keys(pfSnapshots).filter(d => pfSnapshots[d].all != null).sort()
+    : [];
+  if(pfDates.length < 2){
+    el.innerHTML = `<div style="color:var(--text3);font-size:12px">Not enough portfolio history yet to compare against.</div>`;
     return;
   }
 
-  const base = commonDates[0];
-  const pfBase = pfSnapshots[base].all;
-  const stwBase = benchmarkHistory[base]?.stw;
-  const btcBase = benchmarkHistory[base]?.btc;
+  // Use the portfolio's own dates as the chart's x-axis. pfSnapshots.all is
+  // set whenever ANY held symbol has a price that day, unioned across every
+  // symbol's own independent anchor dates — so it's much denser than either
+  // benchmark's own fortnightly anchor dates (pre-2025-07-01). Requiring an
+  // EXACT date match between the two (the old approach) meant real STW/BTC
+  // data almost never lined up with a portfolio date, producing long false
+  // "gaps" — and if the very first shared date happened to lack one
+  // benchmark's value, that whole series silently vanished.
+  //
+  // Instead: each series is rebased to its own first real reading (not a
+  // shared date), and benchmark values are forward-filled onto the
+  // portfolio's dates from their last actual reading — a standard step-chart
+  // convention, never interpolating or inventing a value between two real
+  // points, just holding the last known one until a newer real price arrives.
+  const dates = pfDates;
+  const pfBase = pfSnapshots[dates[0]].all;
+  const pfSeries = dates.map(d => pfBase ? (pfSnapshots[d].all/pfBase*100) : null);
 
-  const pfSeries = commonDates.map(d => pfBase ? (pfSnapshots[d].all/pfBase*100) : null);
-  const stwSeries = stwBase ? commonDates.map(d => benchmarkHistory[d]?.stw!=null ? (benchmarkHistory[d].stw/stwBase*100) : null) : null;
-  const btcSeries = btcBase ? commonDates.map(d => benchmarkHistory[d]?.btc!=null ? (benchmarkHistory[d].btc/btcBase*100) : null) : null;
+  function buildBenchSeries(key){
+    let lastVal = null;
+    const filled = dates.map(d => {
+      const v = benchmarkHistory[d]?.[key];
+      if(v != null) lastVal = v;
+      return lastVal; // null until the first real reading, then forward-filled
+    });
+    const firstIdx = filled.findIndex(v => v != null);
+    if(firstIdx === -1) return null;
+    const baseVal = filled[firstIdx];
+    return filled.map((v,i) => (i < firstIdx || v == null) ? null : (v/baseVal*100));
+  }
+  const stwSeries = buildBenchSeries('stw');
+  const btcSeries = buildBenchSeries('btc');
+
+  if(!stwSeries && !btcSeries){
+    el.innerHTML = `<div style="color:var(--text3);font-size:12px">No overlapping benchmark data yet — check back after the next 5pm snapshot.</div>`;
+    return;
+  }
 
   el.innerHTML = `<div style="height:240px"><canvas id="bm-chart"></canvas></div>
-    <div style="font-size:11px;color:var(--text3);margin-top:8px">All series rebased to 100 on ${base} (first day both were tracked). ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF).</div>`;
+    <div style="font-size:11px;color:var(--text3);margin-top:8px">Portfolio rebased to 100 on ${dates[0]}; ASX 200/BTC each rebased to 100 on their own first tracked day and forward-filled between real price readings. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF).</div>`;
 
   if(_bmChart){ _bmChart.destroy(); _bmChart = null; }
   const ctx = document.getElementById('bm-chart');
@@ -151,7 +181,7 @@ function renderBenchmarkSection(){
 
   _bmChart = new Chart(ctx, {
     type:'line',
-    data:{ labels:commonDates, datasets },
+    data:{ labels:dates, datasets },
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{ labels:{ color:'#a5a8ae', font:{size:11} } } },
