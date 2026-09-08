@@ -130,65 +130,130 @@ function renderBenchmarkSection(){
     return;
   }
 
-  // Use the portfolio's own dates as the chart's x-axis. pfSnapshots.all is
-  // set whenever ANY held symbol has a price that day, unioned across every
-  // symbol's own independent anchor dates — so it's much denser than either
-  // benchmark's own fortnightly anchor dates (pre-2025-07-01). Requiring an
-  // EXACT date match between the two (the old approach) meant real STW/BTC
-  // data almost never lined up with a portfolio date, producing long false
-  // "gaps" — and if the very first shared date happened to lack one
-  // benchmark's value, that whole series silently vanished.
-  //
-  // Instead: each series is rebased to its own first real reading (not a
-  // shared date), and benchmark values are forward-filled onto the
-  // portfolio's dates from their last actual reading — a standard step-chart
-  // convention, never interpolating or inventing a value between two real
-  // points, just holding the last known one until a newer real price arrives.
+  // Keep raw (non-rebased) forward-filled values per date — the slider
+  // below re-rebases to 100 fresh for whichever 12-month window is in
+  // view, so we need the underlying numbers, not one fixed rebasing.
   const dates = pfDates;
-  const pfBase = pfSnapshots[dates[0]].all;
-  const pfSeries = dates.map(d => pfBase ? (pfSnapshots[d].all/pfBase*100) : null);
+  const pfRaw = {};
+  dates.forEach(d => { pfRaw[d] = pfSnapshots[d].all; });
 
-  function buildBenchSeries(key){
+  function buildRawSeries(key){
+    const raw = {};
     let lastVal = null;
-    const filled = dates.map(d => {
+    dates.forEach(d => {
       const v = benchmarkHistory[d]?.[key];
       if(v != null) lastVal = v;
-      return lastVal; // null until the first real reading, then forward-filled
+      if(lastVal != null) raw[d] = lastVal; // forward-filled from last real reading; never fabricated between two real points
     });
-    const firstIdx = filled.findIndex(v => v != null);
-    if(firstIdx === -1) return null;
-    const baseVal = filled[firstIdx];
-    return filled.map((v,i) => (i < firstIdx || v == null) ? null : (v/baseVal*100));
+    return raw;
   }
-  const stwSeries = buildBenchSeries('stw');
-  const btcSeries = buildBenchSeries('btc');
+  const stwRaw = buildRawSeries('stw');
+  const btcRaw = buildRawSeries('btc');
 
-  if(!stwSeries && !btcSeries){
+  if(!Object.keys(stwRaw).length && !Object.keys(btcRaw).length){
     el.innerHTML = `<div style="color:var(--text3);font-size:12px">No overlapping benchmark data yet — check back after the next 5pm snapshot.</div>`;
     return;
   }
 
-  el.innerHTML = `<div style="height:240px"><canvas id="bm-chart"></canvas></div>
-    <div style="font-size:11px;color:var(--text3);margin-top:8px">Portfolio rebased to 100 on ${dates[0]}; ASX 200/BTC each rebased to 100 on their own first tracked day and forward-filled between real price readings. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF).</div>`;
+  ensureBmSliderStyle();
+
+  // ── 12-month rolling window with a scrollbar to pan through history ──
+  // The slider's value is an index into `dates`; that date is the window's
+  // right edge, and the left edge is whichever real portfolio date falls
+  // ~12 calendar months earlier (dates are irregular, especially pre-
+  // 2025-07-01, so this is a calendar-based walk-back, not a fixed count
+  // of points). Each window re-rebases every series to 100 at its own
+  // start, so scrolling shows "return over this particular year" rather
+  // than one long since-inception line. Still real data only — forward-
+  // filled as above, never interpolated between two actual readings.
+  const WINDOW_MONTHS = 12;
+  const spanMs = new Date(dates[dates.length-1]+'T00:00:00') - new Date(dates[0]+'T00:00:00');
+  const hasFullWindow = spanMs >= WINDOW_MONTHS*29*86400000; // ~29 days/mo floor, safely under calendar 12mo
+
+  function windowStartIdx(endIdx){
+    const startDate = new Date(dates[endIdx]+'T00:00:00');
+    startDate.setMonth(startDate.getMonth()-WINDOW_MONTHS);
+    let i = endIdx;
+    while(i > 0 && new Date(dates[i-1]+'T00:00:00') >= startDate) i--;
+    return i;
+  }
+  function firstAvailable(raw, winDates){
+    for(const d of winDates){ if(raw[d] != null) return raw[d]; }
+    return null;
+  }
+
+  el.innerHTML = `
+    <div style="height:240px"><canvas id="bm-chart"></canvas></div>
+    <div id="bm-slider-wrap" style="display:flex;align-items:center;gap:10px;margin-top:12px">
+      <input type="range" id="bm-slider" class="bm-range" min="0" max="${dates.length-1}" step="1" value="${dates.length-1}" style="flex:1">
+    </div>
+    <div id="bm-window-label" style="font-size:11px;color:var(--text2);margin-top:6px;text-align:center;font-family:var(--mono)"></div>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px">Each window rebased to 100 at its own start${hasFullWindow?' — drag the slider to scroll through history':''}. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF).</div>`;
+
+  const sliderWrap = document.getElementById('bm-slider-wrap');
+  const slider = document.getElementById('bm-slider');
+  const label = document.getElementById('bm-window-label');
+  if(!hasFullWindow){ sliderWrap.style.display = 'none'; }
 
   if(_bmChart){ _bmChart.destroy(); _bmChart = null; }
   const ctx = document.getElementById('bm-chart');
   if(!ctx || typeof Chart === 'undefined') return;
 
-  const datasets = [{ label:'Portfolio', data:pfSeries, borderColor:'#8b5cf6', backgroundColor:'transparent', pointRadius:0, tension:0.2 }];
-  if(stwSeries) datasets.push({ label:'ASX 200 (STW)', data:stwSeries, borderColor:'#22d3ee', backgroundColor:'transparent', pointRadius:0, tension:0.2 });
-  if(btcSeries) datasets.push({ label:'BTC', data:btcSeries, borderColor:'#fbbf24', backgroundColor:'transparent', pointRadius:0, tension:0.2 });
+  function renderWindow(endIdx){
+    const startIdx = hasFullWindow ? windowStartIdx(endIdx) : 0;
+    const winDates = dates.slice(startIdx, endIdx+1);
 
-  _bmChart = new Chart(ctx, {
-    type:'line',
-    data:{ labels:dates, datasets },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ labels:{ color:'#a5a8ae', font:{size:11} } } },
-      scales:{
-        x:{ ticks:{ color:'#65686f', maxTicksLimit:8 }, grid:{ color:'rgba(255,255,255,0.04)' } },
-        y:{ ticks:{ color:'#65686f', callback:v=>v.toFixed(0) }, grid:{ color:'rgba(255,255,255,0.04)' } },
-      },
-    },
-  });
+    const pfBase = pfRaw[winDates[0]];
+    const pfSeries = winDates.map(d => pfBase ? (pfRaw[d]/pfBase*100) : null);
+    const stwBase = firstAvailable(stwRaw, winDates);
+    const btcBase = firstAvailable(btcRaw, winDates);
+    const stwSeries = stwBase != null ? winDates.map(d => stwRaw[d] != null ? (stwRaw[d]/stwBase*100) : null) : null;
+    const btcSeries = btcBase != null ? winDates.map(d => btcRaw[d] != null ? (btcRaw[d]/btcBase*100) : null) : null;
+
+    label.textContent = winDates.length > 1 ? `${winDates[0]}  →  ${winDates[winDates.length-1]}` : winDates[0];
+
+    const datasets = [{ label:'Portfolio', data:pfSeries, borderColor:'#8b5cf6', backgroundColor:'transparent', pointRadius:0, tension:0.2 }];
+    if(stwSeries) datasets.push({ label:'ASX 200 (STW)', data:stwSeries, borderColor:'#22d3ee', backgroundColor:'transparent', pointRadius:0, tension:0.2 });
+    if(btcSeries) datasets.push({ label:'BTC', data:btcSeries, borderColor:'#fbbf24', backgroundColor:'transparent', pointRadius:0, tension:0.2 });
+
+    if(_bmChart){
+      _bmChart.data.labels = winDates;
+      _bmChart.data.datasets = datasets;
+      _bmChart.update('none'); // 'none' = skip animation, keeps dragging responsive
+    } else {
+      _bmChart = new Chart(ctx, {
+        type:'line',
+        data:{ labels:winDates, datasets },
+        options:{
+          responsive:true, maintainAspectRatio:false,
+          plugins:{ legend:{ labels:{ color:'#a5a8ae', font:{size:11} } } },
+          scales:{
+            // No min/max set on either axis, so both auto-rescale to
+            // whatever is actually visible in the current window.
+            x:{ ticks:{ color:'#65686f', maxTicksLimit:8 }, grid:{ color:'rgba(255,255,255,0.04)' } },
+            y:{ ticks:{ color:'#65686f', callback:v=>v.toFixed(0) }, grid:{ color:'rgba(255,255,255,0.04)' } },
+          },
+        },
+      });
+    }
+  }
+
+  renderWindow(dates.length-1); // default: latest 12-month window
+  slider.addEventListener('input', () => renderWindow(+slider.value));
+}
+
+// One-off style injection for the scrollbar, themed to match the app —
+// only added once even though renderBenchmarkSection can rebuild #bm-body
+// (and its own inline styles) many times over a session.
+function ensureBmSliderStyle(){
+  if(document.getElementById('bm-range-style')) return;
+  const style = document.createElement('style');
+  style.id = 'bm-range-style';
+  style.textContent = `
+    .bm-range{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;background:var(--border2);outline:none;cursor:pointer;}
+    .bm-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:var(--violet);cursor:pointer;box-shadow:0 0 0 3px rgba(139,92,246,0.25);}
+    .bm-range::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--violet);border:none;cursor:pointer;box-shadow:0 0 0 3px rgba(139,92,246,0.25);}
+    .bm-range::-moz-range-track{background:var(--border2);height:4px;border-radius:2px;}
+  `;
+  document.head.appendChild(style);
 }
