@@ -122,29 +122,56 @@ function renderBenchmarkSection(){
     return;
   }
 
-  const pfDates = typeof pfSnapshots !== 'undefined'
-    ? Object.keys(pfSnapshots).filter(d => pfSnapshots[d].all != null).sort()
+  // "Complete" mark-to-market days only — NOT "any symbol has a price"
+  // (pfSnapshots[d].all != null), which is what the earlier version of
+  // this file used. portfolio.js's own calcPortfolioChangeTWR has the
+  // exact same trap documented: pfSnapshots dates are dominated by
+  // whichever symbols happen to be priced that particular day, so a raw
+  // "all" total swings wildly between "most holdings priced" and "only
+  // 1-2 holdings priced" from one date to the next — a sawtooth that's
+  // about data coverage, not real portfolio movement. markToMarketAt()
+  // (portfolio.js) already solves this with a per-symbol carry-forward
+  // tolerance window, so we reuse it instead of reinventing it.
+  if(typeof resetMtmCache === 'function') resetMtmCache(); // cheap safety net — cache invalidates itself on next access either way
+  const pfRaw = {};
+  const pfDates = (typeof pfSnapshots !== 'undefined' && typeof markToMarketAt === 'function')
+    ? Object.keys(pfSnapshots).filter(d => {
+        const m = markToMarketAt(d, ()=>true);
+        if(m.complete && m.value != null){ pfRaw[d] = m.value; return true; }
+        return false;
+      }).sort()
     : [];
   if(pfDates.length < 2){
-    el.innerHTML = `<div style="color:var(--text3);font-size:12px">Not enough portfolio history yet to compare against.</div>`;
+    el.innerHTML = `<div style="color:var(--text3);font-size:12px">Not enough complete portfolio history yet to compare against.</div>`;
     return;
   }
 
-  // Keep raw (non-rebased) forward-filled values per date — the slider
-  // below re-rebases to 100 fresh for whichever 12-month window is in
-  // view, so we need the underlying numbers, not one fixed rebasing.
+  // The slider below re-rebases to 100 fresh for whichever 12-month window
+  // is in view, so pfRaw (built above, alongside pfDates) holds the raw
+  // mark-to-market values — not one fixed rebasing.
   const dates = pfDates;
-  const pfRaw = {};
-  dates.forEach(d => { pfRaw[d] = pfSnapshots[d].all; });
 
+  // Two-pointer merge, NOT a same-date lookup: STW/BTC each have their own
+  // reading dates, on a totally different schedule from the portfolio's
+  // dates (esp. pre-2025-07-01 fortnightly anchors). Indexing
+  // benchmarkHistory[d] directly by the portfolio's own dates — the
+  // earlier version of this function — only ever picked up a real reading
+  // on the rare day the two coincided; every other day looked like "no new
+  // value", so the line went flat right after the first lucky coincidence.
+  // Walking both sorted date lists together carries the last real reading
+  // forward onto EVERY portfolio date, however misaligned the underlying
+  // schedules are.
   function buildRawSeries(key){
+    const bmKeyDates = Object.keys(benchmarkHistory).filter(d => benchmarkHistory[d]?.[key] != null).sort();
     const raw = {};
-    let lastVal = null;
-    dates.forEach(d => {
-      const v = benchmarkHistory[d]?.[key];
-      if(v != null) lastVal = v;
+    let bi = 0, lastVal = null;
+    for(const d of dates){ // dates (pfDates) is already sorted ascending
+      while(bi < bmKeyDates.length && bmKeyDates[bi] <= d){
+        lastVal = benchmarkHistory[bmKeyDates[bi]][key];
+        bi++;
+      }
       if(lastVal != null) raw[d] = lastVal; // forward-filled from last real reading; never fabricated between two real points
-    });
+    }
     return raw;
   }
   const stwRaw = buildRawSeries('stw');
