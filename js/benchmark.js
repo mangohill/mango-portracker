@@ -107,6 +107,7 @@ async function backfillBenchmarkHistory(forceSince){
 }
 
 let _bmChart = null;
+let _bmMode = 'rolling'; // 'rolling' (12mo window, re-rebased each time) | 'inception' (always rebased to your first tracked day)
 function renderBenchmarkSection(){
   const el = document.getElementById('bm-body');
   if(!el) return;
@@ -182,7 +183,7 @@ function renderBenchmarkSection(){
     return;
   }
 
-  ensureBmSliderStyle();
+  ensureBmStyle();
 
   // ── 12-month rolling window with a scrollbar to pan through history ──
   // The slider's value is an index into `dates`; that date is the window's
@@ -198,6 +199,7 @@ function renderBenchmarkSection(){
   const hasFullWindow = spanMs >= WINDOW_MONTHS*29*86400000; // ~29 days/mo floor, safely under calendar 12mo
 
   function windowStartIdx(endIdx){
+    if(_bmMode === 'inception') return 0; // always rebase from the very first tracked day
     const startDate = new Date(dates[endIdx]+'T00:00:00');
     startDate.setMonth(startDate.getMonth()-WINDOW_MONTHS);
     let i = endIdx;
@@ -210,6 +212,10 @@ function renderBenchmarkSection(){
   }
 
   el.innerHTML = `
+    <div id="bm-mode-toggle" style="display:flex;gap:6px;margin-bottom:10px">
+      <button type="button" class="bm-mode-btn" data-mode="rolling">Rolling 12mo</button>
+      <button type="button" class="bm-mode-btn" data-mode="inception">Since inception</button>
+    </div>
     <div style="height:240px;position:relative">
       <canvas id="bm-chart"></canvas>
       <div id="bm-empty-msg" style="display:none;color:var(--text3);font-size:12px;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;padding:0 20px"></div>
@@ -218,13 +224,23 @@ function renderBenchmarkSection(){
       <input type="range" id="bm-slider" class="bm-range" min="0" max="${dates.length-1}" step="1" value="${dates.length-1}" style="flex:1">
     </div>
     <div id="bm-window-label" style="font-size:11px;color:var(--text2);margin-top:6px;text-align:center;font-family:var(--mono)"></div>
-    <div style="font-size:11px;color:var(--text3);margin-top:6px">Each window rebased to 100 at its own start${hasFullWindow?' — drag the slider to scroll through history':''}. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF).</div>`;
+    <div id="bm-hint" style="font-size:11px;color:var(--text3);margin-top:6px"></div>`;
 
-  const sliderWrap = document.getElementById('bm-slider-wrap');
+  const modeToggle = document.getElementById('bm-mode-toggle');
   const slider = document.getElementById('bm-slider');
   const label = document.getElementById('bm-window-label');
+  const hint = document.getElementById('bm-hint');
   const emptyMsg = document.getElementById('bm-empty-msg');
-  if(!hasFullWindow){ sliderWrap.style.display = 'none'; }
+
+  function updateModeButtons(){
+    modeToggle.querySelectorAll('.bm-mode-btn').forEach(btn=>{
+      btn.classList.toggle('active', btn.dataset.mode === _bmMode);
+    });
+    hint.textContent = _bmMode === 'inception'
+      ? `Rebased to 100 on ${dates[0]} (your first complete-coverage day) — drag the slider to see performance as of any date since. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF).`
+      : `Each window rebased to 100 at its own start${hasFullWindow?' — drag the slider to scroll through history':''}. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF).`;
+  }
+  updateModeButtons();
 
   if(_bmChart){ _bmChart.destroy(); _bmChart = null; }
   const ctx = document.getElementById('bm-chart');
@@ -285,12 +301,20 @@ function renderBenchmarkSection(){
 
   renderWindow(dates.length-1); // default: latest 12-month window
   slider.addEventListener('input', () => renderWindow(+slider.value));
+  modeToggle.querySelectorAll('.bm-mode-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(_bmMode === btn.dataset.mode) return;
+      _bmMode = btn.dataset.mode;
+      updateModeButtons();
+      renderWindow(+slider.value);
+    });
+  });
 }
 
-// One-off style injection for the scrollbar, themed to match the app —
-// only added once even though renderBenchmarkSection can rebuild #bm-body
-// (and its own inline styles) many times over a session.
-function ensureBmSliderStyle(){
+// One-off style injection for the scrollbar and mode toggle, themed to
+// match the app — only added once even though renderBenchmarkSection can
+// rebuild #bm-body (and its own inline styles) many times over a session.
+function ensureBmStyle(){
   if(document.getElementById('bm-range-style')) return;
   const style = document.createElement('style');
   style.id = 'bm-range-style';
@@ -299,6 +323,9 @@ function ensureBmSliderStyle(){
     .bm-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:var(--violet);cursor:pointer;box-shadow:0 0 0 3px rgba(139,92,246,0.25);}
     .bm-range::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--violet);border:none;cursor:pointer;box-shadow:0 0 0 3px rgba(139,92,246,0.25);}
     .bm-range::-moz-range-track{background:var(--border2);height:4px;border-radius:2px;}
+    .bm-mode-btn{font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text3);cursor:pointer;transition:all .15s;}
+    .bm-mode-btn:hover{color:var(--text2);border-color:var(--text3);}
+    .bm-mode-btn.active{background:var(--violet);border-color:var(--violet);color:#fff;}
   `;
   document.head.appendChild(style);
 }

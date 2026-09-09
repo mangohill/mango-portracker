@@ -1204,10 +1204,16 @@ function calcPortfolioChangeMWR(scopeFn){
   return { asOf: todayStr, rows };
 }
 
+// Scope function most recently rendered into #pf-change-row — a chip click
+// (showMoversPopup, below) reuses this instead of re-deriving filter state,
+// so the popup always matches exactly what's on screen.
+let _lastChangeScopeFn = null;
+
 function renderPortfolioChange(scopeFn, isFiltered){
   const wrap = $('pf-change-wrap');
   if(!wrap) return;
   resetMtmCache(); // pfSnapshots may have changed (backfill/prune/price refresh) since last render
+  _lastChangeScopeFn = scopeFn; // so a later chip click (showMoversPopup) reuses the exact scope shown
 
   const scoped = calcH().filter(scopeFn);
   if(!scoped.length){ wrap.style.display = 'none'; return; }
@@ -1257,13 +1263,15 @@ function renderPortfolioChange(scopeFn, isFiltered){
   }
   const maxAbsPct = Math.max(0.01, ...priced.map(r => Math.abs(r.pct)));
 
-  $('pf-change-row').innerHTML = result.rows.map(r=>{
+  $('pf-change-row').innerHTML = result.rows.map((r, idx)=>{
+    const rangeKey = PF_CHANGE_RANGES[idx].key;
+    const moversAttr = `onclick="showMoversPopup('${rangeKey}')" title="Click for biggest movers"`;
     if(r.pct==null){
       const hint = r.reason==='incomplete' ? 'Incomplete prices'
         : r.reason==='no-snapshot' ? 'No history yet'
         : r.reason==='no-converge' ? "Couldn't solve"
         : '';
-      return `<div class="pfc-chip">
+      return `<div class="pfc-chip" style="cursor:pointer" ${moversAttr}>
         <div style="font-size:10px;color:var(--text3);letter-spacing:.06em;margin-bottom:4px">${r.label}</div>
         <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text3)">—</div>
         ${hint ? `<div style="font-size:9px;color:var(--text3);margin-top:3px" ${r.detail?`title="${escHtml(r.detail)}"`:''}>${hint}${r.detail?' ⓘ':''}</div>` : ''}
@@ -1279,7 +1287,7 @@ function renderPortfolioChange(scopeFn, isFiltered){
       ? `<div style="font-size:8px;margin-top:2px;color:var(--gold)" title="${escHtml(r.detail||'Some sources have no data this far back — sum excludes them for this window')}">partial · ${r.coverage} ⓘ</div>`
       : '';
     const barPct = Math.min(100, Math.abs(r.pct) / maxAbsPct * 100);
-    return `<div class="pfc-chip pfc-${cls}${chipMark}">
+    return `<div class="pfc-chip pfc-${cls}${chipMark}" style="cursor:pointer" ${moversAttr}>
       ${chipMark ? `<div style="position:absolute;top:6px;right:8px;font-size:8px;font-weight:700;letter-spacing:.04em;color:var(--${isPos?'green':'red'})">${r.label===bestLabel?'BEST':'WORST'}</div>` : ''}
       <div style="font-size:10px;color:var(--text3);letter-spacing:.06em;margin-bottom:4px">${r.label}</div>
       <div class="${cls}" style="font-family:var(--mono);font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:3px">
@@ -1290,6 +1298,110 @@ function renderPortfolioChange(scopeFn, isFiltered){
       ${partialLine}
     </div>`;
   }).join('');
+}
+
+// ── Biggest movers popup (per Portfolio Change period) ─────────────────
+// Click a 1D/5D/1M/… chip above to see which currently-held symbols moved
+// the most over that exact window — same start/end dates the chip's own
+// % is built from (windowStartTarget + the anchor-resolution logic
+// calcPortfolioChangeUnified already uses), so the two always agree.
+// Two independent rankings, since a small position can swing 40% while
+// barely moving your total, and a 2% move in your biggest holding can be
+// the real dollar story — showing only one metric hides the other. Both
+// numbers are shown on every row regardless of which list it's ranked in.
+const MOVERS_TOP_N = 3;
+
+function computeBiggestMovers(scopeFn, rangeKey){
+  resetMtmCache(); // pfSnapshots may have changed since the chip was last rendered
+  const todayStr = localDateStr();
+  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
+  const fromStr = windowStartTarget(rangeKey, anchorStr);
+  if(!fromStr) return { from:null, to:anchorStr, movers:[], excluded:0 };
+
+  // Currently-held only (nonzero units today) — matches how the rest of
+  // Portfolio Change already treats scope; a fully-exited position has no
+  // "current" $ impact to rank, and belongs to Trades/CGT, not this view.
+  const holdings = calcH().filter(scopeFn).filter(h => Math.abs(h.units) > 1e-9);
+  const movers = [];
+  let excluded = 0;
+  holdings.forEach(h=>{
+    const sym = priceSymbol(h.symbol);
+    const nowPrice = prices[sym];
+    const startPrice = isDailyPricedSym(sym)
+      ? priceNearOrBefore(sym, fromStr)
+      : (pfSnapshots[fromStr] && pfSnapshots[fromStr].prices && pfSnapshots[fromStr].prices[sym]);
+    // No valid start price usually means bought during this window — can't
+    // compute a window return for it, so it's excluded rather than shown
+    // as a fabricated 0% (see the excluded-count note in the popup).
+    if(nowPrice==null || startPrice==null || !(startPrice>0)){ excluded++; return; }
+    movers.push({
+      symbol: h.symbol,
+      pct: (nowPrice-startPrice)/startPrice*100,
+      dollar: (nowPrice-startPrice)*h.units,
+    });
+  });
+  return { from:fromStr, to:anchorStr, movers, excluded };
+}
+
+function moverRow(m, primary){
+  const val = primary==='pct' ? m.pct : m.dollar;
+  const cls = val >= 0 ? 'pos' : 'neg';
+  const main = primary==='pct' ? nP(m.pct) : (m.dollar>=0?'+':'')+n2(m.dollar);
+  const sub  = primary==='pct' ? (m.dollar>=0?'+':'')+n2(m.dollar) : nP(m.pct);
+  return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)">
+    <span style="color:var(--text);font-weight:600">${escHtml(m.symbol)}</span>
+    <span style="text-align:right;white-space:nowrap">
+      <span class="${cls}" style="font-weight:700">${main}</span>
+      <span style="color:var(--text3);font-size:9px;margin-left:6px">${sub}</span>
+    </span>
+  </div>`;
+}
+function moversSection(title, gainers, losers, primary){
+  const col = (label, color, list) => `<div style="flex:1;min-width:0">
+      <div style="font-size:9px;color:var(${color});margin-bottom:3px">${label}</div>
+      ${list.length ? list.map(m=>moverRow(m,primary)).join('') : `<div style="color:var(--text3);font-size:10px">—</div>`}
+    </div>`;
+  return `<div style="margin-top:14px">
+    <div style="font-size:10px;letter-spacing:.06em;color:var(--text3);margin-bottom:6px">${title}</div>
+    <div style="display:flex;gap:16px">
+      ${col('▲ GAINERS','--green',gainers)}
+      ${col('▼ LOSERS','--red',losers)}
+    </div>
+  </div>`;
+}
+
+function showMoversPopup(rangeKey){
+  const id = 'pfc-movers-'+rangeKey;
+  if(document.getElementById(id)){ closeHudPopup(id); return; } // toggle: same chip clicked again closes it
+  const label = (PF_CHANGE_RANGES.find(x=>x.key===rangeKey) || {}).label || rangeKey;
+  const scopeFn = typeof _lastChangeScopeFn === 'function' ? _lastChangeScopeFn : (()=>true);
+
+  const closeBtn = `<button onclick="closeHudPopup('${id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>`;
+  const header = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <div style="font-size:14px;font-weight:700;color:var(--text)">Biggest Movers — ${escHtml(label)}</div>
+      ${closeBtn}
+    </div>`;
+
+  const { from, to, movers, excluded } = computeBiggestMovers(scopeFn, rangeKey);
+  if(!from || !movers.length){
+    openHudPopup(id, `${header}<div style="color:var(--text3);font-size:12px;margin-top:6px">No priced data available for this window yet.</div>`, {minWidth:'300px'});
+    return;
+  }
+
+  const byPct = [...movers].sort((a,b)=>b.pct-a.pct);
+  const pctGainers = byPct.filter(m=>m.pct>0).slice(0, MOVERS_TOP_N);
+  const pctLosers  = byPct.filter(m=>m.pct<0).slice(-MOVERS_TOP_N).reverse();
+
+  const byDollar = [...movers].sort((a,b)=>b.dollar-a.dollar);
+  const dollarGainers = byDollar.filter(m=>m.dollar>0).slice(0, MOVERS_TOP_N);
+  const dollarLosers  = byDollar.filter(m=>m.dollar<0).slice(-MOVERS_TOP_N).reverse();
+
+  openHudPopup(id, `${header}
+    <div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-family:var(--mono)">${from} → ${to}</div>
+    ${moversSection('BY % MOVE', pctGainers, pctLosers, 'pct')}
+    ${moversSection('BY $ IMPACT', dollarGainers, dollarLosers, 'dollar')}
+    ${excluded ? `<div style="margin-top:12px;font-size:10px;color:var(--text3)">${excluded} holding${excluded>1?'s':''} excluded — no price on or before ${from} (likely bought during this window).</div>` : ''}
+  `, {minWidth:'360px'});
 }
 
 
