@@ -653,7 +653,14 @@ function cyclePfChangeMode(){
 // completeness for every date it was held (breaking 5Y/ALL-scope Portfolio
 // Change). Excluding it here means it's still valued when a price happens
 // to be known, but never forces the whole scope to "incomplete".
-const NON_DAILY_PRICE_SYMS = new Set(['MAIF','MAAT','DW8','KDY']);
+// VIRTUAL: bought in 2021 as PathDAO, rebranded to Virtuals Protocol later.
+// The worker merges PATH1-USD (old ticker) under VIRTUAL-USD (current) for
+// backfill, but PATH1-USD itself only has ~43 real trading days on Yahoo —
+// thin/discontinuous exchange liquidity in the run-up to the rebrand, not a
+// mapping bug — leaving real multi-month gaps no ticker fix can close.
+// Same treatment as DW8/KDY: valued whenever a price is known, never blocks
+// completeness.
+const NON_DAILY_PRICE_SYMS = new Set(['MAIF','MAAT','DW8','KDY','VIRTUAL']);
 function isDailyPricedSym(sym){
   return !NON_DAILY_PRICE_SYMS.has(priceSymbol(sym));
 }
