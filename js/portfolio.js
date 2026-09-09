@@ -146,23 +146,41 @@ function toggleHoldingExpand(sym){
   renderH();
 }
 
-// Builds the expanded detail panel for one holding: its last 10 trades,
+// Builds the expanded detail rows for one holding: its last 10 trades,
 // reusing the exact same per-trade P&L/ROI% math as the Trades tab
 // (computeTradeROIData/tradeROIPct) so the numbers always agree with what
-// you'd see there. Columns deliberately mirror the Holdings table's own
-// (Units/Avg Cost→Price/Cur Price/Mkt Value/Cost Basis→Net/P&L $/P&L %/
-// Source) so each trade row reads like "this holding, at this point in time".
-function renderHoldingTradeHistory(sym, cur, roiMap){
+// you'd see there. These are real <tr>s in the SAME table as the Holdings
+// rows (not a nested table) — an 11-<td> row per trade, matching the outer
+// table's own column slots (Symbol→Date, Units→Units, Avg Cost→Price,
+// Cur Price→Cur Price, Mkt Value→Mkt Value, Cost Basis→Net, P&L $, P&L %;
+// Owner/Type/Source stay blank). Sharing one table's column-width algorithm
+// is what keeps every value lined up under the outer header it corresponds
+// to — a separate inner table can't guarantee that alignment.
+function renderHoldingTradeRows(sym, cur, roiMap){
   const symTrades = trades
     .filter(t=>t.symbol===sym && t.type!=='corporate_action')
     .sort((a,b)=> b.date.localeCompare(a.date) || (+b.id||0)-(+a.id||0))
     .slice(0,10);
 
-  if(!symTrades.length){
-    return `<div style="color:var(--text3);font-size:11px">No buy/sell/DRP trades on record for ${escHtml(plainSymbol(sym))}.</div>`;
-  }
+  const titleRow = `<tr class="hb-detail"><td colspan="11" style="padding:10px 16px 4px;background:var(--surface2);font-size:10px;letter-spacing:.06em;color:var(--text3)">
+    ${symTrades.length ? `LAST ${symTrades.length} TRADE${symTrades.length===1?'':'S'} — ${escHtml(plainSymbol(sym)).toUpperCase()}` : `NO TRADES ON RECORD — ${escHtml(plainSymbol(sym)).toUpperCase()}`}
+  </td></tr>`;
+  if(!symTrades.length) return titleRow;
 
-  const rows = symTrades.map(t=>{
+  const headerRow = `<tr class="hb-detail" style="background:var(--surface2);color:var(--text3);font-size:10px">
+    <td style="padding:2px 8px 6px">DATE</td>
+    <td></td><td></td>
+    <td style="text-align:right;padding:2px 8px 6px">UNITS</td>
+    <td style="text-align:right;padding:2px 8px 6px">PRICE</td>
+    <td style="text-align:right;padding:2px 8px 6px">CUR PRICE</td>
+    <td style="text-align:right;padding:2px 8px 6px">MKT VALUE</td>
+    <td style="text-align:right;padding:2px 8px 6px">NET</td>
+    <td style="text-align:right;padding:2px 8px 6px">P&L $</td>
+    <td style="text-align:right;padding:2px 8px 6px">P&L %</td>
+    <td></td>
+  </tr>`;
+
+  const dataRows = symTrades.map((t,i)=>{
     const price = +t.price;
     const mv = cur!=null ? cur*(+t.units) : null;
     const net = (t.type==='buy'||t.type==='drp') ? (+t.units*price)+(+t.fees||0) : (+t.units*price)-(+t.fees||0);
@@ -175,35 +193,23 @@ function renderHoldingTradeHistory(sym, cur, roiMap){
     const roiPct = tradeROIPct(t, roiMap);
     const plC = plDollar==null ? '' : (plDollar>=0?'pos':'neg');
     const sideLabel = t.type==='drp' ? 'DRP' : (t.type==='buy' ? 'Buy' : 'Sell');
-    return `<tr>
-      <td>${t.date} <span style="color:var(--text3);font-size:9px">${sideLabel}</span></td>
-      <td style="text-align:right">${nN(t.units,8)}</td>
-      <td style="text-align:right">${n2(price,dec(price))}</td>
-      <td style="text-align:right">${cur!=null?n2(cur,dec(cur)):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right">${mv!=null?n2(mv):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right">${n2(net)}</td>
-      <td style="text-align:right" class="${plC}">${plDollar!=null?(plDollar>=0?'+':'')+n2(plDollar):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right" class="${plC}">${roiPct!=null?(roiPct>=0?'+':'')+roiPct.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
+    const lastRow = i===symTrades.length-1;
+    const pad = `padding:4px 8px${lastRow?' 10px':''}`;
+    return `<tr class="hb-detail" style="background:var(--surface2)">
+      <td style="${pad}">${t.date} <span style="color:var(--text3);font-size:9px">${sideLabel}</span></td>
+      <td></td><td></td>
+      <td style="text-align:right;${pad}">${nN(t.units,8)}</td>
+      <td style="text-align:right;${pad}">${n2(price,dec(price))}</td>
+      <td style="text-align:right;${pad}">${cur!=null?n2(cur,dec(cur)):'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="text-align:right;${pad}">${mv!=null?n2(mv):'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="text-align:right;${pad}">${n2(net)}</td>
+      <td style="text-align:right;${pad}" class="${plC}">${plDollar!=null?(plDollar>=0?'+':'')+n2(plDollar):'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="text-align:right;${pad}" class="${plC}">${roiPct!=null?(roiPct>=0?'+':'')+roiPct.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
+      <td></td>
     </tr>`;
   }).join('');
 
-  return `
-    <div style="font-size:10px;letter-spacing:.06em;color:var(--text3);margin-bottom:8px">
-      LAST ${symTrades.length} TRADE${symTrades.length===1?'':'S'} — ${escHtml(plainSymbol(sym)).toUpperCase()}
-    </div>
-    <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px">
-      <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)">
-        <th style="text-align:left;padding:4px">DATE</th>
-        <th style="text-align:right;padding:4px">UNITS</th>
-        <th style="text-align:right;padding:4px">PRICE</th>
-        <th style="text-align:right;padding:4px">CUR PRICE</th>
-        <th style="text-align:right;padding:4px">MKT VALUE</th>
-        <th style="text-align:right;padding:4px">NET</th>
-        <th style="text-align:right;padding:4px">P&L $</th>
-        <th style="text-align:right;padding:4px">P&L %</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+  return titleRow + headerRow + dataRows;
 }
 
 function computeTradeROIData(){
@@ -470,9 +476,7 @@ function renderH(){
       <td style="text-align:right" class="${plC}">${pl!=null?(pl>=0?'+':'')+n2(pl):'<span style="color:var(--text3)">—</span>'}</td>
       <td style="text-align:right" class="${plC}">${pp!=null?(pp>=0?'+':'')+pp.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
       <td style="color:var(--text3);font-size:11px">${h.source||''}</td>
-    </tr>${expanded ? `<tr class="hb-detail"><td colspan="11" style="padding:12px 16px;background:var(--surface2)">
-      ${renderHoldingTradeHistory(h.symbol, cur, _hbTradeROI)}
-    </td></tr>` : ''}`;
+    </tr>${expanded ? renderHoldingTradeRows(h.symbol, cur, _hbTradeROI) : ''}`;
   }).join('');
 
   // ── Table totals footer — only when Holdings filters are active ──────
