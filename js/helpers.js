@@ -444,13 +444,16 @@ function openHudPopup(id, innerHtml, opts){
 
   const panel = document.createElement('div');
   panel.id = id;
+  const sizeRules = opts.aspectRatio
+    ? [`width:${opts.width || opts.minWidth || '480px'}`, `aspect-ratio:${opts.aspectRatio}`, 'overflow-y:auto']
+    : [`min-width:${opts.minWidth||'320px'}`];
   panel.style.cssText = [
     'position:fixed','top:50%','left:50%',
     'transform:translate(-50%,-50%)',
     'background:linear-gradient(165deg,#132029 0%,#0a1319 100%)',
     'border:1px solid var(--blue)',
     'border-radius:10px','padding:20px 24px',
-    'z-index:9999',`min-width:${opts.minWidth||'320px'}`,`max-width:${opts.maxWidth||'95vw'}`,
+    'z-index:9999',...sizeRules,`max-width:${opts.maxWidth||'95vw'}`,`max-height:${opts.maxHeight||'90vh'}`,
     'box-shadow:0 12px 40px rgba(0,0,0,.7), 0 0 30px var(--blue-glow)',
     'font-family:var(--mono)',`font-size:${opts.fontSize||'12px'}`,
   ].join(';');

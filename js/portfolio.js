@@ -1404,7 +1404,7 @@ function showMoversPopup(rangeKey){
     ${moversSection('BY $ IMPACT', dollarGainers, dollarLosers, 'dollar')}
     ${moversSection('BY % MOVE', pctGainers, pctLosers, 'pct')}
     ${excluded ? `<div style="margin-top:16px;font-size:13px;color:var(--text3)">${excluded} holding${excluded>1?'s':''} excluded — no price on or before ${from} (likely bought during this window).</div>` : ''}
-  `, {minWidth:'480px', maxWidth:'560px', fontSize:'14px'});
+  `, {width:'640px', aspectRatio:'16/9', fontSize:'14px'});
 }
 
 
