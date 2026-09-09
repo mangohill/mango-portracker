@@ -400,7 +400,7 @@ function renderOwnershipGrid(){
           flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">
           ${label}
         </span>
-        <select style="background:${col}22;color:${col};border:1px solid ${col}55;
+        <select style="background:${getPersonColourAlpha(own,'22')};color:${col};border:1px solid ${getPersonColourAlpha(own,'55')};
           border-radius:8px;padding:3px 8px;font-size:11px;font-family:var(--mono);cursor:pointer"
           onchange="changeSymbolOwnerSettings('${escHtml(sym)}',this.value)">
           ${buildOwnerOptions(own)}

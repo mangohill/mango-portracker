@@ -137,6 +137,77 @@ function calcH(asOfDate){
 // calcH()'s corporate-action handling so average cost stays correct across
 // mergers/splits/spinoffs feeding into a sell.
 // Corporate action rows are skipped entirely (not a buy/sell).
+// ── HOLDINGS ROW EXPAND — last 10 trades for a symbol ────────────────
+// Keyed by symbol (not table index) so it survives sorts/filters/re-renders
+// of the Holdings table without losing track of which row was open.
+let hbExpanded = {};
+function toggleHoldingExpand(sym){
+  hbExpanded[sym] = !hbExpanded[sym];
+  renderH();
+}
+
+// Builds the expanded detail panel for one holding: its last 10 trades,
+// reusing the exact same per-trade P&L/ROI% math as the Trades tab
+// (computeTradeROIData/tradeROIPct) so the numbers always agree with what
+// you'd see there. Columns deliberately mirror the Holdings table's own
+// (Units/Avg Cost→Price/Cur Price/Mkt Value/Cost Basis→Net/P&L $/P&L %/
+// Source) so each trade row reads like "this holding, at this point in time".
+function renderHoldingTradeHistory(sym, cur, roiMap){
+  const symTrades = trades
+    .filter(t=>t.symbol===sym && t.type!=='corporate_action')
+    .sort((a,b)=> b.date.localeCompare(a.date) || (+b.id||0)-(+a.id||0))
+    .slice(0,10);
+
+  if(!symTrades.length){
+    return `<div style="color:var(--text3);font-size:11px">No buy/sell/DRP trades on record for ${escHtml(plainSymbol(sym))}.</div>`;
+  }
+
+  const rows = symTrades.map(t=>{
+    const price = +t.price;
+    const mv = cur!=null ? cur*(+t.units) : null;
+    const net = (t.type==='buy'||t.type==='drp') ? (+t.units*price)+(+t.fees||0) : (+t.units*price)-(+t.fees||0);
+    const r = roiMap[t.id];
+    let plDollar = null;
+    if(r){
+      if(r.kind==='buy' && r.costPerUnit!=null && cur!=null) plDollar = (cur - r.costPerUnit) * (+t.units);
+      else if(r.kind==='sell' && r.avgCostPerUnit!=null && r.netPerUnit!=null) plDollar = (r.netPerUnit - r.avgCostPerUnit) * (+t.units);
+    }
+    const roiPct = tradeROIPct(t, roiMap);
+    const plC = plDollar==null ? '' : (plDollar>=0?'pos':'neg');
+    const sideLabel = t.type==='drp' ? 'DRP' : (t.type==='buy' ? 'Buy' : 'Sell');
+    return `<tr>
+      <td>${t.date} <span style="color:var(--text3);font-size:9px">${sideLabel}</span></td>
+      <td style="text-align:right">${nN(t.units,8)}</td>
+      <td style="text-align:right">${n2(price,dec(price))}</td>
+      <td style="text-align:right">${cur!=null?n2(cur,dec(cur)):'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="text-align:right">${mv!=null?n2(mv):'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="text-align:right">${n2(net)}</td>
+      <td style="text-align:right" class="${plC}">${plDollar!=null?(plDollar>=0?'+':'')+n2(plDollar):'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="text-align:right" class="${plC}">${roiPct!=null?(roiPct>=0?'+':'')+roiPct.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="color:var(--text3);font-size:11px">${t.source||''}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div style="font-size:10px;letter-spacing:.06em;color:var(--text3);margin-bottom:8px">
+      LAST ${symTrades.length} TRADE${symTrades.length===1?'':'S'} — ${escHtml(plainSymbol(sym)).toUpperCase()}
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px">
+      <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border)">
+        <th style="text-align:left;padding:4px">DATE</th>
+        <th style="text-align:right;padding:4px">UNITS</th>
+        <th style="text-align:right;padding:4px">PRICE</th>
+        <th style="text-align:right;padding:4px">CUR PRICE</th>
+        <th style="text-align:right;padding:4px">MKT VALUE</th>
+        <th style="text-align:right;padding:4px">NET</th>
+        <th style="text-align:right;padding:4px">P&L $</th>
+        <th style="text-align:right;padding:4px">P&L %</th>
+        <th style="text-align:left;padding:4px">SOURCE</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 function computeTradeROIData(){
   const map = {};
   const out = {};
@@ -381,11 +452,18 @@ function renderH(){
     th('_pp','P&L %','text-align:right',4) +
     th('source','Source',null,5);
 
+  const _hbTradeROI = computeTradeROIData();
   $('hb').innerHTML = f.map(h=>{
     const cur=h._cur,mv=h._mv,pl=h._pl,pp=h._pp,avg=h._avg;
     const plC=pl==null?'':(pl>=0?'pos':'neg');
+    const expanded = !!hbExpanded[h.symbol];
     return `<tr>
-      <td><b>${displaySymbol(h.symbol)}</b></td><td><span style="font-size:10px;padding:1px 6px;border-radius:10px;background:${getPersonColourAlpha(getSymbolOwner(h.symbol),'22')};color:${getPersonColour(getSymbolOwner(h.symbol))}">${getPersonLabel(getSymbolOwner(h.symbol))}</span></td><td>${bT(h.assetType)}</td>
+      <td>
+        <span style="cursor:pointer;display:inline-flex;align-items:center;gap:5px" onclick="event.stopPropagation();toggleHoldingExpand('${escHtml(h.symbol)}')">
+          <span style="color:var(--text3);font-size:9px;width:8px;display:inline-block">${expanded?'▼':'▶'}</span>
+          <b>${displaySymbol(h.symbol)}</b>
+        </span>
+      </td><td><span style="font-size:10px;padding:1px 6px;border-radius:10px;background:${getPersonColourAlpha(getSymbolOwner(h.symbol),'22')};color:${getPersonColour(getSymbolOwner(h.symbol))}">${getPersonLabel(getSymbolOwner(h.symbol))}</span></td><td>${bT(h.assetType)}</td>
       <td style="text-align:right">${nN(h.units,8)}</td>
       <td style="text-align:right">${n2(avg,dec(avg))}</td>
       <td style="text-align:right">${cur!=null?n2(cur,dec(cur)):'<span style="color:var(--text3)">—</span>'}</td>
@@ -394,7 +472,9 @@ function renderH(){
       <td style="text-align:right" class="${plC}">${pl!=null?(pl>=0?'+':'')+n2(pl):'<span style="color:var(--text3)">—</span>'}</td>
       <td style="text-align:right" class="${plC}">${pp!=null?(pp>=0?'+':'')+pp.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
       <td style="color:var(--text3);font-size:11px">${h.source||''}</td>
-    </tr>`;
+    </tr>${expanded ? `<tr class="hb-detail"><td colspan="11" style="padding:12px 16px;background:var(--surface2)">
+      ${renderHoldingTradeHistory(h.symbol, cur, _hbTradeROI)}
+    </td></tr>` : ''}`;
   }).join('');
 
   // ── Table totals footer — only when Holdings filters are active ──────
