@@ -480,6 +480,29 @@ function renderCGT(){
   const summary = computeCGTSummary();
   const { disposals, propDisposals, amitLog, result, persons, openParcels } = summary;
 
+  // ── UNUSED CAPITAL LOSSES BANNER ─────────────────────────────────────
+  // Shows each person's currently-unused loss carry-forward — the
+  // lossCarryOut of their most recent FY entry in `result`, since that
+  // figure already nets off everything used against gains in later years
+  // (see computeCGTSummary's carry-forward logic). Independent of the
+  // selected cgtFY pill — this is "what's sitting unused right now",
+  // not scoped to one year.
+  const unusedLossesHtml = persons.map(person=>{
+    const fys = Object.keys(result[person]||{}).map(Number).sort((a,b)=>b-a);
+    if(!fys.length) return null;
+    const latest = result[person][fys[0]];
+    return latest.lossCarryOut > 0.005 ? {person, fy:fys[0], amount:latest.lossCarryOut} : null;
+  }).filter(Boolean);
+
+  const unusedLossesBanner = unusedLossesHtml.length ? `
+    <div class="fs" style="border-color:var(--cyan);margin-bottom:16px">
+      <div class="fst" style="color:var(--cyan)">💡 UNUSED CAPITAL LOSSES</div>
+      ${unusedLossesHtml.map(u=>`<div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">
+        <b>${getPersonLabel(u.person)}</b> has <b>${n2(u.amount)}</b> in capital losses carried forward from FY${u.fy}
+        with nothing to offset it against since — available to reduce a future capital gain.
+      </div>`).join('')}
+    </div>` : '';
+
   const allFYs = [...new Set([
     ...disposals.map(d=>dateToFY(d.saleDate)),
     ...propDisposals.filter(p=>!p.exempt).map(p=>dateToFY(p.soldDate)),
@@ -669,6 +692,8 @@ function renderCGT(){
     </div>` : '';
 
   panel.innerHTML = `
+    ${unusedLossesBanner}
+
     <div class="fs" style="border-color:var(--border2);margin-bottom:16px">
       <div class="fst">📉 CAPITAL GAINS — ASSUMPTIONS</div>
       <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7">

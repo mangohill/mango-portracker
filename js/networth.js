@@ -43,7 +43,13 @@ function nwSuperBalance(){
 // Most recent FY's categorised spend, for the FIRE number — falls back
 // to null (user must enter manually) if there's no spending data yet.
 function nwLatestAnnualSpend(){
-  if(typeof spendingData === 'undefined' || !spendingData.length) return null;
+  // spendingData lazy-loads only when the Spending tab has been opened this
+  // session (see initSpending() in spending.js) — landing on Net Worth first
+  // would otherwise silently skip real spending history in favour of the
+  // 60,000 fallback below, even though it's sitting in storage.
+  if(typeof spendingData === 'undefined') return null;
+  if(!spendingData.length && typeof loadSpending === 'function') loadSpending();
+  if(!spendingData.length) return null;
   const fys = [...new Set(spendingData.map(d=>d.fy))].sort((a,b)=>b-a);
   const fy = fys[0];
   if(fy == null) return null;
