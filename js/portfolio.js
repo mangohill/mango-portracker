@@ -184,7 +184,6 @@ function renderHoldingTradeHistory(sym, cur, roiMap){
       <td style="text-align:right">${n2(net)}</td>
       <td style="text-align:right" class="${plC}">${plDollar!=null?(plDollar>=0?'+':'')+n2(plDollar):'<span style="color:var(--text3)">—</span>'}</td>
       <td style="text-align:right" class="${plC}">${roiPct!=null?(roiPct>=0?'+':'')+roiPct.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="color:var(--text3);font-size:11px">${t.source||''}</td>
     </tr>`;
   }).join('');
 
@@ -202,7 +201,6 @@ function renderHoldingTradeHistory(sym, cur, roiMap){
         <th style="text-align:right;padding:4px">NET</th>
         <th style="text-align:right;padding:4px">P&L $</th>
         <th style="text-align:right;padding:4px">P&L %</th>
-        <th style="text-align:left;padding:4px">SOURCE</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
