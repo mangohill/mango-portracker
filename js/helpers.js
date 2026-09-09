@@ -445,7 +445,7 @@ function openHudPopup(id, innerHtml, opts){
   const panel = document.createElement('div');
   panel.id = id;
   const sizeRules = opts.aspectRatio
-    ? [`width:${opts.width || opts.minWidth || '480px'}`, `aspect-ratio:${opts.aspectRatio}`, 'overflow-y:auto']
+    ? [`width:${opts.width || opts.minWidth || '480px'}`]
     : [`min-width:${opts.minWidth||'320px'}`];
   panel.style.cssText = [
     'position:fixed','top:50%','left:50%',
@@ -456,12 +456,15 @@ function openHudPopup(id, innerHtml, opts){
     'z-index:9999',...sizeRules,`max-width:${opts.maxWidth||'95vw'}`,`max-height:${opts.maxHeight||'90vh'}`,
     'box-shadow:0 12px 40px rgba(0,0,0,.7), 0 0 30px var(--blue-glow)',
     'font-family:var(--mono)',`font-size:${opts.fontSize||'12px'}`,
+    opts.aspectRatio ? 'overflow:hidden' : '',
   ].join(';');
   panel.innerHTML = innerHtml;
   panel.addEventListener('click', e => e.stopPropagation());
 
   document.body.appendChild(backdrop);
   document.body.appendChild(panel);
+
+  if(opts.aspectRatio) fitPanelToAspectRatio(panel, opts.aspectRatio, opts.maxWidth);
 
   // Defer the outside-click dismiss listener — otherwise the click that
   // opened this popup is still bubbling to document and would close it instantly.
@@ -479,6 +482,35 @@ function closeHudPopup(id){
   const backdrop = document.getElementById(id+'-backdrop');
   if(panel) panel.remove();
   if(backdrop) backdrop.remove();
+}
+
+// Resizes a HUD panel so its box lands on a target W:H ratio (e.g. "16/9")
+// with every bit of its content visible and no scrollbar. Width and height
+// affect each other here — a narrower box makes text wrap taller, a wider
+// one shrinks it back down — so this converges by measuring the natural
+// content height at the current width, deriving the width that ratio
+// implies, and repeating a few times until both settle.
+function fitPanelToAspectRatio(panel, ratio, maxWidthOpt){
+  const [rw, rh] = String(ratio).split('/').map(Number);
+  const maxW = Math.min(window.innerWidth * 0.95, maxWidthOpt ? parseFloat(maxWidthOpt) : Infinity);
+  const maxH = window.innerHeight * 0.9;
+  let width = panel.getBoundingClientRect().width;
+
+  for(let i = 0; i < 6; i++){
+    panel.style.height = 'auto';
+    const contentH = panel.scrollHeight;
+    let idealWidth = contentH * (rw / rh);
+    idealWidth = Math.max(idealWidth, 280); // never collapse below a usable width
+    idealWidth = Math.min(idealWidth, maxW);
+    if(Math.abs(idealWidth - width) < 1) { width = idealWidth; break; }
+    width = idealWidth;
+    panel.style.width = width + 'px';
+  }
+
+  let height = width * (rh / rw);
+  if(height > maxH){ height = maxH; width = Math.min(maxW, height * (rw / rh)); panel.style.width = width + 'px'; }
+  panel.style.width = width + 'px';
+  panel.style.height = height + 'px';
 }
 
 // ── RESPONSIVE TABLES (phones + tablet portrait) ───────────────────────
