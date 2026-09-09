@@ -340,8 +340,16 @@ async function backfillPortfolioHistory(forceSince){
   }catch(e){ console.warn('backfillPortfolioHistory fetch failed:', e); return; }
 
   const unlistedSyms = new Set(['MAIF','MAAT']);
-  // Reverse CoinGecko map so worker crypto ids become our symbol keys (BTC, ETH, …)
-  const CG_REV = Object.fromEntries(Object.entries(CG).map(([sym,id])=>[id,sym]));
+  // Reverse CoinGecko map so worker crypto ids become our symbol keys (BTC,
+  // ETH, …). Must include CG_OVERRIDES (helpers.js) as well as the
+  // hand-curated CG table — any coin whose id was auto-resolved via search
+  // (or set manually via Settings → Set CoinGecko ID) only lives in
+  // CG_OVERRIDES, never in CG. Reversing CG alone silently dropped those
+  // coins' historical prices under the wrong key (e.g. the worker's
+  // 'olympus' key fell through to the literal 'OLYMPUS' string instead of
+  // 'OHM', which never matches priceSymbol(h.symbol) for any actual
+  // holding — so the price was fetched correctly but permanently orphaned).
+  const CG_REV = Object.fromEntries(Object.entries({...CG, ...CG_OVERRIDES}).map(([sym,id])=>[id,sym]));
   let filled = 0;
   for(const dateKey of Object.keys(history).sort()){
     // Upgrade existing aggregate-only days with prices when we have them
