@@ -1366,7 +1366,7 @@ function moversSection(title, gainers, losers, primary){
     </div>`;
   return `<div style="margin-top:18px">
     <div style="font-size:13px;letter-spacing:.06em;color:var(--text3);margin-bottom:8px">${title}</div>
-    <div style="display:flex;gap:22px">
+    <div style="display:flex;gap:66px">
       ${col('▲ GAINERS','--green',gainers)}
       ${col('▼ LOSERS','--red',losers)}
     </div>
