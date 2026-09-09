@@ -1302,13 +1302,10 @@ function renderPortfolioChange(scopeFn, isFiltered){
 
 // ── Biggest movers popup (per Portfolio Change period) ─────────────────
 // Click a 1D/5D/1M/… chip above to see which currently-held symbols moved
-// the most over that exact window — same start/end dates the chip's own
-// % is built from (windowStartTarget + the anchor-resolution logic
-// calcPortfolioChangeUnified already uses), so the two always agree.
-// Two independent rankings, since a small position can swing 40% while
-// barely moving your total, and a 2% move in your biggest holding can be
-// the real dollar story — showing only one metric hides the other. Both
-// numbers are shown on every row regardless of which list it's ranked in.
+// your portfolio the most (in $) over that exact window — same start/end
+// dates the chip's own % is built from (windowStartTarget + the anchor-
+// resolution logic calcPortfolioChangeUnified already uses), so the two
+// always agree.
 const MOVERS_TOP_N = 3;
 
 function computeBiggestMovers(scopeFn, rangeKey){
@@ -1343,23 +1340,17 @@ function computeBiggestMovers(scopeFn, rangeKey){
   return { from:fromStr, to:anchorStr, movers, excluded };
 }
 
-function moverRow(m, primary){
-  const val = primary==='pct' ? m.pct : m.dollar;
-  const cls = val >= 0 ? 'pos' : 'neg';
-  const main = primary==='pct' ? nP(m.pct) : (m.dollar>=0?'+':'')+n2(m.dollar);
-  const sub  = primary==='pct' ? (m.dollar>=0?'+':'')+n2(m.dollar) : nP(m.pct);
+function moverRow(m){
+  const cls = m.dollar >= 0 ? 'pos' : 'neg';
   return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)">
     <span style="color:var(--text);font-weight:600">${escHtml(m.symbol)}</span>
-    <span style="text-align:right;white-space:nowrap">
-      <span class="${cls}" style="font-weight:700">${main}</span>
-      <span style="color:var(--text3);font-size:9px;margin-left:6px">${sub}</span>
-    </span>
+    <span class="${cls}" style="font-weight:700;white-space:nowrap">${(m.dollar>=0?'+':'')+n2(m.dollar)}</span>
   </div>`;
 }
-function moversSection(title, gainers, losers, primary){
+function moversSection(title, gainers, losers){
   const col = (label, color, list) => `<div style="flex:1;min-width:0">
       <div style="font-size:9px;color:var(${color});margin-bottom:3px">${label}</div>
-      ${list.length ? list.map(m=>moverRow(m,primary)).join('') : `<div style="color:var(--text3);font-size:10px">—</div>`}
+      ${list.length ? list.map(m=>moverRow(m)).join('') : `<div style="color:var(--text3);font-size:10px">—</div>`}
     </div>`;
   return `<div style="margin-top:14px">
     <div style="font-size:10px;letter-spacing:.06em;color:var(--text3);margin-bottom:6px">${title}</div>
@@ -1388,18 +1379,13 @@ function showMoversPopup(rangeKey){
     return;
   }
 
-  const byPct = [...movers].sort((a,b)=>b.pct-a.pct);
-  const pctGainers = byPct.filter(m=>m.pct>0).slice(0, MOVERS_TOP_N);
-  const pctLosers  = byPct.filter(m=>m.pct<0).slice(-MOVERS_TOP_N).reverse();
-
   const byDollar = [...movers].sort((a,b)=>b.dollar-a.dollar);
   const dollarGainers = byDollar.filter(m=>m.dollar>0).slice(0, MOVERS_TOP_N);
   const dollarLosers  = byDollar.filter(m=>m.dollar<0).slice(-MOVERS_TOP_N).reverse();
 
   openHudPopup(id, `${header}
     <div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-family:var(--mono)">${from} → ${to}</div>
-    ${moversSection('BY % MOVE', pctGainers, pctLosers, 'pct')}
-    ${moversSection('BY $ IMPACT', dollarGainers, dollarLosers, 'dollar')}
+    ${moversSection('BY $ IMPACT', dollarGainers, dollarLosers)}
     ${excluded ? `<div style="margin-top:12px;font-size:10px;color:var(--text3)">${excluded} holding${excluded>1?'s':''} excluded — no price on or before ${from} (likely bought during this window).</div>` : ''}
   `, {minWidth:'360px'});
 }
