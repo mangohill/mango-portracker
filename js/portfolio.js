@@ -1351,22 +1351,22 @@ function moverRow(m, primary){
   const cls = val >= 0 ? 'pos' : 'neg';
   const main = primary==='pct' ? nP(m.pct) : (m.dollar>=0?'+':'')+n2(m.dollar);
   const sub  = primary==='pct' ? (m.dollar>=0?'+':'')+n2(m.dollar) : nP(m.pct);
-  return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:3px 0;border-bottom:1px solid var(--border)">
-    <span style="color:var(--text);font-weight:600">${escHtml(m.symbol)}</span>
+  return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:6px 0;border-bottom:1px solid var(--border)">
+    <span style="color:var(--text);font-weight:600;font-size:15px">${escHtml(m.symbol)}</span>
     <span style="text-align:right;white-space:nowrap">
-      <span class="${cls}" style="font-weight:700">${main}</span>
-      <span style="color:var(--text3);font-size:9px;margin-left:6px">${sub}</span>
+      <span class="${cls}" style="font-weight:700;font-size:15px">${main}</span>
+      <span style="color:var(--text3);font-size:12px;margin-left:8px">${sub}</span>
     </span>
   </div>`;
 }
 function moversSection(title, gainers, losers, primary){
   const col = (label, color, list) => `<div style="flex:1;min-width:0">
-      <div style="font-size:9px;color:var(${color});margin-bottom:3px">${label}</div>
-      ${list.length ? list.map(m=>moverRow(m,primary)).join('') : `<div style="color:var(--text3);font-size:10px">—</div>`}
+      <div style="font-size:12px;color:var(${color});margin-bottom:5px">${label}</div>
+      ${list.length ? list.map(m=>moverRow(m,primary)).join('') : `<div style="color:var(--text3);font-size:13px">—</div>`}
     </div>`;
-  return `<div style="margin-top:14px">
-    <div style="font-size:10px;letter-spacing:.06em;color:var(--text3);margin-bottom:6px">${title}</div>
-    <div style="display:flex;gap:16px">
+  return `<div style="margin-top:18px">
+    <div style="font-size:13px;letter-spacing:.06em;color:var(--text3);margin-bottom:8px">${title}</div>
+    <div style="display:flex;gap:22px">
       ${col('▲ GAINERS','--green',gainers)}
       ${col('▼ LOSERS','--red',losers)}
     </div>
@@ -1379,15 +1379,15 @@ function showMoversPopup(rangeKey){
   const label = (PF_CHANGE_RANGES.find(x=>x.key===rangeKey) || {}).label || rangeKey;
   const scopeFn = typeof _lastChangeScopeFn === 'function' ? _lastChangeScopeFn : (()=>true);
 
-  const closeBtn = `<button onclick="closeHudPopup('${id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>`;
-  const header = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <div style="font-size:14px;font-weight:700;color:var(--text)">Biggest Movers — ${escHtml(label)}</div>
+  const closeBtn = `<button onclick="closeHudPopup('${id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:22px;line-height:1">✕</button>`;
+  const header = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="font-size:18px;font-weight:700;color:var(--text)">Biggest Movers — ${escHtml(label)}</div>
       ${closeBtn}
     </div>`;
 
   const { from, to, movers, excluded } = computeBiggestMovers(scopeFn, rangeKey);
   if(!from || !movers.length){
-    openHudPopup(id, `${header}<div style="color:var(--text3);font-size:12px;margin-top:6px">No priced data available for this window yet.</div>`, {minWidth:'300px'});
+    openHudPopup(id, `${header}<div style="color:var(--text3);font-size:14px;margin-top:6px">No priced data available for this window yet.</div>`, {minWidth:'340px', fontSize:'14px'});
     return;
   }
 
@@ -1400,11 +1400,11 @@ function showMoversPopup(rangeKey){
   const pctLosers  = byPct.filter(m=>m.pct<0).slice(-MOVERS_TOP_N).reverse();
 
   openHudPopup(id, `${header}
-    <div style="font-size:10px;color:var(--text3);margin-bottom:4px;font-family:var(--mono)">${from} → ${to}</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:6px;font-family:var(--mono)">${from} → ${to}</div>
     ${moversSection('BY $ IMPACT', dollarGainers, dollarLosers, 'dollar')}
     ${moversSection('BY % MOVE', pctGainers, pctLosers, 'pct')}
-    ${excluded ? `<div style="margin-top:12px;font-size:10px;color:var(--text3)">${excluded} holding${excluded>1?'s':''} excluded — no price on or before ${from} (likely bought during this window).</div>` : ''}
-  `, {minWidth:'360px'});
+    ${excluded ? `<div style="margin-top:16px;font-size:13px;color:var(--text3)">${excluded} holding${excluded>1?'s':''} excluded — no price on or before ${from} (likely bought during this window).</div>` : ''}
+  `, {minWidth:'480px', maxWidth:'560px', fontSize:'14px'});
 }
 
 

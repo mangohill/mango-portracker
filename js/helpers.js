@@ -450,9 +450,9 @@ function openHudPopup(id, innerHtml, opts){
     'background:linear-gradient(165deg,#132029 0%,#0a1319 100%)',
     'border:1px solid var(--blue)',
     'border-radius:10px','padding:20px 24px',
-    'z-index:9999',`min-width:${opts.minWidth||'320px'}`,'max-width:95vw',
+    'z-index:9999',`min-width:${opts.minWidth||'320px'}`,`max-width:${opts.maxWidth||'95vw'}`,
     'box-shadow:0 12px 40px rgba(0,0,0,.7), 0 0 30px var(--blue-glow)',
-    'font-family:var(--mono)','font-size:12px',
+    'font-family:var(--mono)',`font-size:${opts.fontSize||'12px'}`,
   ].join(';');
   panel.innerHTML = innerHtml;
   panel.addEventListener('click', e => e.stopPropagation());
