@@ -1,0 +1,17 @@
+{
+  "name": "Portfolio Tracker",
+  "short_name": "Portfolio",
+  "description": "Personal investment portfolio tracker — stocks, ETFs, crypto, property, and superannuation.",
+  "start_url": "/mango-portracker/",
+  "scope": "/mango-portracker/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#121316",
+  "theme_color": "#121316",
+  "icons": [
+    { "src": "/mango-portracker/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/mango-portracker/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/mango-portracker/icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/mango-portracker/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

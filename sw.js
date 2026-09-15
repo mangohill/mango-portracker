@@ -33,6 +33,13 @@ const PRECACHE_URLS = [
   BASE + 'js/networth.js',
   BASE + 'js/benchmark.js',
   BASE + 'js/sw-register.js',
+  BASE + 'manifest.json',
+  BASE + 'icons/icon-192.png',
+  BASE + 'icons/icon-512.png',
+  BASE + 'icons/icon-maskable-192.png',
+  BASE + 'icons/icon-maskable-512.png',
+  BASE + 'icons/apple-touch-icon.png',
+  BASE + 'icons/favicon-32.png',
 ];
 
 self.addEventListener('install', event => {

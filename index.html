@@ -5,6 +5,18 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com https://gist.githubusercontent.com https://api.coingecko.com https://*.workers.dev https://*.cloudflare.com https://query1.finance.yahoo.com https://www.monashinvestors.com; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Portfolio Tracker</title>
+
+<!-- PWA / Add to Home Screen support -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#121316">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Portfolio">
+<!-- iOS ignores manifest.json's start_url — this is the only way it honours it -->
+<link rel="apple-touch-startup-image" href="icons/icon-512.png">
+
 <!-- Google Fonts removed for offline support; IBM Plex fallbacks to system fonts -->
   <link rel="stylesheet" href="app.css">
 </head>
