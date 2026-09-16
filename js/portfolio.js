@@ -1415,10 +1415,18 @@ function computeBiggestMovers(scopeFn, rangeKey){
     const startPrice = isDailyPricedSym(sym)
       ? priceNearOrBefore(sym, fromStr)
       : (pfSnapshots[fromStr] && pfSnapshots[fromStr].prices && pfSnapshots[fromStr].prices[sym]);
+    // A shared underlying ticker (e.g. DHHF) can have market price history
+    // going back further than when THIS holding was actually bought —
+    // especially for a broker/account-suffixed symbol like DHHF:AU that
+    // prices off the same base ticker as an older DHHF position. Checking
+    // startPrice alone only proves the market existed back then, not that
+    // you held it — so also require an actual trade for this exact symbol
+    // on or before fromStr before crediting it with a window return.
+    const existedAtStart = trades.some(t => t.symbol===h.symbol && t.date<=fromStr);
     // No valid start price usually means bought during this window — can't
     // compute a window return for it, so it's excluded rather than shown
     // as a fabricated 0% (see the excluded-count note in the popup).
-    if(nowPrice==null || startPrice==null || !(startPrice>0)){ excluded++; return; }
+    if(nowPrice==null || startPrice==null || !(startPrice>0) || !existedAtStart){ excluded++; return; }
     movers.push({
       symbol: h.symbol,
       pct: (nowPrice-startPrice)/startPrice*100,
