@@ -1400,8 +1400,15 @@ function computeBiggestMovers(scopeFn, rangeKey){
   resetMtmCache(); // pfSnapshots may have changed since the chip was last rendered
   const todayStr = localDateStr();
   const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
-  const fromStr = windowStartTarget(rangeKey, anchorStr);
-  if(!fromStr) return { from:null, to:anchorStr, movers:[], excluded:0 };
+  const isAll = rangeKey==='all';
+  // "ALL" has no single meaningful shared start date — your oldest holding
+  // and your newest holding can be years apart, so pinning everything to
+  // one fixed date (the earliest data point anywhere in the portfolio)
+  // would exclude almost everything except your very first few positions.
+  // Every other window (1D..5Y) genuinely means "same calendar window for
+  // everyone" and keeps the shared fromStr; only "ALL" goes per-holding.
+  const fromStr = isAll ? null : windowStartTarget(rangeKey, anchorStr);
+  if(!isAll && !fromStr) return { from:null, to:anchorStr, movers:[], excluded:0 };
 
   // Currently-held only (nonzero units today) — matches how the rest of
   // Portfolio Change already treats scope; a fully-exited position has no
@@ -1412,17 +1419,29 @@ function computeBiggestMovers(scopeFn, rangeKey){
   holdings.forEach(h=>{
     const sym = priceSymbol(h.symbol);
     const nowPrice = prices[sym];
-    const startPrice = isDailyPricedSym(sym)
-      ? priceNearOrBefore(sym, fromStr)
-      : (pfSnapshots[fromStr] && pfSnapshots[fromStr].prices && pfSnapshots[fromStr].prices[sym]);
-    // A shared underlying ticker (e.g. DHHF) can have market price history
-    // going back further than when THIS holding was actually bought —
-    // especially for a broker/account-suffixed symbol like DHHF:AU that
-    // prices off the same base ticker as an older DHHF position. Checking
-    // startPrice alone only proves the market existed back then, not that
-    // you held it — so also require an actual trade for this exact symbol
-    // on or before fromStr before crediting it with a window return.
-    const existedAtStart = trades.some(t => t.symbol===h.symbol && t.date<=fromStr);
+
+    let sinceDate, startPrice, existedAtStart;
+    if(isAll){
+      // Each holding compared since ITS OWN first trade — a since-inception
+      // return per position, not one shared portfolio-wide start date.
+      sinceDate = trades.filter(t=>t.symbol===h.symbol).map(t=>t.date).sort()[0] || null;
+      startPrice = sinceDate!=null ? priceNearOrBefore(sym, sinceDate) : null;
+      existedAtStart = sinceDate!=null;
+    } else {
+      sinceDate = fromStr;
+      startPrice = isDailyPricedSym(sym)
+        ? priceNearOrBefore(sym, fromStr)
+        : (pfSnapshots[fromStr] && pfSnapshots[fromStr].prices && pfSnapshots[fromStr].prices[sym]);
+      // A shared underlying ticker (e.g. DHHF) can have market price history
+      // going back further than when THIS holding was actually bought —
+      // especially for a broker/account-suffixed symbol like DHHF:AU that
+      // prices off the same base ticker as an older DHHF position. Checking
+      // startPrice alone only proves the market existed back then, not that
+      // you held it — so also require an actual trade for this exact symbol
+      // on or before fromStr before crediting it with a window return.
+      existedAtStart = trades.some(t => t.symbol===h.symbol && t.date<=fromStr);
+    }
+
     // No valid start price usually means bought during this window — can't
     // compute a window return for it, so it's excluded rather than shown
     // as a fabricated 0% (see the excluded-count note in the popup).
@@ -1431,9 +1450,10 @@ function computeBiggestMovers(scopeFn, rangeKey){
       symbol: h.symbol,
       pct: (nowPrice-startPrice)/startPrice*100,
       dollar: (nowPrice-startPrice)*h.units,
+      since: isAll ? sinceDate : undefined,
     });
   });
-  return { from:fromStr, to:anchorStr, movers, excluded };
+  return { from: isAll ? 'inception' : fromStr, to:anchorStr, movers, excluded };
 }
 
 function moverRow(m, primary){
@@ -1442,7 +1462,7 @@ function moverRow(m, primary){
   const main = primary==='pct' ? nP(m.pct) : (m.dollar>=0?'+':'')+n2(m.dollar);
   const sub  = primary==='pct' ? (m.dollar>=0?'+':'')+n2(m.dollar) : nP(m.pct);
   return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:6px 0;border-bottom:1px solid var(--border)">
-    <span style="color:var(--text);font-weight:600;font-size:15px">${escHtml(m.symbol)}</span>
+    <span style="color:var(--text);font-weight:600;font-size:15px">${escHtml(m.symbol)}${m.since?` <span style="color:var(--text3);font-size:10px;font-weight:400">since ${m.since}</span>`:''}</span>
     <span style="text-align:right;white-space:nowrap">
       <span class="${cls}" style="font-weight:700;font-size:15px">${main}</span>
       <span style="color:var(--text3);font-size:12px;margin-left:8px">${sub}</span>
@@ -1490,10 +1510,10 @@ function showMoversPopup(rangeKey){
   const pctLosers  = byPct.filter(m=>m.pct<0).slice(-MOVERS_TOP_N).reverse();
 
   openHudPopup(id, `${header}
-    <div style="font-size:13px;color:var(--text3);margin-bottom:6px;font-family:var(--mono)">${from} → ${to}</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:6px;font-family:var(--mono)">${from==='inception' ? `Since each holding's own purchase → ${to}` : `${from} → ${to}`}</div>
     ${moversSection('BY $ IMPACT', dollarGainers, dollarLosers, 'dollar')}
     ${moversSection('BY % MOVE', pctGainers, pctLosers, 'pct')}
-    ${excluded ? `<div style="margin-top:16px;font-size:13px;color:var(--text3)">${excluded} holding${excluded>1?'s':''} excluded — no price on or before ${from} (likely bought during this window).</div>` : ''}
+    ${excluded ? `<div style="margin-top:16px;font-size:13px;color:var(--text3)">${excluded} holding${excluded>1?'s':''} excluded — ${from==='inception' ? 'no price found near its own purchase date' : `no price on or before ${from} (likely bought during this window)`}.</div>` : ''}
   `, {width:'640px', aspectRatio:'16/9', fontSize:'14px'});
 }
 
