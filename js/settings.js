@@ -1,5 +1,58 @@
 // ── settings.js ─────────────────────────────────────────────
 
+// ── PRICE DROP ALERTS ────────────────────────────────────────────────
+// Flags, on the main Portfolio page, any monitored holding whose current
+// price has fallen more than a set % below the highest price you've ever
+// personally paid for it. Only counts deliberate 'buy' trades toward that
+// highest price — DRP reinvestments and corporate-action conversions
+// aren't a buying decision, so they'd distort what "your highest buy"
+// actually means. Each monitored symbol has its OWN threshold (crypto
+// swings far more than an LIC, so one shared % rarely fits both) — config
+// is a {symbol: thresholdPct} map, not a flat list. Config lives in
+// localStorage; the check itself runs inside renderH() (portfolio.js) so
+// the dashboard banner always reflects the latest prices/holdings without
+// a separate polling loop.
+const PA_DEFAULT_THRESHOLD = 2;
+function loadPriceAlertSettings(){
+  try{
+    const raw = JSON.parse(localStorage.getItem('pt_price_alerts'));
+    const symbols = (raw && raw.symbols && typeof raw.symbols==='object' && !Array.isArray(raw.symbols)) ? raw.symbols : {};
+    return { enabled: !!(raw&&raw.enabled), symbols };
+  }catch(e){ return { enabled:false, symbols:{} }; }
+}
+function savePriceAlertSettings(){
+  const enabled = $('pa-enabled') ? $('pa-enabled').checked : false;
+  const symbols = {};
+  document.querySelectorAll('#pa-symbol-list .pa-row').forEach(row=>{
+    const cb = row.querySelector('.pa-sym-cb');
+    const num = row.querySelector('.pa-sym-threshold');
+    const on = !!(cb && cb.checked);
+    if(num) num.disabled = !on; // live-toggle without a full re-render
+    if(on) symbols[cb.dataset.sym] = Math.max(0.1, +(num&&num.value) || PA_DEFAULT_THRESHOLD);
+  });
+  localStorage.setItem('pt_price_alerts', JSON.stringify({ enabled, symbols }));
+  if(typeof renderH === 'function') renderH(); // refresh the dashboard banner immediately
+}
+function renderPriceAlertSettings(){
+  const list = $('pa-symbol-list');
+  if(!list) return;
+  const cfg = loadPriceAlertSettings();
+  if($('pa-enabled')) $('pa-enabled').checked = cfg.enabled;
+  const heldSymbols = [...new Set(calcH().filter(h=>Math.abs(h.units)>1e-9).map(h=>h.symbol))].sort();
+  list.innerHTML = heldSymbols.length ? heldSymbols.map(sym=>{
+    const isOn = Object.prototype.hasOwnProperty.call(cfg.symbols, sym);
+    const t = isOn ? cfg.symbols[sym] : PA_DEFAULT_THRESHOLD;
+    return `<div class="pa-row" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;cursor:pointer;font-size:12px;color:var(--text2)">
+        <input type="checkbox" class="pa-sym-cb" data-sym="${escHtml(sym)}" ${isOn?'checked':''} onchange="savePriceAlertSettings()">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(displaySymbol(sym))}</span>
+      </label>
+      <input class="fi pa-sym-threshold" type="number" min="0.1" max="90" step="0.1" value="${t}" ${isOn?'':'disabled'} style="width:56px;padding:4px 6px;font-size:11px;flex-shrink:0;text-align:right" oninput="savePriceAlertSettings()">
+      <span style="font-size:10px;color:var(--text3);flex-shrink:0;width:8px">%</span>
+    </div>`;
+  }).join('') : `<div style="color:var(--text3);font-size:12px">No holdings yet.</div>`;
+}
+
 function saveCFUrl(){
   const url = $('cf-url').value.trim().replace(/\/$/,'');
   if(!url){ notify('Paste your worker URL first.','err'); return; }

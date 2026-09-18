@@ -353,7 +353,57 @@ function sortRows(rows, col, dir, typeCol, symbolCol){
 }
 
 
+// ── PRICE DROP ALERTS (dashboard banner) ──────────────────────────────
+// See settings.js for the config UI (load/save/renderPriceAlertSettings).
+// This is the actual check: for each monitored symbol, compare its live
+// price against the highest price you've ever deliberately bought it at
+// (buy trades only, not DRP/corporate actions — see settings.js comment),
+// using THAT symbol's own threshold from the {symbol: thresholdPct} map.
+function computePriceDropAlerts(){
+  const cfg = loadPriceAlertSettings();
+  const monitored = Object.entries(cfg.symbols||{});
+  if(!cfg.enabled || !monitored.length) return [];
+  const held = new Set(calcH().filter(h=>Math.abs(h.units)>1e-9).map(h=>h.symbol));
+  const alerts = [];
+  monitored.forEach(([sym, thresholdPct])=>{
+    if(!held.has(sym)) return; // fully exited since being added to the watch list
+    const priceSym = priceSymbol(sym);
+    const curPrice = prices[priceSym];
+    if(curPrice==null) return;
+    const buyPrices = trades.filter(t=>t.symbol===sym && t.type==='buy').map(t=>+t.price).filter(p=>p>0);
+    if(!buyPrices.length) return;
+    const highestBuy = Math.max(...buyPrices);
+    const dropPct = (highestBuy - curPrice) / highestBuy * 100;
+    const threshold = +thresholdPct || PA_DEFAULT_THRESHOLD;
+    if(dropPct > threshold) alerts.push({ symbol: sym, curPrice, highestBuy, dropPct, threshold });
+  });
+  return alerts.sort((a,b)=>b.dropPct-a.dropPct);
+}
+function renderPriceDropAlerts(){
+  const wrap = $('price-alerts-wrap');
+  if(!wrap) return;
+  const alerts = computePriceDropAlerts();
+  if(!alerts.length){ wrap.style.display='none'; wrap.innerHTML=''; return; }
+  wrap.style.display='';
+  wrap.innerHTML = `
+    <div class="fst" style="color:var(--gold)">🔔 PRICE DROP ALERTS</div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      ${alerts.map(a=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+          <span style="font-weight:600">${escHtml(displaySymbol(a.symbol))}</span>
+          <span style="font-size:12px;color:var(--text3);text-align:right">
+            <span class="neg" style="font-weight:700">-${a.dropPct.toFixed(2)}%</span>
+            <span style="color:var(--text3);font-size:10px">(threshold ${a.threshold}%)</span>
+            from highest buy ${n2(a.highestBuy,dec(a.highestBuy))} → now ${n2(a.curPrice,dec(a.curPrice))}
+          </span>
+        </div>`).join('')}
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin-top:8px">Based on your highest-ever buy price per symbol — a prompt to review, not investment advice.</div>
+  `;
+}
+
 function renderH(){
+  if(typeof renderPriceDropAlerts==='function') renderPriceDropAlerts();
   const CRYPTO_TYPES = ['crypto'];
   const isCrypto = h => CRYPTO_TYPES.includes(h.assetType);
   const isStock  = h => !CRYPTO_TYPES.includes(h.assetType);
