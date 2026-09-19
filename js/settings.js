@@ -20,8 +20,17 @@ function loadPriceAlertSettings(){
     return { enabled: !!(raw&&raw.enabled), symbols };
   }catch(e){ return { enabled:false, symbols:{} }; }
 }
+function paApplyEnabledVisual(enabled){
+  const wrap = $('pa-monitor-wrap'), hint = $('pa-disabled-hint');
+  // Dim only — deliberately NOT pointer-events:none, since the hint text
+  // says selections are still saved while off, so you should still be
+  // able to set them up in advance before flipping Enabled on.
+  if(wrap) wrap.style.opacity = enabled ? '1' : '0.45';
+  if(hint) hint.style.display = enabled ? 'none' : '';
+}
 function savePriceAlertSettings(){
   const enabled = $('pa-enabled') ? $('pa-enabled').checked : false;
+  paApplyEnabledVisual(enabled);
   const symbols = {};
   document.querySelectorAll('#pa-symbol-list .pa-row').forEach(row=>{
     const cb = row.querySelector('.pa-sym-cb');
@@ -38,6 +47,7 @@ function renderPriceAlertSettings(){
   if(!list) return;
   const cfg = loadPriceAlertSettings();
   if($('pa-enabled')) $('pa-enabled').checked = cfg.enabled;
+  paApplyEnabledVisual(cfg.enabled);
   const heldSymbols = [...new Set(calcH().filter(h=>Math.abs(h.units)>1e-9).map(h=>h.symbol))].sort();
   list.innerHTML = heldSymbols.length ? heldSymbols.map(sym=>{
     const isOn = Object.prototype.hasOwnProperty.call(cfg.symbols, sym);

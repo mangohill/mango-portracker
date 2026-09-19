@@ -1023,10 +1023,15 @@
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
       Flags a holding on the main Portfolio page when its current price drops more than its own threshold below the highest price you've ever bought it at — a signal it might be worth averaging down. Based only on deliberate Buy trades (DRP/corporate actions aren't counted as a buy decision). Each holding gets its own threshold — crypto typically swings far more than an LIC, so one shared number rarely fits both.
     </div>
-    <div style="display:flex;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--text3);padding:0 0 6px;border-bottom:1px solid var(--border2)">
-      <span style="flex:1">MONITOR</span><span style="width:64px;flex-shrink:0;text-align:right">THRESHOLD</span>
+    <div id="pa-disabled-hint" style="display:none;font-size:12px;color:var(--gold);background:var(--gold-dim);border:1px solid var(--gold);border-radius:6px;padding:7px 10px;margin-bottom:12px">
+      ⚠ Turn on "Enabled" above to activate these alerts — your selections below are saved but currently inactive.
     </div>
-    <div id="pa-symbol-list" style="max-height:280px;overflow-y:auto"></div>
+    <div id="pa-monitor-wrap">
+      <div style="display:flex;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--text3);padding:0 0 6px;border-bottom:1px solid var(--border2)">
+        <span style="flex:1">MONITOR</span><span style="width:64px;flex-shrink:0;text-align:right">THRESHOLD</span>
+      </div>
+      <div id="pa-symbol-list" style="max-height:280px;overflow-y:auto"></div>
+    </div>
   </div>
 
   <!-- Data Integrity Check -->
