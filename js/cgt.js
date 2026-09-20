@@ -473,6 +473,70 @@ let cgtAmitSearch = '';
 let cgtLastSim = null;
 let cgtFifoCollapsed = true;
 
+// Flags open parcels still short-term but due to cross the 365-day CGT
+// discount threshold within `withinDays`. Mirrors buildDisposals()'s own
+// `heldDays > 365` test exactly, so the countdown never disagrees with
+// what an actual sale would compute.
+//
+// CUTOFF-AWARE (2026-27 Federal Budget reform, CGT_CUTOFF_DATE = 30 June
+// 2027): from 1 July 2027, the flat 50% discount is replaced by cost-base
+// indexation + a 30% minimum tax rate. Crucially this switches on the
+// SALE date, not the purchase date or even the 12-month-eligibility date —
+// every open position gets its gain time-apportioned between pre/post
+// cutoff once a CGT event happens on/after 1 July 2027 (see the CGT
+// Simulator section below, which already models that split precisely).
+// So a parcel becoming "long-term" here doesn't mean "50% discount" once
+// its own eligibility date falls on/after the cutoff — it only means the
+// 12-month holding test (still required either way) is satisfied. This
+// flags which regime applies so the wording never overstates a 50%
+// discount that a sale that far out wouldn't actually get in full.
+function computeDiscountCountdown(openParcels, withinDays){
+  const todayStr = localDateStr();
+  const today = new Date(todayStr);
+  const rows = [];
+  Object.entries(openParcels).forEach(([sym, list])=>{
+    if(sym.startsWith('_stash_')) return;
+    list.forEach(p=>{
+      if(p.units <= 0.000001) return;
+      const heldDays = Math.floor((today - new Date(p.date)) / 86400000);
+      if(heldDays < 0 || heldDays > 365) return; // already eligible or not a valid date
+      const daysLeft = 366 - heldDays; // smallest heldDays that satisfies >365
+      if(daysLeft > 0 && daysLeft <= withinDays){
+        const eligible = new Date(today.getTime() + daysLeft*86400000);
+        const eligibleDateStr = eligible.toISOString().slice(0,10);
+        rows.push({
+          symbol: sym, units: p.units, buyDate: p.date, daysLeft, eligibleDateStr,
+          // If a sale can't realistically happen before the parcel is even
+          // long-term, the relevant question is whether THAT date already
+          // sits in the post-reform regime.
+          postCutoff: eligibleDateStr > CGT_CUTOFF_DATE,
+        });
+      }
+    });
+  });
+  return rows.sort((a,b)=>a.daysLeft-b.daysLeft);
+}
+
+// Currently-held positions with the biggest unrealized $ loss right now
+// (live price vs cost base) — reuses calcH()'s own numbers so this always
+// matches what Holdings shows, rather than recomputing cost base separately.
+function computeTaxLossHarvestCandidates(limit){
+  const rows = calcH()
+    .filter(h => Math.abs(h.units) > 1e-9)
+    .map(h=>{
+      const sym = priceSymbol(h.symbol);
+      const cur = prices[sym];
+      if(cur==null || !(h.costBasis>0)) return null;
+      const mv = cur * h.units;
+      const unrealizedLoss = mv - h.costBasis;
+      if(unrealizedLoss >= -0.005) return null; // only actual losses
+      return { symbol: h.symbol, unrealizedLoss, pct: (unrealizedLoss/h.costBasis)*100 };
+    })
+    .filter(Boolean)
+    .sort((a,b)=>a.unrealizedLoss-b.unrealizedLoss);
+  return limit ? rows.slice(0, limit) : rows;
+}
+
 function renderCGT(){
   const panel = $('panel-cgt');
   if(!panel) return;
@@ -500,6 +564,41 @@ function renderCGT(){
       ${unusedLossesHtml.map(u=>`<div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">
         <b>${getPersonLabel(u.person)}</b> has <b>${n2(u.amount)}</b> in capital losses carried forward from FY${u.fy}
         with nothing to offset it against since — available to reduce a future capital gain.
+      </div>`).join('')}
+    </div>` : '';
+
+  // ── CGT DISCOUNT COUNTDOWN ────────────────────────────────────────────
+  // Flags open parcels that are still short-term but about to cross the
+  // 365-day discount threshold — the same >365 test buildDisposals() uses
+  // on an actual sale — so a parcel sold a day or two early doesn't
+  // accidentally miss the 12-month concession. Reuses openParcels directly;
+  // no separate data source to keep in sync. Wording is cutoff-aware — see
+  // computeDiscountCountdown's comment for why "50% discount" only applies
+  // pre-1 July 2027.
+  const discountSoon = computeDiscountCountdown(openParcels, 45);
+  const discountCountdownBanner = discountSoon.length ? `
+    <div class="fs" style="border-color:var(--gold);margin-bottom:16px">
+      <div class="fst" style="color:var(--gold)">⏳ CGT DISCOUNT COMING UP</div>
+      ${discountSoon.map(r=>`<div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">
+        <b>${escHtml(plainSymbol(r.symbol))}</b> — ${nN(r.units,6)} units bought ${r.buyDate} become 12-month long-term eligible
+        in <b>${r.daysLeft} day${r.daysLeft===1?'':'s'}</b> (${r.eligibleDateStr})${r.postCutoff
+          ? ` — falls after ${CGT_POST_CUTOFF_LABEL_LONG}, so a sale around then gets cost-base indexation + the 30% minimum rate on the post-cutoff portion, not the old flat 50% discount. See the CGT Simulator below for the actual split.`
+          : ` — the full 50% discount still applies if sold before ${CGT_POST_CUTOFF_LABEL_LONG}.`}
+      </div>`).join('')}
+    </div>` : '';
+
+  // ── TAX-LOSS HARVESTING ───────────────────────────────────────────────
+  // Currently-held positions sitting on the biggest unrealized losses right
+  // now, using the same market-value math Holdings already shows — a
+  // starting point for EOFY loss-harvesting decisions, not a recommendation.
+  const harvestCandidates = computeTaxLossHarvestCandidates(6);
+  const harvestBanner = harvestCandidates.length ? `
+    <div class="fs" style="border-color:var(--red);margin-bottom:16px">
+      <div class="fst" style="color:var(--red)">📉 TAX-LOSS HARVESTING — BIGGEST UNREALIZED LOSSES</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Currently-held positions worth the most below their cost base — a starting point to review before EOFY, not advice to sell.</div>
+      ${harvestCandidates.map(h=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;padding:3px 0">
+        <span><b>${escHtml(plainSymbol(h.symbol))}</b></span>
+        <span class="neg">${n2(h.unrealizedLoss)} (${h.pct.toFixed(1)}%)</span>
       </div>`).join('')}
     </div>` : '';
 
@@ -693,6 +792,8 @@ function renderCGT(){
 
   panel.innerHTML = `
     ${unusedLossesBanner}
+    ${discountCountdownBanner}
+    ${harvestBanner}
 
     <div class="fs" style="border-color:var(--border2);margin-bottom:16px">
       <div class="fst">📉 CAPITAL GAINS — ASSUMPTIONS</div>

@@ -966,7 +966,76 @@ function renderFYBar(){
   bar.innerHTML = pill('ALL','ALL') + fys.map(fy => pill(fyLabel(fy), String(fy))).join('');
 }
 
+// ── 45-DAY FRANKING CREDIT RULE ───────────────────────────────────────
+// The ATO requires shares be held "at risk" for 45+ days (90 for
+// preference shares), excluding the day of acquisition and disposal, for
+// franking credits to be claimable — but only once a person's total
+// franking credits for the FY exceed the $5,000 small-shareholder
+// exemption (below that, the rule doesn't apply at all). This can't know
+// about hedging or other risk-diminishment the ATO's actual test also
+// considers, so it only checks the straightforward, most common case: was
+// the position sold within 45 days of the dividend date, or not held at
+// all beforehand. HEURISTIC ONLY — a prompt to double-check with your
+// accountant, not a determination.
+const FRANKING_SMALL_SHAREHOLDER_EXEMPTION = 5000;
+function compute45DayRuleFlags(){
+  const frankingByPersonFY = {};
+  dividends.forEach(d=>{
+    if(!d.frankingPct) return;
+    const fc = frankingCredit(+d.amount||0, d.frankingPct);
+    if(!fc) return;
+    const owner = getSymbolOwner(d.symbol);
+    const persons = owner==='joint' ? getAllPersons() : [owner];
+    const share = owner==='joint' ? 0.5 : 1;
+    const fy = dateToFY(d.date);
+    persons.forEach(p=>{
+      frankingByPersonFY[p] = frankingByPersonFY[p] || {};
+      frankingByPersonFY[p][fy] = (frankingByPersonFY[p][fy]||0) + fc*share;
+    });
+  });
+
+  const flags = [];
+  dividends.forEach(d=>{
+    if(!d.frankingPct || d.frankingPct<=0) return;
+    const owner = getSymbolOwner(d.symbol);
+    const fy = dateToFY(d.date);
+    const relevantPersons = owner==='joint' ? getAllPersons() : [owner];
+    const exceedsThreshold = relevantPersons.some(p => (frankingByPersonFY[p]&&frankingByPersonFY[p][fy]||0) > FRANKING_SMALL_SHAREHOLDER_EXEMPTION);
+    if(!exceedsThreshold) return;
+
+    const divDate = new Date(d.date);
+    const cutoff = new Date(divDate.getTime() + 45*86400000);
+    const soldWithin45 = trades.some(t => t.symbol===d.symbol && t.type==='sell' &&
+      new Date(t.date) > divDate && new Date(t.date) <= cutoff);
+    const boughtBeforeDiv = trades.some(t => t.symbol===d.symbol && (t.type==='buy'||t.type==='drp') && t.date < d.date);
+
+    if(soldWithin45 || !boughtBeforeDiv){
+      flags.push({ dividend: d, soldWithin45, boughtBeforeDiv, fy });
+    }
+  });
+  return flags.sort((a,b)=>b.dividend.date.localeCompare(a.dividend.date));
+}
+function render45DayRuleFlags(){
+  const wrap = $('dv-45day-wrap');
+  if(!wrap) return;
+  const flags = compute45DayRuleFlags();
+  if(!flags.length){ wrap.style.display='none'; wrap.innerHTML=''; return; }
+  wrap.style.display='';
+  wrap.innerHTML = `
+    <div class="fs" style="border-color:var(--gold)">
+      <div class="fst" style="color:var(--gold)">⚠ 45-DAY FRANKING CREDIT RULE — WORTH CHECKING</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
+        Once your franking credits for a year exceed the $5,000 small-shareholder exemption, the ATO generally requires shares be held "at risk" for 45+ days for the credits to be claimable. These dividends' holding pattern doesn't clearly meet that — heuristic only, verify with your accountant.
+      </div>
+      ${flags.map(f=>`<div style="font-family:var(--mono);font-size:12px;padding:3px 0">
+        <b>${escHtml(plainSymbol(f.dividend.symbol))}</b> ${f.dividend.date} — ${n2(+f.dividend.amount)} at ${f.dividend.frankingPct}% franked
+        <span style="color:var(--text3)">(${f.soldWithin45?'sold within 45 days of this dividend':'not held before this dividend'})</span>
+      </div>`).join('')}
+    </div>`;
+}
+
 function renderDividends(){
+  render45DayRuleFlags();
   const search = ($('dv-search').value||'').toLowerCase();
   const typeF  = $('dv-filter').value;
   // Rebuild dv-owner-filter from actual owners

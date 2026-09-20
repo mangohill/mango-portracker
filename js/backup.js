@@ -10,6 +10,45 @@ function triggerDownload(url, filename){
   URL.revokeObjectURL(url);
 }
 
+// ── BACKUP STALENESS REMINDER ─────────────────────────────────────────
+// This app is localStorage-only with no server database — a cleared
+// browser cache or a dead device loses everything unless you've exported
+// a JSON backup or pushed to Cloud Sync recently. Tracks whichever of
+// those two happened most recently (either one genuinely protects your
+// data, so the more recent counts) and nudges you on the Settings page
+// once it's been a while.
+const BACKUP_STALE_AFTER_DAYS = 30;
+function getLastBackupInfo(){
+  const exportedAt = localStorage.getItem('pt_last_backup_export');
+  const syncedAt = localStorage.getItem('pt_last_sync');
+  const dates = [exportedAt, syncedAt].filter(Boolean).map(s=>new Date(s)).filter(d=>!isNaN(d));
+  if(!dates.length) return { lastDate: null, daysAgo: null, method: null };
+  const lastDate = new Date(Math.max(...dates.map(d=>d.getTime())));
+  const method = (exportedAt && lastDate.getTime()===new Date(exportedAt).getTime()) ? 'export' : 'sync';
+  const daysAgo = Math.floor((Date.now() - lastDate.getTime()) / 86400000);
+  return { lastDate, daysAgo, method };
+}
+function renderBackupReminder(){
+  const el = $('backup-reminder');
+  if(!el) return;
+  const { daysAgo, method } = getLastBackupInfo();
+  if(daysAgo == null){
+    el.style.display = '';
+    el.style.color = 'var(--gold)';
+    el.innerHTML = `⚠ No backup on record yet — this app only stores data in this browser. Download a backup or set up Cloud Sync so you don't lose your trade history.`;
+    return;
+  }
+  if(daysAgo >= BACKUP_STALE_AFTER_DAYS){
+    el.style.display = '';
+    el.style.color = 'var(--gold)';
+    el.innerHTML = `⚠ Last ${method==='export'?'backup download':'cloud sync'} was <b>${daysAgo} day${daysAgo===1?'':'s'} ago</b> — worth doing a fresh one.`;
+    return;
+  }
+  el.style.display = '';
+  el.style.color = 'var(--green)';
+  el.innerHTML = `✓ Last ${method==='export'?'backup download':'cloud sync'} was ${daysAgo===0?'today':daysAgo+' day'+(daysAgo===1?'':'s')+' ago'}.`;
+}
+
 function backupExport(){
   const payload = {
     version:    BACKUP_VERSION,
@@ -64,6 +103,8 @@ function backupExport(){
   const url  = URL.createObjectURL(blob);
   const date = new Date().toISOString().slice(0,10);
   triggerDownload(url, `portfolio-backup-${date}.json`);
+  localStorage.setItem('pt_last_backup_export', new Date().toISOString());
+  if(typeof renderBackupReminder === 'function') renderBackupReminder();
 
   backupStatus(`✓ Backup downloaded — ${payload.data.pt_trades.length} trades, `
     + `${payload.data.pt_divs.length} dividends, `

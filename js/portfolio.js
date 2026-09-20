@@ -353,31 +353,41 @@ function sortRows(rows, col, dir, typeCol, symbolCol){
 }
 
 
-// ── PRICE DROP ALERTS (dashboard banner) ──────────────────────────────
+// ── PRICE DROP / RISE ALERTS (dashboard banner) ───────────────────────
 // See settings.js for the config UI (load/save/renderPriceAlertSettings).
 // This is the actual check: for each monitored symbol, compare its live
-// price against the highest price you've ever deliberately bought it at
-// (buy trades only, not DRP/corporate actions — see settings.js comment),
-// using THAT symbol's own threshold from the {symbol: thresholdPct} map.
+// price against the highest/lowest price you've ever deliberately bought
+// it at (buy trades only, not DRP/corporate actions — see settings.js
+// comment), using THAT symbol's own drop/rise thresholds from the
+// {symbol: {drop, rise}} map. A symbol can fire in both directions on
+// different days (unlikely same day, but not impossible with a wide gap
+// between your lowest and highest buy).
 function computePriceDropAlerts(){
   const cfg = loadPriceAlertSettings();
   const monitored = Object.entries(cfg.symbols||{});
   if(!cfg.enabled || !monitored.length) return [];
   const held = new Set(calcH().filter(h=>Math.abs(h.units)>1e-9).map(h=>h.symbol));
   const alerts = [];
-  monitored.forEach(([sym, thresholdPct])=>{
+  monitored.forEach(([sym, cfgForSym])=>{
     if(!held.has(sym)) return; // fully exited since being added to the watch list
     const priceSym = priceSymbol(sym);
     const curPrice = prices[priceSym];
     if(curPrice==null) return;
     const buyPrices = trades.filter(t=>t.symbol===sym && t.type==='buy').map(t=>+t.price).filter(p=>p>0);
     if(!buyPrices.length) return;
-    const highestBuy = Math.max(...buyPrices);
-    const dropPct = (highestBuy - curPrice) / highestBuy * 100;
-    const threshold = +thresholdPct || PA_DEFAULT_THRESHOLD;
-    if(dropPct > threshold) alerts.push({ symbol: sym, curPrice, highestBuy, dropPct, threshold });
+    const { drop, rise } = cfgForSym || {};
+    if(drop!=null){
+      const highestBuy = Math.max(...buyPrices);
+      const dropPct = (highestBuy - curPrice) / highestBuy * 100;
+      if(dropPct > drop) alerts.push({ symbol: sym, direction:'drop', curPrice, refPrice: highestBuy, movePct: dropPct, threshold: drop });
+    }
+    if(rise!=null){
+      const lowestBuy = Math.min(...buyPrices);
+      const risePct = (curPrice - lowestBuy) / lowestBuy * 100;
+      if(risePct > rise) alerts.push({ symbol: sym, direction:'rise', curPrice, refPrice: lowestBuy, movePct: risePct, threshold: rise });
+    }
   });
-  return alerts.sort((a,b)=>b.dropPct-a.dropPct);
+  return alerts.sort((a,b)=>b.movePct-a.movePct);
 }
 function renderPriceDropAlerts(){
   const wrap = $('price-alerts-wrap');
@@ -386,24 +396,79 @@ function renderPriceDropAlerts(){
   if(!alerts.length){ wrap.style.display='none'; wrap.innerHTML=''; return; }
   wrap.style.display='';
   wrap.innerHTML = `
-    <div class="fst" style="color:var(--gold)">🔔 PRICE DROP ALERTS</div>
+    <div class="fst" style="color:var(--gold)">🔔 PRICE ALERTS</div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      ${alerts.map(a=>{
+        const isDrop = a.direction==='drop';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+          <span style="font-weight:600">${escHtml(displaySymbol(a.symbol))} <span style="font-size:10px;color:var(--text3);font-weight:400">${isDrop?'▼ drop':'▲ rise'}</span></span>
+          <span style="font-size:12px;color:var(--text3);text-align:right">
+            <span class="${isDrop?'neg':'pos'}" style="font-weight:700">${isDrop?'-':'+'}${a.movePct.toFixed(2)}%</span>
+            <span style="color:var(--text3);font-size:10px">(threshold ${a.threshold}%)</span>
+            from ${isDrop?'highest':'lowest'} buy ${n2(a.refPrice,dec(a.refPrice))} → now ${n2(a.curPrice,dec(a.curPrice))}
+          </span>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin-top:8px">Based on your own buy price history — a prompt to review, not investment advice.</div>
+  `;
+}
+
+// ── CONCENTRATION ALERTS (dashboard banner) ───────────────────────────
+// See settings.js for the config UI. Checks each monitored symbol's live
+// market value as a % of total current portfolio value — independent of
+// the price alerts above, this is about position SIZE, not price moves.
+function computeConcentrationAlerts(){
+  const cfg = loadConcentrationAlertSettings();
+  const monitored = Object.entries(cfg.symbols||{});
+  if(!cfg.enabled || !monitored.length) return [];
+  const holdings = calcH().filter(h=>Math.abs(h.units)>1e-9);
+  const mvBySymbol = {};
+  let totalMv = 0;
+  holdings.forEach(h=>{
+    const cur = prices[priceSymbol(h.symbol)];
+    if(cur==null) return;
+    const mv = cur * h.units;
+    mvBySymbol[h.symbol] = mv;
+    totalMv += mv;
+  });
+  if(!(totalMv > 0)) return [];
+  const alerts = [];
+  monitored.forEach(([sym, thresholdPct])=>{
+    const mv = mvBySymbol[sym];
+    if(mv==null) return;
+    const pctOfPortfolio = mv / totalMv * 100;
+    const threshold = +thresholdPct || CA_DEFAULT_THRESHOLD;
+    if(pctOfPortfolio > threshold) alerts.push({ symbol: sym, pctOfPortfolio, threshold, mv });
+  });
+  return alerts.sort((a,b)=>b.pctOfPortfolio-a.pctOfPortfolio);
+}
+function renderConcentrationAlerts(){
+  const wrap = $('concentration-alerts-wrap');
+  if(!wrap) return;
+  const alerts = computeConcentrationAlerts();
+  if(!alerts.length){ wrap.style.display='none'; wrap.innerHTML=''; return; }
+  wrap.style.display='';
+  wrap.innerHTML = `
+    <div class="fst" style="color:var(--gold)">⚖ CONCENTRATION ALERTS</div>
     <div style="display:flex;flex-direction:column;gap:2px">
       ${alerts.map(a=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
           <span style="font-weight:600">${escHtml(displaySymbol(a.symbol))}</span>
           <span style="font-size:12px;color:var(--text3);text-align:right">
-            <span class="neg" style="font-weight:700">-${a.dropPct.toFixed(2)}%</span>
+            <span class="neg" style="font-weight:700">${a.pctOfPortfolio.toFixed(1)}%</span>
             <span style="color:var(--text3);font-size:10px">(threshold ${a.threshold}%)</span>
-            from highest buy ${n2(a.highestBuy,dec(a.highestBuy))} → now ${n2(a.curPrice,dec(a.curPrice))}
+            of portfolio — ${n2(a.mv)}
           </span>
         </div>`).join('')}
     </div>
-    <div style="font-size:10px;color:var(--text3);margin-top:8px">Based on your highest-ever buy price per symbol — a prompt to review, not investment advice.</div>
+    <div style="font-size:10px;color:var(--text3);margin-top:8px">A single position this large means its own moves meaningfully swing your whole portfolio — a prompt to review, not investment advice.</div>
   `;
 }
 
 function renderH(){
   if(typeof renderPriceDropAlerts==='function') renderPriceDropAlerts();
+  if(typeof renderConcentrationAlerts==='function') renderConcentrationAlerts();
   const CRYPTO_TYPES = ['crypto'];
   const isCrypto = h => CRYPTO_TYPES.includes(h.assetType);
   const isStock  = h => !CRYPTO_TYPES.includes(h.assetType);

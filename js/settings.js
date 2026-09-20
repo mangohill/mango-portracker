@@ -1,22 +1,33 @@
 // ── settings.js ─────────────────────────────────────────────
 
-// ── PRICE DROP ALERTS ────────────────────────────────────────────────
+// ── PRICE DROP / RISE ALERTS ──────────────────────────────────────────
 // Flags, on the main Portfolio page, any monitored holding whose current
-// price has fallen more than a set % below the highest price you've ever
-// personally paid for it. Only counts deliberate 'buy' trades toward that
-// highest price — DRP reinvestments and corporate-action conversions
-// aren't a buying decision, so they'd distort what "your highest buy"
-// actually means. Each monitored symbol has its OWN threshold (crypto
-// swings far more than an LIC, so one shared % rarely fits both) — config
-// is a {symbol: thresholdPct} map, not a flat list. Config lives in
-// localStorage; the check itself runs inside renderH() (portfolio.js) so
-// the dashboard banner always reflects the latest prices/holdings without
-// a separate polling loop.
-const PA_DEFAULT_THRESHOLD = 2;
+// price has moved more than a set % away from your own trade history:
+// DROP = below the highest price you've ever bought it at (a prompt to
+// consider averaging down); RISE = above the lowest price you've ever
+// bought it at (a take-profit prompt). Only counts deliberate 'buy'
+// trades — DRP reinvestments and corporate-action conversions aren't a
+// buying decision, so they'd distort what "your buy price" means. Each
+// monitored symbol has its OWN thresholds in each direction (crypto
+// swings far more than an LIC, so one shared % rarely fits either) —
+// config is a {symbol: {drop, rise}} map, either of which can be left
+// unset to only watch the other direction. Config lives in localStorage;
+// the check itself runs inside renderH() (portfolio.js) so the dashboard
+// banner always reflects the latest prices/holdings without a separate
+// polling loop.
+const PA_DEFAULT_DROP = 2;
+const PA_DEFAULT_RISE = 20;
 function loadPriceAlertSettings(){
   try{
     const raw = JSON.parse(localStorage.getItem('pt_price_alerts'));
-    const symbols = (raw && raw.symbols && typeof raw.symbols==='object' && !Array.isArray(raw.symbols)) ? raw.symbols : {};
+    const rawSymbols = (raw && raw.symbols && typeof raw.symbols==='object' && !Array.isArray(raw.symbols)) ? raw.symbols : {};
+    // Normalize: older versions stored a bare number (drop-only). Migrate
+    // that shape transparently so existing saved thresholds aren't lost.
+    const symbols = {};
+    Object.entries(rawSymbols).forEach(([sym, v])=>{
+      if(typeof v === 'number') symbols[sym] = { drop: v, rise: null };
+      else if(v && typeof v === 'object') symbols[sym] = { drop: v.drop ?? null, rise: v.rise ?? null };
+    });
     return { enabled: !!(raw&&raw.enabled), symbols };
   }catch(e){ return { enabled:false, symbols:{} }; }
 }
@@ -34,10 +45,16 @@ function savePriceAlertSettings(){
   const symbols = {};
   document.querySelectorAll('#pa-symbol-list .pa-row').forEach(row=>{
     const cb = row.querySelector('.pa-sym-cb');
-    const num = row.querySelector('.pa-sym-threshold');
+    const dropInput = row.querySelector('.pa-sym-drop');
+    const riseInput = row.querySelector('.pa-sym-rise');
     const on = !!(cb && cb.checked);
-    if(num) num.disabled = !on; // live-toggle without a full re-render
-    if(on) symbols[cb.dataset.sym] = Math.max(0.1, +(num&&num.value) || PA_DEFAULT_THRESHOLD);
+    if(dropInput) dropInput.disabled = !on; // live-toggle without a full re-render
+    if(riseInput) riseInput.disabled = !on;
+    if(on){
+      const dropVal = dropInput && dropInput.value !== '' ? Math.max(0.1, +dropInput.value || PA_DEFAULT_DROP) : null;
+      const riseVal = riseInput && riseInput.value !== '' ? Math.max(0.1, +riseInput.value || PA_DEFAULT_RISE) : null;
+      if(dropVal!=null || riseVal!=null) symbols[cb.dataset.sym] = { drop: dropVal, rise: riseVal };
+    }
   });
   localStorage.setItem('pt_price_alerts', JSON.stringify({ enabled, symbols }));
   if(typeof renderH === 'function') renderH(); // refresh the dashboard banner immediately
@@ -51,13 +68,73 @@ function renderPriceAlertSettings(){
   const heldSymbols = [...new Set(calcH().filter(h=>Math.abs(h.units)>1e-9).map(h=>h.symbol))].sort();
   list.innerHTML = heldSymbols.length ? heldSymbols.map(sym=>{
     const isOn = Object.prototype.hasOwnProperty.call(cfg.symbols, sym);
-    const t = isOn ? cfg.symbols[sym] : PA_DEFAULT_THRESHOLD;
-    return `<div class="pa-row" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
-      <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;cursor:pointer;font-size:12px;color:var(--text2)">
+    const dropVal = isOn && cfg.symbols[sym].drop!=null ? cfg.symbols[sym].drop : PA_DEFAULT_DROP;
+    const riseVal = isOn && cfg.symbols[sym].rise!=null ? cfg.symbols[sym].rise : PA_DEFAULT_RISE;
+    return `<div class="pa-row" style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:90px;cursor:pointer;font-size:12px;color:var(--text2)">
         <input type="checkbox" class="pa-sym-cb" data-sym="${escHtml(sym)}" ${isOn?'checked':''} onchange="savePriceAlertSettings()">
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(displaySymbol(sym))}</span>
       </label>
-      <input class="fi pa-sym-threshold" type="number" min="0.1" max="90" step="0.1" value="${t}" ${isOn?'':'disabled'} style="width:56px;padding:4px 6px;font-size:11px;flex-shrink:0;text-align:right" oninput="savePriceAlertSettings()">
+      <span style="font-size:10px;color:var(--red);flex-shrink:0">▼ Drop</span>
+      <input class="fi pa-sym-drop" type="number" min="0.1" max="90" step="0.1" value="${dropVal}" ${isOn?'':'disabled'} style="width:52px;padding:4px 6px;font-size:11px;flex-shrink:0;text-align:right" oninput="savePriceAlertSettings()">
+      <span style="font-size:10px;color:var(--text3);flex-shrink:0;width:8px">%</span>
+      <span style="font-size:10px;color:var(--green);flex-shrink:0;margin-left:4px">▲ Rise</span>
+      <input class="fi pa-sym-rise" type="number" min="0.1" max="900" step="0.1" value="${riseVal}" ${isOn?'':'disabled'} style="width:52px;padding:4px 6px;font-size:11px;flex-shrink:0;text-align:right" oninput="savePriceAlertSettings()">
+      <span style="font-size:10px;color:var(--text3);flex-shrink:0;width:8px">%</span>
+    </div>`;
+  }).join('') : `<div style="color:var(--text3);font-size:12px">No holdings yet.</div>`;
+}
+
+// ── CONCENTRATION ALERTS ──────────────────────────────────────────────
+// Flags, on the main Portfolio page, any monitored holding whose live
+// market value has grown past a set % of your total portfolio value — a
+// single position getting large enough that a move in it alone
+// meaningfully swings your whole net worth. Same {symbol: pct} config
+// pattern as price alerts, but independent storage/toggle since these
+// are a different kind of signal (position sizing, not price movement).
+const CA_DEFAULT_THRESHOLD = 15;
+function loadConcentrationAlertSettings(){
+  try{
+    const raw = JSON.parse(localStorage.getItem('pt_concentration_alerts'));
+    const symbols = (raw && raw.symbols && typeof raw.symbols==='object' && !Array.isArray(raw.symbols)) ? raw.symbols : {};
+    return { enabled: !!(raw&&raw.enabled), symbols };
+  }catch(e){ return { enabled:false, symbols:{} }; }
+}
+function caApplyEnabledVisual(enabled){
+  const wrap = $('ca-monitor-wrap'), hint = $('ca-disabled-hint');
+  if(wrap) wrap.style.opacity = enabled ? '1' : '0.45';
+  if(hint) hint.style.display = enabled ? 'none' : '';
+}
+function saveConcentrationAlertSettings(){
+  const enabled = $('ca-enabled') ? $('ca-enabled').checked : false;
+  caApplyEnabledVisual(enabled);
+  const symbols = {};
+  document.querySelectorAll('#ca-symbol-list .ca-row').forEach(row=>{
+    const cb = row.querySelector('.ca-sym-cb');
+    const num = row.querySelector('.ca-sym-threshold');
+    const on = !!(cb && cb.checked);
+    if(num) num.disabled = !on;
+    if(on) symbols[cb.dataset.sym] = Math.max(0.1, +(num&&num.value) || CA_DEFAULT_THRESHOLD);
+  });
+  localStorage.setItem('pt_concentration_alerts', JSON.stringify({ enabled, symbols }));
+  if(typeof renderH === 'function') renderH();
+}
+function renderConcentrationAlertSettings(){
+  const list = $('ca-symbol-list');
+  if(!list) return;
+  const cfg = loadConcentrationAlertSettings();
+  if($('ca-enabled')) $('ca-enabled').checked = cfg.enabled;
+  caApplyEnabledVisual(cfg.enabled);
+  const heldSymbols = [...new Set(calcH().filter(h=>Math.abs(h.units)>1e-9).map(h=>h.symbol))].sort();
+  list.innerHTML = heldSymbols.length ? heldSymbols.map(sym=>{
+    const isOn = Object.prototype.hasOwnProperty.call(cfg.symbols, sym);
+    const t = isOn ? cfg.symbols[sym] : CA_DEFAULT_THRESHOLD;
+    return `<div class="ca-row" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <label style="display:flex;align-items:center;gap:8px;flex:1;min-width:0;cursor:pointer;font-size:12px;color:var(--text2)">
+        <input type="checkbox" class="ca-sym-cb" data-sym="${escHtml(sym)}" ${isOn?'checked':''} onchange="saveConcentrationAlertSettings()">
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(displaySymbol(sym))}</span>
+      </label>
+      <input class="fi ca-sym-threshold" type="number" min="0.1" max="100" step="0.5" value="${t}" ${isOn?'':'disabled'} style="width:56px;padding:4px 6px;font-size:11px;flex-shrink:0;text-align:right" oninput="saveConcentrationAlertSettings()">
       <span style="font-size:10px;color:var(--text3);flex-shrink:0;width:8px">%</span>
     </div>`;
   }).join('') : `<div style="color:var(--text3);font-size:12px">No holdings yet.</div>`;

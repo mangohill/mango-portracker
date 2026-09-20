@@ -67,6 +67,7 @@
     <div id="pf-change-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px;padding:16px 18px"></div>
   </div>
   <div id="price-alerts-wrap" class="fs" style="display:none;margin-bottom:16px"></div>
+  <div id="concentration-alerts-wrap" class="fs" style="display:none;margin-bottom:16px"></div>
   <div class="tw">
     <div class="th">
       <span class="tt" id="hb-title">HOLDINGS</span>
@@ -493,6 +494,8 @@
 <div class="panel" id="panel-dividends">
   <!-- Summary cards -->
   <div class="cards" id="div-cards" style="margin-bottom:18px"></div>
+
+  <div id="dv-45day-wrap" style="display:none;margin-bottom:18px"></div>
 
   <!-- Add dividend / DRP + import merged -->
   <div class="fs" style="margin-bottom:18px">
@@ -936,6 +939,7 @@
   <!-- Cloudflare Worker setup -->
   <div class="fs" style="margin-bottom:16px">
     <div class="fst">💾 Backup &amp; Restore</div>
+    <div id="backup-reminder" style="display:none;font-size:12px;font-weight:600;margin-bottom:14px;padding:8px 10px;border-radius:6px;background:var(--surface2)"></div>
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px">
 
@@ -1014,23 +1018,45 @@
 
   <div class="fs" style="margin-bottom:18px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
-      <span>🔔 Price Drop Alerts</span>
+      <span>🔔 Price Drop / Rise Alerts</span>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--text2);cursor:pointer">
         <input type="checkbox" id="pa-enabled" onchange="savePriceAlertSettings()">
         Enabled
       </label>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
-      Flags a holding on the main Portfolio page when its current price drops more than its own threshold below the highest price you've ever bought it at — a signal it might be worth averaging down. Based only on deliberate Buy trades (DRP/corporate actions aren't counted as a buy decision). Each holding gets its own threshold — crypto typically swings far more than an LIC, so one shared number rarely fits both.
+      Flags a holding on the main Portfolio page when its current price moves past your own threshold: <b style="color:var(--red)">Drop</b> = below your highest-ever buy price (a signal it might be worth averaging down), <b style="color:var(--green)">Rise</b> = above your lowest-ever buy price (a take-profit prompt). Leave either field blank to only watch the other direction. Based only on deliberate Buy trades (DRP/corporate actions aren't counted as a buy decision). Each holding gets its own thresholds — crypto typically swings far more than an LIC, so one shared number rarely fits both.
     </div>
     <div id="pa-disabled-hint" style="display:none;font-size:12px;color:var(--gold);background:var(--gold-dim);border:1px solid var(--gold);border-radius:6px;padding:7px 10px;margin-bottom:12px">
       ⚠ Turn on "Enabled" above to activate these alerts — your selections below are saved but currently inactive.
     </div>
     <div id="pa-monitor-wrap">
       <div style="display:flex;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--text3);padding:0 0 6px;border-bottom:1px solid var(--border2)">
-        <span style="flex:1">MONITOR</span><span style="width:64px;flex-shrink:0;text-align:right">THRESHOLD</span>
+        <span style="flex:1;min-width:90px">MONITOR</span><span style="flex-shrink:0">DROP % / RISE %</span>
       </div>
       <div id="pa-symbol-list" style="max-height:280px;overflow-y:auto"></div>
+    </div>
+  </div>
+
+  <div class="fs" style="margin-bottom:18px">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
+      <span>⚖ Concentration Alerts</span>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--text2);cursor:pointer">
+        <input type="checkbox" id="ca-enabled" onchange="saveConcentrationAlertSettings()">
+        Enabled
+      </label>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
+      Flags a holding on the main Portfolio page once its live market value grows past a set % of your total portfolio — a signal a single position has gotten large enough that its own moves meaningfully swing your whole net worth.
+    </div>
+    <div id="ca-disabled-hint" style="display:none;font-size:12px;color:var(--gold);background:var(--gold-dim);border:1px solid var(--gold);border-radius:6px;padding:7px 10px;margin-bottom:12px">
+      ⚠ Turn on "Enabled" above to activate these alerts — your selections below are saved but currently inactive.
+    </div>
+    <div id="ca-monitor-wrap">
+      <div style="display:flex;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--text3);padding:0 0 6px;border-bottom:1px solid var(--border2)">
+        <span style="flex:1">MONITOR</span><span style="width:64px;flex-shrink:0;text-align:right">MAX % OF PORTFOLIO</span>
+      </div>
+      <div id="ca-symbol-list" style="max-height:280px;overflow-y:auto"></div>
     </div>
   </div>
 

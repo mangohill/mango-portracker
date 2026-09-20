@@ -18,7 +18,7 @@ function switchTab(name,el){
   if(name==='cgt'){ if(typeof renderCGT === 'function') renderCGT(); else console.warn('renderCGT() not available'); }
   if(name==='networth'){ if(typeof renderNetWorth === 'function') renderNetWorth(); }
   if(name==='property'){ renderProperties(); renderPropCards(); if($('pf-splits-wrap')&&!$('pf-splits-wrap').children.length) renderSplitRows([]); if(typeof togglePropDRVisibility==='function') togglePropDRVisibility(); }
-  if(name==='settings'){ renderPrices(); loadCFUrl(); syncInitUI(); renderOwnershipGrid(); renderPriceAlertSettings(); }
+  if(name==='settings'){ renderPrices(); loadCFUrl(); syncInitUI(); renderOwnershipGrid(); renderPriceAlertSettings(); renderConcentrationAlertSettings(); renderBackupReminder(); }
   if(name==='tax'){ renderTax(); }
 }
 
