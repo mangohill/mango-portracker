@@ -107,6 +107,199 @@ function nwRequiredAnnualContribution(P, target, ratePct, years){
 }
 
 let _nwFireChart = null;
+// ── ANNUAL (30 JUNE) SNAPSHOTS ─────────────────────────────────────────
+// Persists a per-financial-year record of Holdings, Super, and Property so
+// they stay easy to find later and exportable as CSV, rather than only
+// ever visible live.
+//
+// Holdings: backfilled AND kept fresh from calcH(dateStr) + that date's
+// stored prices — the app already has daily price history back to ~2018,
+// so every past 30 June can be reconstructed accurately, not just future
+// ones. Recomputed each time this section renders (cheap — all data's
+// already in memory) so a later-corrected trade also fixes past snapshots.
+//
+// Super: NOT duplicated here — reads directly from each account's own
+// fyData (see checkSuperFYRollover in properties.js), which already is
+// the 30-June-ish balance history.
+//
+// Property: has no history at all (properties.js only ever stores a
+// single live currentValue, overwritten on every edit) — so this can only
+// start capturing from now forward, the first time the app is opened
+// after a new FY begins, via checkPropertyFYRollover() in properties.js.
+// Past years show "no data" — there was never a historical value stored
+// to recover.
+const HOLDINGS_FY_STORE_KEY = 'pt_holdings_fy_snapshots';
+
+function loadHoldingsFYSnapshots(){
+  try{ return JSON.parse(localStorage.getItem(HOLDINGS_FY_STORE_KEY)) || {}; }
+  catch(e){ return {}; }
+}
+function saveHoldingsFYSnapshots(obj){
+  localStorage.setItem(HOLDINGS_FY_STORE_KEY, JSON.stringify(obj));
+}
+
+// Reconstructs itemized holdings as of a specific date, using the same
+// per-symbol daily/near-date pricing logic markToMarketAt() already uses
+// elsewhere (Portfolio Change, Biggest Movers), so this always agrees
+// with what those features would say for the same date.
+function buildHoldingsSnapshotForDate(dateStr){
+  const snap = pfSnapshots[dateStr];
+  const holdings = calcH(dateStr).filter(h=>Math.abs(h.units)>1e-9);
+  let total = 0, dailyNeeded = 0, dailyPriced = 0;
+  const rows = holdings.map(h=>{
+    const sym = priceSymbol(h.symbol);
+    let p = isDailyPricedSym(sym) ? priceNearOrBefore(sym, dateStr) : (snap && snap.prices && snap.prices[sym]);
+    if(p==null && !isDailyPricedSym(sym) && prices[sym]!=null) p = prices[sym]; // carry-forward for manual/monthly-NAV symbols
+    if(isDailyPricedSym(sym)){ dailyNeeded++; if(p!=null) dailyPriced++; }
+    const mv = p!=null ? p*h.units : null;
+    if(mv!=null) total += mv;
+    return {
+      symbol: h.symbol, assetType: h.assetType, owner: getSymbolOwner(h.symbol), source: h.source,
+      units: +h.units.toFixed(6), price: p, mktValue: mv!=null ? +mv.toFixed(2) : null, costBasis: +h.costBasis.toFixed(2),
+    };
+  });
+  return { rows, total: +total.toFixed(2), complete: dailyNeeded===0 || dailyPriced===dailyNeeded };
+}
+
+// Backfills every past 30 June once (and refreshes it every render — cheap,
+// and keeps a later-corrected trade reflected in old snapshots too).
+function refreshHoldingsFYSnapshots(){
+  const store = loadHoldingsFYSnapshots();
+  const pricedDates = Object.keys(pfSnapshots).filter(d=>pfSnapshots[d]&&pfSnapshots[d].prices&&Object.keys(pfSnapshots[d].prices).length).sort();
+  if(!pricedDates.length) return store;
+  const earliestYear = +pricedDates[0].slice(0,4);
+  const todayStr = localDateStr();
+  const curFYEnd = +dateToFY(todayStr);
+  for(let y = earliestYear; y <= curFYEnd; y++){
+    const targetDate = `${y}-06-30`;
+    if(targetDate > todayStr) continue; // hasn't happened yet
+    const built = buildHoldingsSnapshotForDate(targetDate);
+    if(built.rows.length || y === curFYEnd) store[y] = Object.assign({date: targetDate}, built);
+  }
+  saveHoldingsFYSnapshots(store);
+  return store;
+}
+
+// Assembles the combined view for one FY: holdings from the dedicated
+// store above, super and property read live from their own fyData.
+function getAnnualSnapshot(year){
+  const hStore = loadHoldingsFYSnapshots();
+  const h = hStore[year] || null;
+  const superRows = (typeof superAccounts!=='undefined' ? superAccounts : [])
+    .filter(a=>a.fyData && a.fyData[year]!=null)
+    .map(a=>({ name: a.name || a.provider || 'Account', balance: +a.fyData[year] }));
+  const superTotal = superRows.length ? superRows.reduce((s,r)=>s+r.balance,0) : null;
+  const propRows = (typeof properties!=='undefined' ? properties : [])
+    .filter(p=>p.fyData && p.fyData[year]!=null)
+    .map(p=>({ name: p.name, value: +p.fyData[year] }));
+  const propTotal = propRows.length ? propRows.reduce((s,r)=>s+r.value,0) : null;
+  const holdingsTotal = h ? h.total : null;
+  // Net worth sums whichever of the three are actually available rather
+  // than requiring all three — Property in particular will legitimately
+  // have no data for any year before this feature started tracking it, so
+  // requiring completeness would leave Net Worth blank for almost every
+  // past year even though Holdings + Super alone is still a real, useful
+  // figure. `partial` flags when something's missing so it's never
+  // silently presented as if it were the full picture.
+  const parts = [holdingsTotal, superTotal, propTotal].filter(v=>v!=null);
+  const netWorth = parts.length ? parts.reduce((a,b)=>a+b,0) : null;
+  const partial = netWorth!=null && (holdingsTotal==null || superTotal==null || propTotal==null);
+  return { year, date: h ? h.date : `${year}-06-30`, holdings: h, superRows, superTotal, propRows, propTotal, netWorth, partial };
+}
+
+function annualSnapshotYears(){
+  const hStore = loadHoldingsFYSnapshots();
+  const years = new Set(Object.keys(hStore).map(Number));
+  (typeof superAccounts!=='undefined' ? superAccounts : []).forEach(a=>{ if(a.fyData) Object.keys(a.fyData).forEach(y=>years.add(+y)); });
+  (typeof properties!=='undefined' ? properties : []).forEach(p=>{ if(p.fyData) Object.keys(p.fyData).forEach(y=>years.add(+y)); });
+  return [...years].sort((a,b)=>b-a);
+}
+
+function renderAnnualSnapshots(){
+  const el = $('nw-annual-snapshots');
+  if(!el) return;
+  refreshHoldingsFYSnapshots();
+  const years = annualSnapshotYears();
+  if(!years.length){
+    el.innerHTML = `<div style="color:var(--text3);font-size:12px">No 30 June snapshots yet — check back after this app has price/trade history spanning a financial-year end.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px">
+      <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border);font-size:10px">
+        <th style="text-align:left;padding:4px 8px">FY (30 JUN)</th>
+        <th style="text-align:right;padding:4px 8px">HOLDINGS</th>
+        <th style="text-align:right;padding:4px 8px">SUPER</th>
+        <th style="text-align:right;padding:4px 8px">PROPERTY</th>
+        <th style="text-align:right;padding:4px 8px">NET WORTH</th>
+        <th style="text-align:right;padding:4px 8px">CSV</th>
+      </tr></thead>
+      <tbody>
+        ${years.map(y=>{
+          const s = getAnnualSnapshot(y);
+          return `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:5px 8px"><b>FY${y}</b></td>
+            <td style="text-align:right;padding:5px 8px">${s.holdings ? n2(s.holdings.total) + (s.holdings.complete?'':' *') : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.superTotal!=null ? n2(s.superTotal) : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.propTotal!=null ? n2(s.propTotal) : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px;font-weight:700">${s.netWorth!=null ? n2(s.netWorth) + (s.partial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px"><button class="btn btn-g" style="padding:3px 8px;font-size:10px" onclick="exportAnnualSnapshotCSV(${y})">↓ Year</button></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="font-size:10px;color:var(--text3);margin-top:8px">Holdings * = price data incomplete for one or more symbols that 30 June. Net Worth * = partial total, missing one of the three components for that year (Super may predate this feature if you'd already entered it manually; Property only started being tracked once this feature was added, so early years won't have it).</div>
+    <div style="margin-top:12px"><button class="btn btn-g" onclick="exportAllAnnualSnapshotsCSV()">↓ Download all years (combined CSV)</button></div>
+  `;
+}
+
+// ── CSV EXPORT ─────────────────────────────────────────────────────────
+function csvEscape(v){
+  if(v==null) return '';
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+function downloadCSVRows(filename, rows){
+  const csv = rows.map(r=>r.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, filename);
+}
+function exportAnnualSnapshotCSV(year){
+  const s = getAnnualSnapshot(year);
+  const rows = [];
+  rows.push(['ANNUAL SNAPSHOT', 'FY'+year, s.date]);
+  rows.push([]);
+  rows.push(['HOLDINGS']);
+  rows.push(['Symbol','Owner','Asset Type','Units','Price','Market Value','Cost Basis','Source']);
+  (s.holdings ? s.holdings.rows : []).forEach(h=>rows.push([
+    h.symbol, typeof getPersonLabel==='function' ? getPersonLabel(h.owner) : h.owner, h.assetType, h.units, h.price, h.mktValue, h.costBasis, h.source
+  ]));
+  rows.push(['', '', '', '', '', 'TOTAL', s.holdings ? s.holdings.total : '']);
+  rows.push([]);
+  rows.push(['SUPER']);
+  rows.push(['Account','Balance']);
+  s.superRows.forEach(r=>rows.push([r.name, r.balance]));
+  rows.push(['TOTAL', s.superTotal]);
+  rows.push([]);
+  rows.push(['PROPERTY']);
+  rows.push(['Property','Value']);
+  s.propRows.forEach(r=>rows.push([r.name, r.value]));
+  rows.push(['TOTAL', s.propTotal]);
+  rows.push([]);
+  rows.push(['NET WORTH', s.netWorth]);
+  downloadCSVRows(`eofy-snapshot-FY${year}.csv`, rows);
+}
+function exportAllAnnualSnapshotsCSV(){
+  const years = annualSnapshotYears();
+  const rows = [['FY','Date','Holdings Total','Holdings Complete','Super Total','Property Total','Net Worth']];
+  years.slice().sort((a,b)=>a-b).forEach(y=>{
+    const s = getAnnualSnapshot(y);
+    rows.push([y, s.date, s.holdings?s.holdings.total:'', s.holdings?(s.holdings.complete?'yes':'no'):'', s.superTotal, s.propTotal, s.netWorth]);
+  });
+  downloadCSVRows('eofy-snapshots-all-years.csv', rows);
+}
+
 function renderNetWorth(){
   const panel = document.getElementById('panel-networth');
   if(!panel) return;
@@ -273,7 +466,14 @@ function renderNetWorth(){
         `}
       </div>
     </div>
+
+    <div class="tw" style="margin-top:18px">
+      <div class="th"><span class="tt">📅 Annual Snapshots (30 June)</span><span style="font-size:10px;color:var(--text3)">Holdings, Super &amp; Property — stored per FY, exportable as CSV</span></div>
+      <div style="padding:16px 20px" id="nw-annual-snapshots"></div>
+    </div>
   `;
+
+  renderAnnualSnapshots();
 
   if(_nwFireChart){ _nwFireChart.destroy(); _nwFireChart = null; }
   const ctx = document.getElementById('nw-fire-chart');

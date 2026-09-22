@@ -2013,7 +2013,39 @@ function deleteProperty(btn){
 
 const PROP_TYPE_LABEL = {ppor:'PPOR',investment:'Investment',commercial:'Commercial',land:'Land'};
 
+// Snapshot each property's currentValue into fyData when a new financial
+// year starts — mirrors checkSuperFYRollover() exactly. Property has no
+// other history mechanism (currentValue is overwritten on every edit), so
+// this is the only way past-FY values ever get preserved, and it can only
+// start from whichever FY is current the first time this runs — there's
+// no way to recover years before that; the value was never stored.
+function checkPropertyFYRollover(){
+  try{
+    const _d = new Date();
+    const CUR_FY  = _d.getMonth() >= 6 ? _d.getFullYear()+1 : _d.getFullYear();
+    const PREV_FY = CUR_FY - 1;
+    const lastFY  = +(localStorage.getItem('pt_property_last_fy')||0);
+
+    if(lastFY && lastFY < CUR_FY && Array.isArray(properties)){
+      let changed = false;
+      properties.forEach(p=>{
+        if(!p.fyData) p.fyData = {};
+        if(p.fyData[PREV_FY] == null && p.currentValue != null){
+          p.fyData[PREV_FY] = +p.currentValue;
+          changed = true;
+        }
+      });
+      if(changed){
+        saveProps();
+        if(typeof notify === 'function') notify('Property values captured for FY'+PREV_FY+' ✓','ok');
+      }
+    }
+    localStorage.setItem('pt_property_last_fy', CUR_FY);
+  }catch(e){ console.warn('checkPropertyFYRollover error:', e); }
+}
+
 function renderProperties(){
+  checkPropertyFYRollover();
   const wrap = $('prop-cards-wrap');
   if(!properties.length){
     wrap.innerHTML='<div class="empty"><div class="empty-icon">🏠</div>No properties added yet. Fill in the form above.</div>';
