@@ -1017,13 +1017,14 @@
   </div>
 
   <div class="fs" style="margin-bottom:18px">
-    <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
-      <span>🔔 Price Drop / Rise Alerts</span>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--text2);cursor:pointer">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleSection('pa')">
+      <span>🔔 Price Drop / Rise Alerts <span id="sec-toggle-pa" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></span>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--text2);cursor:pointer" onclick="event.stopPropagation()">
         <input type="checkbox" id="pa-enabled" onchange="savePriceAlertSettings()">
         Enabled
       </label>
     </div>
+    <div id="sec-body-pa" style="display:none;margin-top:12px">
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
       Flags a holding on the main Portfolio page when its current price moves past your own threshold: <b style="color:var(--red)">Drop</b> = below your highest-ever buy price (a signal it might be worth averaging down), <b style="color:var(--green)">Rise</b> = above your lowest-ever buy price (a take-profit prompt). Leave either field blank to only watch the other direction. Based only on deliberate Buy trades (DRP/corporate actions aren't counted as a buy decision). Each holding gets its own thresholds — crypto typically swings far more than an LIC, so one shared number rarely fits both.
     </div>
@@ -1036,16 +1037,18 @@
       </div>
       <div id="pa-symbol-list" style="max-height:280px;overflow-y:auto"></div>
     </div>
+    </div>
   </div>
 
   <div class="fs" style="margin-bottom:18px">
-    <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
-      <span>⚖ Concentration Alerts</span>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--text2);cursor:pointer">
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleSection('conc')">
+      <span>⚖ Concentration Alerts <span id="sec-toggle-conc" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></span>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--text2);cursor:pointer" onclick="event.stopPropagation()">
         <input type="checkbox" id="ca-enabled" onchange="saveConcentrationAlertSettings()">
         Enabled
       </label>
     </div>
+    <div id="sec-body-conc" style="display:none;margin-top:12px">
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
       Flags a holding on the main Portfolio page once its live market value grows past a set % of your total portfolio — a signal a single position has gotten large enough that its own moves meaningfully swing your whole net worth.
     </div>
@@ -1057,6 +1060,7 @@
         <span style="flex:1">MONITOR</span><span style="width:64px;flex-shrink:0;text-align:right">MAX % OF PORTFOLIO</span>
       </div>
       <div id="ca-symbol-list" style="max-height:280px;overflow-y:auto"></div>
+    </div>
     </div>
   </div>
 
@@ -1180,14 +1184,16 @@
   <!-- Cached prices -->
   <div class="tw">
     <div class="th" style="justify-content:space-between">
-      <span class="tt">CACHED PRICES</span>
+      <span class="tt" style="cursor:pointer" onclick="toggleSection('prices')">CACHED PRICES <span id="sec-toggle-prices" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></span>
       <button class="btn btn-r" onclick="clearAllPrices()" style="font-size:11px;padding:4px 10px">CLEAR ALL</button>
     </div>
+    <div id="sec-body-prices" style="display:none">
     <div class="ovx">
       <table><thead><tr><th>Symbol</th><th>Price (AUD)</th><th>Type</th><th></th></tr></thead>
       <tbody id="prices-body"></tbody></table>
     </div>
     <div class="empty" id="prices-empty"><div class="empty-icon">💰</div>No prices cached yet.</div>
+    </div>
   </div>
 
 
@@ -1197,7 +1203,8 @@
 
   <!-- Stock Ownership -->
   <div class="fs" style="margin-top:18px">
-    <div class="fst">👤 Stock Ownership</div>
+    <div class="fst" style="cursor:pointer" onclick="toggleSection('ownership')">👤 Stock Ownership <span id="sec-toggle-ownership" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></div>
+    <div id="sec-body-ownership" style="display:none">
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
       Assign each stock/ETF to a person. Affects dividend attribution and tax estimates.
       Changes take effect immediately in Holdings, Dividends, and Tax tabs.<br>
@@ -1213,6 +1220,7 @@
       Joint = 50/50 split between all persons (default for new stocks)
     
 </div>
+    </div>
   </div>
 </div>
 

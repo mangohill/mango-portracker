@@ -467,8 +467,8 @@ let cgtSymFilter = '';
 let cgtCostBaseExpanded = {};
 let cgtCostBaseSearch = '';
 let cgtCostBaseFilter = 'all'; // 'all' | 'adjusted'
-let cgtAmitCollapsed = false;
-let cgtCostBaseCollapsed = false;
+let cgtAmitCollapsed = true;
+let cgtCostBaseCollapsed = true;
 let cgtAmitSearch = '';
 let cgtLastSim = null;
 let cgtFifoCollapsed = true;
@@ -578,13 +578,15 @@ function renderCGT(){
   const discountSoon = computeDiscountCountdown(openParcels, 45);
   const discountCountdownBanner = discountSoon.length ? `
     <div class="fs" style="border-color:var(--gold);margin-bottom:16px">
-      <div class="fst" style="color:var(--gold)">⏳ CGT DISCOUNT COMING UP</div>
+      <div class="fst" style="color:var(--gold);cursor:pointer" onclick="toggleSection('cgtdiscount')">⏳ CGT DISCOUNT COMING UP <span id="sec-toggle-cgtdiscount" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></div>
+      <div id="sec-body-cgtdiscount" style="display:none;margin-top:8px">
       ${discountSoon.map(r=>`<div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">
         <b>${escHtml(plainSymbol(r.symbol))}</b> — ${nN(r.units,6)} units bought ${r.buyDate} become 12-month long-term eligible
         in <b>${r.daysLeft} day${r.daysLeft===1?'':'s'}</b> (${r.eligibleDateStr})${r.postCutoff
           ? ` — falls after ${CGT_POST_CUTOFF_LABEL_LONG}, so a sale around then gets cost-base indexation + the 30% minimum rate on the post-cutoff portion, not the old flat 50% discount. See the CGT Simulator below for the actual split.`
           : ` — the full 50% discount still applies if sold before ${CGT_POST_CUTOFF_LABEL_LONG}.`}
       </div>`).join('')}
+      </div>
     </div>` : '';
 
   // ── TAX-LOSS HARVESTING ───────────────────────────────────────────────
@@ -594,12 +596,14 @@ function renderCGT(){
   const harvestCandidates = computeTaxLossHarvestCandidates(6);
   const harvestBanner = harvestCandidates.length ? `
     <div class="fs" style="border-color:var(--red);margin-bottom:16px">
-      <div class="fst" style="color:var(--red)">📉 TAX-LOSS HARVESTING — BIGGEST UNREALIZED LOSSES</div>
+      <div class="fst" style="color:var(--red);cursor:pointer" onclick="toggleSection('harvest')">📉 TAX-LOSS HARVESTING — BIGGEST UNREALIZED LOSSES <span id="sec-toggle-harvest" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></div>
+      <div id="sec-body-harvest" style="display:none;margin-top:8px">
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Currently-held positions worth the most below their cost base — a starting point to review before EOFY, not advice to sell.</div>
       ${harvestCandidates.map(h=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;padding:3px 0">
         <span><b>${escHtml(plainSymbol(h.symbol))}</b></span>
         <span class="neg">${n2(h.unrealizedLoss)} (${h.pct.toFixed(1)}%)</span>
       </div>`).join('')}
+      </div>
     </div>` : '';
 
   const allFYs = [...new Set([
