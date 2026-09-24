@@ -651,13 +651,19 @@
           <option value="land">Vacant Land</option>
         </select>
       </div>
-      <div class="fgi"><label class="fl">Purchase Date</label><input class="fi" type="date" id="pf-pdate"></div>
+      <div class="fgi"><label class="fl">Purchase Date</label><input class="fi" type="date" id="pf-pdate" onchange="updatePropFormFYFields()"></div>
       <div class="fgi"><label class="fl">Purchase Price (AUD)</label><input class="fi" type="number" id="pf-pprice" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Purchase Costs (stamp duty, legal…)</label><input class="fi" type="number" id="pf-pcosts" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Capital Improvements (cumulative, AUD)
         <span style="font-size:10px;color:var(--text3)"> — renovations, additions</span>
       </label><input class="fi" type="number" id="pf-improvements" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Current Estimated Value (AUD)</label><input class="fi" type="number" id="pf-cval" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
+      <div class="fgi" style="grid-column:1/-1">
+        <label class="fl">Historical Value at 30 June <span style="font-size:10px;color:var(--text3)">— optional, one entry per financial year since purchase</span></label>
+        <div id="pf-fy-fields" style="max-height:220px;overflow-y:auto;padding-right:4px">
+          <div style="font-size:11px;color:var(--text3)">Enter a purchase date above to add historical 30-June values.</div>
+        </div>
+      </div>
       <!-- LOAN SPLITS -->
       <div class="fgi" style="grid-column:1/-1">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">

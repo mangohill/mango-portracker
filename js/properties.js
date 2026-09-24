@@ -1517,6 +1517,52 @@ function calcPropPreview(){
   ).join('');
 }
 
+// Regenerates the "Historical Value at 30 June" input rows in the property
+// form based on the entered purchase date — only years since purchase make
+// sense to ask about, so this is per-property, unlike Super's fixed 2016+
+// range (which isn't tied to any one instrument's start date). Called on
+// pf-pdate change and when opening the edit form.
+function updatePropFormFYFields(){
+  const wrap = $('pf-fy-fields');
+  if(!wrap) return;
+  const dateVal = $('pf-pdate') ? $('pf-pdate').value : '';
+  const _n = new Date();
+  const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
+  const PREV_FY = CUR_FY - 1;
+  if(!dateVal){
+    wrap.innerHTML = '<div style="font-size:11px;color:var(--text3)">Enter a purchase date above to add historical 30-June values.</div>';
+    return;
+  }
+  const startYear = (typeof dateToFY === 'function') ? dateToFY(dateVal) : +dateVal.slice(0,4);
+  if(startYear > PREV_FY){
+    wrap.innerHTML = '<div style="font-size:11px;color:var(--text3)">No 30 June has passed since this purchase date yet.</div>';
+    return;
+  }
+  let html = '';
+  for(let y = startYear; y <= PREV_FY; y++){
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+
+      '<label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY'+y+'</label>'+
+      '<input class="fi pf-fy-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px"></div>';
+  }
+  wrap.innerHTML = html;
+}
+
+// Reads the currently-visible pf-fy-input rows and merges them onto
+// existingFyData — a blank field clears that year (deliberate, since the
+// form is always pre-filled from existing data when editing, so an empty
+// box means "remove this"), while any year NOT currently shown (outside
+// the purchase-date-to-PREV_FY range, e.g. one written by
+// checkPropertyFYRollover) is left untouched rather than wiped out.
+function readPropFormFYData(existingFyData){
+  const result = Object.assign({}, existingFyData||{});
+  document.querySelectorAll('#pf-fy-fields .pf-fy-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    const v = parseFloat(inp.value);
+    if(!isNaN(v) && v>0) result[yr] = v; else delete result[yr];
+  });
+  return result;
+}
+
 function readPropForm(){
   const splits = [];
   document.querySelectorAll('#pf-splits-wrap .split-row').forEach(row=>{
@@ -1565,8 +1611,12 @@ function saveProperty(){
 
   if(p.id){
     const idx = properties.findIndex(x=>x.id===p.id);
-    if(idx>=0){ p.id=properties[idx].id; properties[idx]=p; }
+    if(idx>=0){
+      p.fyData = readPropFormFYData(properties[idx].fyData); // merge, don't clobber years outside the visible range
+      p.id=properties[idx].id; properties[idx]=p;
+    }
   } else {
+    p.fyData = readPropFormFYData(null);
     p.id = 'prop_'+uid();
     properties.push(p);
   }
@@ -1941,6 +1991,7 @@ function clearPropForm(){
   ['pf-name','pf-pprice','pf-pcosts','pf-improvements','pf-cval','pf-rent','pf-expenses','pf-notes','pf-sdate','pf-sprice','pf-scosts']
     .forEach(id=>{ const el=$(id); if(el) el.value=''; });
   $('pf-pdate').value='';
+  updatePropFormFYFields();
   if($('pf-sold')) $('pf-sold').checked=false;
   if($('pf-mainres')) $('pf-mainres').checked=false;
   togglePropSoldFields();
@@ -1993,6 +2044,11 @@ function editProperty(btn){
   }
   $('pf-edit-id').dataset.id = p.id;
   renderSplitRows(normaliseSplits(p));
+  updatePropFormFYFields();
+  document.querySelectorAll('#pf-fy-fields .pf-fy-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    inp.value = (p.fyData && p.fyData[yr]!=null) ? p.fyData[yr] : '';
+  });
   $('prop-form-title-text').textContent = 'Edit Property — '+p.name;
   togglePropForm(true);
   calcPropPreview();
