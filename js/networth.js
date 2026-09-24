@@ -189,42 +189,49 @@ function getAnnualSnapshot(year){
     .filter(a=>a.fyData && a.fyData[year]!=null)
     .map(a=>({ name: a.name || a.provider || 'Account', balance: +a.fyData[year] }));
   const superTotal = superRows.length ? superRows.reduce((s,r)=>s+r.balance,0) : null;
-  // Debt is stored separately (fyDebtData) from value (fyData) because
-  // fyData predates loan tracking and is still hand-editable per FY in the
-  // Property form — folding debt into the same field would break that. A
-  // property with a value for this FY but no matching debt entry (years
-  // before fyDebtData existed, or a manually-typed fyData value) has its
-  // loan treated as unknown, not zero: `debtKnown` records that so equity
-  // is never silently overstated as if the property were unencumbered.
+  // Debt and offset (cash) are stored separately from value (fyData/
+  // fyDebtData/fyOffsetData) because fyData predates loan/offset tracking
+  // and is still hand-editable per FY in the Property form — folding them
+  // into one field would break that. A property with a value for this FY
+  // but no matching debt/offset entry (years before those existed, or a
+  // manually-typed fyData value) has that figure treated as unknown, not
+  // zero: debtKnown/offsetKnown record that so Loan and Cash totals are
+  // never silently understated as if nothing were owed/held.
   const propRows = (typeof properties!=='undefined' ? properties : [])
     .filter(p=>p.fyData && p.fyData[year]!=null)
     .map(p=>{
-      const value = +p.fyData[year];
       const debtKnown = !!(p.fyDebtData && p.fyDebtData[year]!=null);
-      const debt = debtKnown ? +p.fyDebtData[year] : 0;
-      return { name: p.name, value, debt: debtKnown ? debt : null, equity: value - debt, debtKnown };
+      const offsetKnown = !!(p.fyOffsetData && p.fyOffsetData[year]!=null);
+      return {
+        name: p.name,
+        value: +p.fyData[year],
+        debt: debtKnown ? +p.fyDebtData[year] : null, debtKnown,
+        offset: offsetKnown ? +p.fyOffsetData[year] : null, offsetKnown,
+      };
     });
-  // Property total for Net Worth purposes is EQUITY (value − loans), not
-  // gross value — a property with an outstanding mortgage is not worth its
-  // full sale price to your net worth. propDebtPartial flags when one or
-  // more properties that year had no loan figure captured (debt treated as
-  // 0 above), so that year's property/net-worth total may still be
-  // overstated versus true equity, same spirit as the Holdings `complete`
-  // flag above.
-  const propTotal = propRows.length ? propRows.reduce((s,r)=>s+r.equity,0) : null;
-  const propDebtPartial = propRows.some(r=>!r.debtKnown);
+  // Property (shown at full/gross value — no loan deducted here) and Loan
+  // Remaining are kept as separate totals rather than netted into one
+  // "equity" figure, per how the annual snapshot is laid out: Cash (from
+  // property offset balances) adds to Net Worth, Property adds at full
+  // value, and Loan Remaining is deducted at the end.
+  const propTotal = propRows.length ? propRows.reduce((s,r)=>s+r.value,0) : null;
+  const loanTotal = propRows.length ? propRows.reduce((s,r)=>s+(r.debtKnown?r.debt:0),0) : 0;
+  const loanPartial = propRows.some(r=>!r.debtKnown);
+  const cashTotal = propRows.length ? propRows.reduce((s,r)=>s+(r.offsetKnown?r.offset:0),0) : null;
+  const cashPartial = propRows.some(r=>!r.offsetKnown);
   const holdingsTotal = h ? h.total : null;
-  // Net worth sums whichever of the three are actually available rather
-  // than requiring all three — Property in particular will legitimately
-  // have no data for any year before this feature started tracking it, so
-  // requiring completeness would leave Net Worth blank for almost every
-  // past year even though Holdings + Super alone is still a real, useful
-  // figure. `partial` flags when something's missing so it's never
-  // silently presented as if it were the full picture.
-  const parts = [holdingsTotal, superTotal, propTotal].filter(v=>v!=null);
-  const netWorth = parts.length ? parts.reduce((a,b)=>a+b,0) : null;
-  const partial = netWorth!=null && (holdingsTotal==null || superTotal==null || propTotal==null || propDebtPartial);
-  return { year, date: h ? h.date : `${year}-06-30`, holdings: h, superRows, superTotal, propRows, propTotal, propDebtPartial, netWorth, partial };
+  // Net worth sums whichever of the four are actually available rather
+  // than requiring all of them — Property/Cash in particular will
+  // legitimately have no data for any year before this feature started
+  // tracking it, so requiring completeness would leave Net Worth blank for
+  // almost every past year even though Holdings + Super alone is still a
+  // real, useful figure. `partial` flags when something's missing (or a
+  // loan/offset figure is unknown for that year) so it's never silently
+  // presented as if it were the full picture.
+  const parts = [holdingsTotal, superTotal, cashTotal, propTotal].filter(v=>v!=null);
+  const netWorth = parts.length ? (holdingsTotal||0)+(superTotal||0)+(cashTotal||0)+(propTotal||0)-loanTotal : null;
+  const partial = netWorth!=null && (holdingsTotal==null || superTotal==null || cashTotal==null || propTotal==null || loanPartial || cashPartial);
+  return { year, date: h ? h.date : `${year}-06-30`, holdings: h, superRows, superTotal, propRows, propTotal, loanTotal, loanPartial, cashTotal, cashPartial, netWorth, partial };
 }
 
 function annualSnapshotYears(){
@@ -250,13 +257,15 @@ function renderAnnualSnapshots(){
   // position:sticky so the column labels don't scroll away with it.
   const theadCell = label => `<th style="text-align:right;padding:4px 8px;position:sticky;top:0;background:var(--surface2)">${label}</th>`;
   el.innerHTML = `
-    <div style="max-height:192px;overflow-y:auto;border:1px solid var(--border);border-radius:6px">
+    <div style="max-height:192px;overflow-y:auto;overflow-x:auto;border:1px solid var(--border);border-radius:6px">
     <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px">
       <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border);font-size:10px">
         <th style="text-align:left;padding:4px 8px;position:sticky;top:0;background:var(--surface2)">FY (30 JUN)</th>
         ${theadCell('HOLDINGS')}
         ${theadCell('SUPER')}
-        ${theadCell('PROPERTY EQ.')}
+        ${theadCell('CASH')}
+        ${theadCell('PROPERTY')}
+        ${theadCell('LOAN')}
         ${theadCell('NET WORTH')}
         ${theadCell('CSV')}
       </tr></thead>
@@ -267,7 +276,9 @@ function renderAnnualSnapshots(){
             <td style="padding:5px 8px"><b>FY${y}</b></td>
             <td style="text-align:right;padding:5px 8px">${s.holdings ? n2(s.holdings.total) + (s.holdings.complete?'':' *') : '<span style="color:var(--text3)">—</span>'}</td>
             <td style="text-align:right;padding:5px 8px">${s.superTotal!=null ? n2(s.superTotal) : '<span style="color:var(--text3)">—</span>'}</td>
-            <td style="text-align:right;padding:5px 8px">${s.propTotal!=null ? n2(s.propTotal) + (s.propDebtPartial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.cashTotal!=null ? n2(s.cashTotal) + (s.cashPartial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.propTotal!=null ? n2(s.propTotal) : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.propTotal!=null ? n2(s.loanTotal) + (s.loanPartial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
             <td style="text-align:right;padding:5px 8px;font-weight:700">${s.netWorth!=null ? n2(s.netWorth) + (s.partial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
             <td style="text-align:right;padding:5px 8px"><button class="btn btn-g" style="padding:3px 8px;font-size:10px" onclick="exportAnnualSnapshotCSV(${y})">↓ Year</button></td>
           </tr>`;
@@ -275,7 +286,7 @@ function renderAnnualSnapshots(){
       </tbody>
     </table>
     </div>
-    <div style="font-size:10px;color:var(--text3);margin-top:8px">Showing ${years.length} FY${years.length===1?'':'s'} · scroll for older years. Holdings * = price data incomplete for one or more symbols that 30 June. Property Eq. = value − outstanding loans; * = loan balance unavailable for one or more properties that FY, so it's shown at full value (equity may be overstated). Net Worth * = partial total, missing one of the three components for that year, or a Property * as above (Super may predate this feature if you'd already entered it manually; Property only started being tracked once this feature was added, so early years won't have it).</div>
+    <div style="font-size:10px;color:var(--text3);margin-top:8px">Showing ${years.length} FY${years.length===1?'':'s'} · scroll for older years (and sideways on narrow screens). Holdings * = price data incomplete for one or more symbols that 30 June. Cash = property offset-account balances; Property = full value, before loans; Loan = amount deducted to get Net Worth. * on Cash or Loan = that figure is unavailable for one or more properties that FY (treated as $0 in the total below it), so Net Worth may be overstated. Net Worth * = partial total, missing one of Holdings/Super/Cash/Property for that year, or a Cash/Loan * as above (Super may predate this feature if you'd already entered it manually; Property only started being tracked once this feature was added, so early years won't have it).</div>
     <div style="margin-top:12px"><button class="btn btn-g" onclick="exportAllAnnualSnapshotsCSV()">↓ Download all years (combined CSV)</button></div>
   `;
 }
@@ -310,19 +321,19 @@ function exportAnnualSnapshotCSV(year){
   rows.push(['TOTAL', s.superTotal]);
   rows.push([]);
   rows.push(['PROPERTY']);
-  rows.push(['Property','Value','Loan Balance','Equity']);
-  s.propRows.forEach(r=>rows.push([r.name, r.value, r.debtKnown ? r.debt : 'unknown', r.equity]));
-  rows.push(['', '', 'TOTAL EQUITY', s.propTotal]);
+  rows.push(['Property','Value','Loan Balance','Offset (Cash)']);
+  s.propRows.forEach(r=>rows.push([r.name, r.value, r.debtKnown ? r.debt : 'unknown', r.offsetKnown ? r.offset : 'unknown']));
+  rows.push(['', 'TOTAL', s.propTotal, s.loanTotal, s.cashTotal]);
   rows.push([]);
-  rows.push(['NET WORTH', s.netWorth]);
+  rows.push(['NET WORTH', s.netWorth, '', '(Holdings + Super + Cash + Property − Loan)']);
   downloadCSVRows(`eofy-snapshot-FY${year}.csv`, rows);
 }
 function exportAllAnnualSnapshotsCSV(){
   const years = annualSnapshotYears();
-  const rows = [['FY','Date','Holdings Total','Holdings Complete','Super Total','Property Equity','Property Loans Known','Net Worth']];
+  const rows = [['FY','Date','Holdings Total','Holdings Complete','Super Total','Cash Total','Property Total (Gross)','Loan Total','Loan/Cash Known','Net Worth']];
   years.slice().sort((a,b)=>a-b).forEach(y=>{
     const s = getAnnualSnapshot(y);
-    rows.push([y, s.date, s.holdings?s.holdings.total:'', s.holdings?(s.holdings.complete?'yes':'no'):'', s.superTotal, s.propTotal, s.propDebtPartial?'no':'yes', s.netWorth]);
+    rows.push([y, s.date, s.holdings?s.holdings.total:'', s.holdings?(s.holdings.complete?'yes':'no'):'', s.superTotal, s.cashTotal, s.propTotal, s.loanTotal, (s.loanPartial||s.cashPartial)?'no':'yes', s.netWorth]);
   });
   downloadCSVRows('eofy-snapshots-all-years.csv', rows);
 }

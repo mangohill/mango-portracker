@@ -1517,15 +1517,16 @@ function calcPropPreview(){
   ).join('');
 }
 
-// Regenerates the "Historical Value & Loan Remaining at 30 June" input rows
-// in the property form based on the entered purchase date — only years
-// since purchase make sense to ask about, so this is per-property, unlike
-// Super's fixed 2016+ range (which isn't tied to any one instrument's start
-// date). Called on pf-pdate change and when opening the edit form. Loan
-// Remaining is optional per year — it's the manual fallback for whatever
-// checkPropertyFYRollover() hasn't auto-captured yet (or for years before
-// that feature existed), letting Net Worth's annual snapshot show true
-// equity (value − loan) instead of gross value for that year.
+// Regenerates the "Historical Value, Loan Remaining & Offset Balance at 30
+// June" input rows in the property form based on the entered purchase date —
+// only years since purchase make sense to ask about, so this is
+// per-property, unlike Super's fixed 2016+ range (which isn't tied to any
+// one instrument's start date). Called on pf-pdate change and when opening
+// the edit form. Loan Remaining and Offset Balance are both optional per
+// year — manual fallbacks for whatever checkPropertyFYRollover() hasn't
+// auto-captured yet (or years before that feature existed), letting Net
+// Worth's annual snapshot show Property (gross), Loan Remaining, and Cash
+// (from offset balances) as separate figures for that year.
 function updatePropFormFYFields(){
   const wrap = $('pf-fy-fields');
   if(!wrap) return;
@@ -1545,12 +1546,14 @@ function updatePropFormFYFields(){
   let html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+
     '<span style="width:54px;flex-shrink:0"></span>'+
     '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Value</span>'+
-    '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Loan Remaining</span></div>';
+    '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Loan Remaining</span>'+
+    '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Offset Balance</span></div>';
   for(let y = startYear; y <= PREV_FY; y++){
     html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+
       '<label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY'+y+'</label>'+
       '<input class="fi pf-fy-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px">'+
-      '<input class="fi pf-fy-debt-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px"></div>';
+      '<input class="fi pf-fy-debt-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px">'+
+      '<input class="fi pf-fy-offset-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px"></div>';
   }
   wrap.innerHTML = html;
 }
@@ -1565,6 +1568,20 @@ function updatePropFormFYFields(){
 function readPropFormFYDebtData(existingFyDebtData){
   const result = Object.assign({}, existingFyDebtData||{});
   document.querySelectorAll('#pf-fy-fields .pf-fy-debt-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    const v = parseFloat(inp.value);
+    if(!isNaN(v) && v>=0) result[yr] = v; else delete result[yr];
+  });
+  return result;
+}
+
+// Same merge/clear semantics as readPropFormFYDebtData (explicit 0 is a
+// real, kept value — an offset account can genuinely sit at $0). This is
+// the manual fallback for whatever checkPropertyFYRollover() hasn't
+// auto-captured from the splits' current offset balances yet.
+function readPropFormFYOffsetData(existingFyOffsetData){
+  const result = Object.assign({}, existingFyOffsetData||{});
+  document.querySelectorAll('#pf-fy-fields .pf-fy-offset-input').forEach(inp=>{
     const yr = +inp.dataset.fy;
     const v = parseFloat(inp.value);
     if(!isNaN(v) && v>=0) result[yr] = v; else delete result[yr];
@@ -1639,11 +1656,13 @@ function saveProperty(){
     if(idx>=0){
       p.fyData = readPropFormFYData(properties[idx].fyData); // merge, don't clobber years outside the visible range
       p.fyDebtData = readPropFormFYDebtData(properties[idx].fyDebtData);
+      p.fyOffsetData = readPropFormFYOffsetData(properties[idx].fyOffsetData);
       p.id=properties[idx].id; properties[idx]=p;
     }
   } else {
     p.fyData = readPropFormFYData(null);
     p.fyDebtData = readPropFormFYDebtData(null);
+    p.fyOffsetData = readPropFormFYOffsetData(null);
     p.id = 'prop_'+uid();
     properties.push(p);
   }
@@ -2080,6 +2099,10 @@ function editProperty(btn){
     const yr = +inp.dataset.fy;
     inp.value = (p.fyDebtData && p.fyDebtData[yr]!=null) ? p.fyDebtData[yr] : '';
   });
+  document.querySelectorAll('#pf-fy-fields .pf-fy-offset-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    inp.value = (p.fyOffsetData && p.fyOffsetData[yr]!=null) ? p.fyOffsetData[yr] : '';
+  });
   $('prop-form-title-text').textContent = 'Edit Property — '+p.name;
   togglePropForm(true);
   calcPropPreview();
@@ -2103,14 +2126,16 @@ const PROP_TYPE_LABEL = {ppor:'PPOR',investment:'Investment',commercial:'Commerc
 // Snapshot each property's currentValue (and outstanding loan balance)
 // into fyData / fyDebtData when a new financial year starts — mirrors
 // checkSuperFYRollover() exactly. Property has no other history mechanism
-// (currentValue and loan balances are overwritten on every edit), so this
-// is the only way past-FY figures ever get preserved, and it can only
-// start from whichever FY is current the first time this runs — there's
-// no way to recover years before that; neither figure was ever stored.
-// fyDebtData is what lets the Net Worth annual snapshot show true equity
-// (value − loans) instead of gross property value for years captured from
-// here on; years before this was added still won't have a loan figure to
-// subtract, same limitation fyData itself already has for value.
+// (currentValue, loan balances, and offset balances are overwritten on
+// every edit), so this is the only way past-FY figures ever get preserved,
+// and it can only start from whichever FY is current the first time this
+// runs — there's no way to recover years before that; none of these
+// figures were ever stored.
+// fyDebtData and fyOffsetData are what let the Net Worth annual snapshot
+// show Property (gross value), Loan Remaining, and Cash (offset balances)
+// as separate figures for years captured from here on; years before this
+// was added still won't have a loan or offset figure, same limitation
+// fyData itself already has for value.
 function checkPropertyFYRollover(){
   try{
     const _d = new Date();
@@ -2128,8 +2153,12 @@ function checkPropertyFYRollover(){
         }
         if(!p.fyDebtData) p.fyDebtData = {};
         if(p.fyDebtData[PREV_FY] == null){
-          const loanCur = normaliseSplits(p).reduce((s,sp)=>s+(+sp.balance||0),0);
-          p.fyDebtData[PREV_FY] = loanCur;
+          p.fyDebtData[PREV_FY] = normaliseSplits(p).reduce((s,sp)=>s+(+sp.balance||0),0);
+          changed = true;
+        }
+        if(!p.fyOffsetData) p.fyOffsetData = {};
+        if(p.fyOffsetData[PREV_FY] == null){
+          p.fyOffsetData[PREV_FY] = normaliseSplits(p).reduce((s,sp)=>s+(+sp.offset||0),0);
           changed = true;
         }
       });

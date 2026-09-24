@@ -86,6 +86,7 @@ function backupExport(){
       pt_pf_backfill_date: localStorage.getItem('pt_pf_backfill_date') || '',
       pt_pf_pruned_date:   localStorage.getItem('pt_pf_pruned_date') || '',
       pt_super_last_fy:    localStorage.getItem('pt_super_last_fy') || '',
+      pt_property_last_fy: localStorage.getItem('pt_property_last_fy') || '',
       pt_price_feed_url:   localStorage.getItem('pt_price_feed_url') || '',
       // GitHub Gist Cloud Sync device/credential state — included so a restore
       // fully re-establishes sync without you having to re-paste your token.
@@ -235,6 +236,7 @@ function backupConfirm(){
   if(d.pt_pf_backfill_date) localStorage.setItem('pt_pf_backfill_date', d.pt_pf_backfill_date);
   if(d.pt_pf_pruned_date)   localStorage.setItem('pt_pf_pruned_date',   d.pt_pf_pruned_date);
   if(d.pt_super_last_fy)    localStorage.setItem('pt_super_last_fy',    d.pt_super_last_fy);
+  if(d.pt_property_last_fy) localStorage.setItem('pt_property_last_fy', d.pt_property_last_fy);
   if(d.pt_price_feed_url)   localStorage.setItem('pt_price_feed_url',   d.pt_price_feed_url);
   if(d.pt_sync_key)      { syncKey = d.pt_sync_key; localStorage.setItem('pt_sync_key', d.pt_sync_key); }
   if(d.pt_sync_gist_id)    localStorage.setItem('pt_sync_gist_id', d.pt_sync_gist_id);
@@ -343,6 +345,14 @@ function buildExportSheets(){
       loan_total_initial: +totalInit.toFixed(2),
       wtd_avg_rate: +wtRate.toFixed(4),
       splits_json: JSON.stringify(splits),
+      // Per-FY historical value/loan/offset entries (see the property
+      // form's "Historical Value, Loan Remaining & Offset Balance at 30
+      // June" fields, and checkPropertyFYRollover's auto-capture) — kept
+      // as JSON blobs like Super's fy_data_json below, since each is a
+      // sparse {year: number} map rather than a flat column.
+      fy_data_json: JSON.stringify(p.fyData||{}),
+      fy_debt_data_json: JSON.stringify(p.fyDebtData||{}),
+      fy_offset_data_json: JSON.stringify(p.fyOffsetData||{}),
       weekly_rent: p.weeklyRent||0, annual_expenses: p.annualExpenses||0,
       has_manager: p.hasManager||'', notes: csvSafe(p.notes||''),
     };
@@ -643,6 +653,14 @@ function csvImportProperties(rows, filename){
       owner:         g(r,'owner','property_owner') || 'joint',
       notes:         g(r,'notes') || '',
     };
+    // Per-FY historical value/loan/offset maps — same fy_data_json pattern
+    // Super's CSV import already uses. Missing/unparseable columns (older
+    // exports made before this data was captured) just leave that
+    // property with no history, same as a brand-new property would have.
+    const parseFyJson = (json) => { try{ const v = JSON.parse(json); return (v && typeof v === 'object') ? v : {}; }catch(e){ return {}; } };
+    p.fyData       = parseFyJson(g(r,'fy_data_json','fydatajson'));
+    p.fyDebtData   = parseFyJson(g(r,'fy_debt_data_json','fydebtdatajson'));
+    p.fyOffsetData = parseFyJson(g(r,'fy_offset_data_json','fyoffsetdatajson'));
     properties.push(p);
     added++;
   }
