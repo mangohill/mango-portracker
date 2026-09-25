@@ -516,12 +516,17 @@ function processDRP(){
       .sort((a,b) => a.date.localeCompare(b.date));
 
     for(const div of symDivs){
-      // Check: is there already a DRP trade close to this dividend?
+      // Check: is there already a DRP trade for this specific dividend?
+      // Trades confirmed via this panel carry divId, so match on that first —
+      // exact and unambiguous, unlike date proximity. Older trades created
+      // before this linkage existed (or entered some other way) won't have
+      // divId, so fall back to the date-window heuristic for those only.
       const divDate = new Date(div.date);
       const already = trades.some(t => {
         if(priceSymbol(t.symbol) !== baseSym || t.type !== 'drp') return false;
+        if(t.divId != null) return t.divId === div.id;
         const diff = Math.abs(new Date(t.date) - divDate);
-        return diff <= 45 * 24*60*60*1000; // within 45 days — matches isDivRecorded's DRP tolerance
+        return diff <= 45 * 24*60*60*1000; // legacy fallback — within 45 days
       });
       if(already) continue; // already processed
 
@@ -738,6 +743,7 @@ function confirmDRPItem(idx){
     price:     +p.price.toFixed(4),
     fees:      0,
     assetType: getSymbolAssetType(p.sym),
+    divId:     p.divId, // links back to the dividend this reinvests, for exact re-scan matching
     notes:     'DRP — auto from dividend ' + p.divDate + (issueDate !== p.divDate ? ' (issued ' + issueDate + ')' : ''),
   });
 
@@ -791,6 +797,7 @@ function confirmAllDRP(){
       price:     +p.price.toFixed(4),
       fees:      0,
       assetType: getSymbolAssetType(p.sym),
+      divId:     p.divId, // links back to the dividend this reinvests, for exact re-scan matching
       notes:     'DRP — auto from dividend ' + p.divDate + (issueDate !== p.divDate ? ' (issued ' + issueDate + ')' : ''),
     });
     carry[p.sym] = carryOut;
