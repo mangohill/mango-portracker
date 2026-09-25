@@ -160,11 +160,14 @@ function unitsHeldOn(symbol, date) {
 // Check if a dividend is already recorded in the dividends tab
 function isDivRecorded(symbol, date, amount) {
   const dateStr = date instanceof Date ? date.toISOString().slice(0,10) : date;
-  // Allow ±7 days for ex-date vs pay-date difference
+  // Allow ±7 days for ex-date vs pay-date difference. DRP allotments can lag
+  // the ex-date by several weeks at some registries; cash dividends/
+  // distributions pay out much faster, so keep those tighter to avoid
+  // false-matching two real, separate payments against one symbol.
   const target = new Date(dateStr);
-  const tolerance = 30 * 24 * 60 * 60 * 1000;
   return dividends.some(d => {
     if (d.symbol !== symbol) return false;
+    const tolerance = (d.type === 'drp' ? 45 : 30) * 24 * 60 * 60 * 1000;
     const diff = Math.abs(new Date(d.date) - target);
     return diff <= tolerance;
   });
@@ -372,7 +375,10 @@ function renderDivCheckResults(results, showAll) {
                   ? '<span style="color:var(--green);font-size:13px" title="Already in dividends tab">✓</span>'
                   : isSkipped
                   ? '<span style="color:var(--text3);font-size:13px" title="Dismissed">⏭ Dismissed</span>'
-                  : '<span style="color:var(--gold);font-size:13px" title="Not found in dividends tab">⚠ Missing</span>'}
+                  : '<span style="color:var(--gold);font-size:13px" title="Not found in dividends tab">⚠ Missing</span>'
+                    + (isSymbolDRPEnabled(r.symbol)
+                        ? ' <span style="font-size:9px;color:#c4b5fd;border:1px solid #7c3aed;border-radius:4px;padding:1px 5px;margin-left:4px" title="DRP is enabled for this symbol — adding it will drop it straight into the DRP queue below for you to confirm">↻ DRP</span>'
+                        : '')}
               </td>
               <td style="padding:6px 8px;text-align:center;white-space:nowrap">
                 ${r.recorded ? '—' : isSkipped
@@ -411,6 +417,11 @@ function addSingleMissingDiv(r, showAll) {
   if(match) match.recorded = true;
   renderDivCheckResults(window._divCheckResults || [], !!showAll);
   renderDividends();
+
+  // This symbol has DRP enabled — the cash record just added is exactly what
+  // processDRP() looks for, so surface it in the DRP queue immediately rather
+  // than requiring a second manual "Check & Process Dividends" click.
+  if(isSymbolDRPEnabled(r.symbol)) processDRP();
 }
 
 // Dismiss a "missing" expected dividend — false positive, not applicable, etc.
@@ -425,6 +436,7 @@ function skipExpectedDiv(r, showAll) {
 function addAllMissingDivs() {
   const missing = window._missingDivs || [];
   if (!missing.length) return;
+  let anyDRP = false;
   missing.forEach(r => {
     dividends.push({
       id:         'div_' + uid(),
@@ -435,6 +447,7 @@ function addAllMissingDivs() {
       frankingPct: 0,
       notes:      'Auto-added from dividend history check',
     });
+    if(isSymbolDRPEnabled(r.symbol)) anyDRP = true;
   });
   save();
   notify(`✓ Added ${missing.length} dividend records`, 'ok');
@@ -442,6 +455,10 @@ function addAllMissingDivs() {
   renderDividends(); renderDivCharts(); renderDivCards();
   document.getElementById('div-check-panel').style.display = 'none';
   const _dp=document.getElementById('drp-tab-panel');if(_dp)_dp.style.display='none';
+
+  // Any of those symbols DRP-enabled? Surface them in the DRP queue right
+  // away instead of requiring a second "Check & Process Dividends" click.
+  if(anyDRP) processDRP();
 }
 
 
@@ -449,19 +466,30 @@ function addAllMissingDivs() {
 // DRP PROCESSING ENGINE
 // ═══════════════════════════════════════════════════════════════
 
-function processDRP(){
+// DRP settings can be keyed per broker-suffixed lot (e.g. "DHHF:CMC") since
+// that's how the symbol appears in trades, but dividend records are always
+// stored against the plain underlying symbol (e.g. "DHHF") since dividends
+// aren't broker-specific. Normalize everything to the base symbol so a DRP
+// toggle on any lot of a holding is respected, not just suffix-free ones.
+// Shared by processDRP() and anything (e.g. the Expected Dividends panel)
+// that needs to know "is this symbol DRP-enabled" without re-deriving it.
+function getDRPEnabledBaseSymbols(){
   const drpSettings = getDRPSettings();
-  // DRP settings can be keyed per broker-suffixed lot (e.g. "DHHF:CMC") since
-  // that's how the symbol appears in trades, but dividend records are always
-  // stored against the plain underlying symbol (e.g. "DHHF") since dividends
-  // aren't broker-specific. Normalize everything to the base symbol so a DRP
-  // toggle on any lot of a holding is respected, not just suffix-free ones.
   const fractionalByBase = {};
   Object.entries(drpSettings).forEach(([sym, s]) => {
     if(!s.enabled) return;
     const base = priceSymbol(sym);
     fractionalByBase[base] = fractionalByBase[base] || s.fractional || false;
   });
+  return fractionalByBase;
+}
+
+function isSymbolDRPEnabled(sym){
+  return !!getDRPEnabledBaseSymbols()[priceSymbol(sym)];
+}
+
+function processDRP(){
+  const fractionalByBase = getDRPEnabledBaseSymbols();
   const enabledSyms = Object.keys(fractionalByBase);
 
   if(!enabledSyms.length){
@@ -493,7 +521,7 @@ function processDRP(){
       const already = trades.some(t => {
         if(priceSymbol(t.symbol) !== baseSym || t.type !== 'drp') return false;
         const diff = Math.abs(new Date(t.date) - divDate);
-        return diff <= 35 * 24*60*60*1000; // within 35 days
+        return diff <= 45 * 24*60*60*1000; // within 45 days — matches isDivRecorded's DRP tolerance
       });
       if(already) continue; // already processed
 
