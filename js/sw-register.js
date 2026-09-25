@@ -619,6 +619,21 @@ function getDRPCalc(p){
   return { ...calcDRPUnits(p.total, p.price, p.fractional), overridden: false };
 }
 
+// After confirming a DRP item, any other still-pending item for the SAME
+// symbol was built with a carry-in snapshotted back when processDRP() first
+// scanned (a single read of getDRPCarry(), before any of this batch was
+// confirmed). If two dividends for one symbol are pending together, the
+// second must inherit the carry-out the first just produced, not the stale
+// pre-batch figure — otherwise leftover cents from partial-share rounding
+// silently go missing (or get double-counted) between them.
+function reflowPendingCarry(sym, carryIn){
+  (window._drpPending || []).forEach(p => {
+    if(p.sym !== sym) return;
+    p.carryIn = carryIn;
+    p.total   = +(p.divAmount + carryIn).toFixed(4);
+  });
+}
+
 function renderDRPPanel(){
   const panel = $('drp-tab-panel') || $('drp-process-panel');
   if(!panel) return;
@@ -757,8 +772,10 @@ function confirmDRPItem(idx){
 
   notify(`✓ DRP: ${p.sym} — ${p.fractional ? units.toFixed(6) : units} units @ ${n2(p.price)} · carry: ${n2(carryOut)}`,'ok');
 
-  // Remove from pending
+  // Remove from pending, then bring any sibling item(s) for this symbol
+  // up to date with the carry-out we just produced.
   window._drpPending.splice(idx, 1);
+  reflowPendingCarry(p.sym, carryOut);
   renderDRPPanel();
 }
 
@@ -784,7 +801,13 @@ function confirmAllDRP(){
   const carry = getDRPCarry();
 
   for(const p of pending){
-    const { units, carryOut } = getDRPCalc(p);
+    // Same fix as reflowPendingCarry: recompute this item's total from the
+    // running carry map, not the stale snapshot from when processDRP() first
+    // scanned — otherwise a second same-symbol dividend in this batch won't
+    // see the carry-out the first one in this loop just produced.
+    const carryIn = carry[p.sym] != null ? carry[p.sym] : p.carryIn;
+    const total   = +(p.divAmount + carryIn).toFixed(4);
+    const { units, carryOut } = getDRPCalc({ ...p, total });
     if(p.price <= 0 || units <= 0) continue;
     const issueDate = p.issueDate || p.divDate;
 
