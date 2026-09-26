@@ -985,7 +985,13 @@ function compute45DayRuleFlags(){
     const fc = frankingCredit(+d.amount||0, d.frankingPct);
     if(!fc) return;
     const owner = getSymbolOwner(d.symbol);
-    const persons = owner==='joint' ? getAllPersons() : [owner];
+    // 'joint' means Lumia+Chilli specifically (JOINT_PERSONS, helpers.js) —
+    // not every person in getAllPersons(). Previously a custom/extra person
+    // (e.g. Cg, Sg) got 0.5 of a joint symbol's franking credit counted
+    // toward their own $5,000 exemption threshold, which could wrongly
+    // trigger or wrongly suppress the 45-day rule warning for holdings
+    // they have no actual ownership of.
+    const persons = owner==='joint' ? JOINT_PERSONS : [owner];
     const share = owner==='joint' ? 0.5 : 1;
     const fy = dateToFY(d.date);
     persons.forEach(p=>{
@@ -999,7 +1005,7 @@ function compute45DayRuleFlags(){
     if(!d.frankingPct || d.frankingPct<=0) return;
     const owner = getSymbolOwner(d.symbol);
     const fy = dateToFY(d.date);
-    const relevantPersons = owner==='joint' ? getAllPersons() : [owner];
+    const relevantPersons = owner==='joint' ? JOINT_PERSONS : [owner];
     const exceedsThreshold = relevantPersons.some(p => (frankingByPersonFY[p]&&frankingByPersonFY[p][fy]||0) > FRANKING_SMALL_SHAREHOLDER_EXEMPTION);
     if(!exceedsThreshold) return;
 

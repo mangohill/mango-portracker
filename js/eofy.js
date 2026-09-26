@@ -13,7 +13,16 @@ function eofyDivFranking(fy, person){
   let amount = 0, franking = 0;
   dividends.filter(d => dateToFY(d.date) === fy && types.includes(d.type)).forEach(d => {
     const own = typeof getSymbolOwner === 'function' ? getSymbolOwner(d.symbol) : 'joint';
-    const share = person == null ? 1 : (own === person ? 1 : (own === 'joint' ? 0.5 : 0));
+    // 'joint' means split 50/50 between Lumia and Chilli specifically — the
+    // pair the label refers to — NOT an equal split across everyone in
+    // getAllPersons(). Custom/extra persons (Cg, Sg, ...) are always
+    // individually owned and get 0 of a jointly-owned dividend. Without this
+    // scoping, every extra person added also received a 0.5 share here,
+    // so a joint dividend was attributed at well over 100% once more than
+    // two people existed in the system. JOINT_PERSONS is defined once in
+    // helpers.js (loaded before this file); fall back defensively if not.
+    const jointPersons = typeof JOINT_PERSONS !== 'undefined' ? JOINT_PERSONS : ['lumia', 'chilli'];
+    const share = person == null ? 1 : (own === person ? 1 : (own === 'joint' && jointPersons.includes(person) ? 0.5 : 0));
     const amt = (+d.amount || 0) * share;
     amount += amt;
     if(typeof frankingCredit === 'function') franking += frankingCredit(amt, d.frankingPct || 0);

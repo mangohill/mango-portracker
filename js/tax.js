@@ -111,15 +111,19 @@ function getTaxFY(){
   return taxFY || cur;
 }
 function taxKey(fy){ return 'FY'+fy; }
+// Per-person default tax-input shape — same fields regardless of person.
+function taxPersonDefaults(){
+  return {salary:0, withheld:0, payg:0, hecs:0, privateHealth:false, sacrifice:0};
+}
 function getTaxRecord(fy){
   const k = taxKey(fy);
+  const persons = (typeof getAllPersons === 'function') ? getAllPersons() : ['lumia','chilli'];
   const defaults = {
-    lumia:  {salary:0, withheld:0, payg:0, hecs:0, privateHealth:false, sacrifice:0},
-    chilli: {salary:0, withheld:0, payg:0, hecs:0, privateHealth:false, sacrifice:0},
     privateHealthFamily: false,
     dependants: 0,
     props:  {},
   };
+  persons.forEach(p => { defaults[p] = taxPersonDefaults(); });
   if(!taxData[k]){
     taxData[k] = defaults;
   } else {
@@ -129,12 +133,15 @@ function getTaxRecord(fy){
         taxData[k][key] = defaults[key];
       }
     }
-    // Merge missing person fields
-    for(const person of ['lumia','chilli']){
-      if(!taxData[k][person]) taxData[k][person] = {...defaults[person]};
+    // Merge missing person fields — covers both old records missing a
+    // person entirely (e.g. a custom person added after this FY record was
+    // first created) and a record missing an individual field.
+    for(const person of persons){
+      if(!taxData[k][person]) taxData[k][person] = taxPersonDefaults();
       else {
-        for(const f of Object.keys(defaults[person])){
-          if(taxData[k][person][f] === undefined) taxData[k][person][f] = defaults[person][f];
+        const pd = taxPersonDefaults();
+        for(const f of Object.keys(pd)){
+          if(taxData[k][person][f] === undefined) taxData[k][person][f] = pd[f];
         }
       }
     }
@@ -489,15 +496,20 @@ function renderTax(){
     if(!r) return { shortGain:0, longGain:0, totalLoss:0, netGain:0 };
     return { shortGain: r.netShort, longGain: r.discountedLong, totalLoss: r.losses, netGain: r.netCapitalGain };
   }
-  // Shared CGT summary (for display totals) — sum of both persons' attributed gains
-  const lumCGT = personCGT('lumia');
-  const chiCGT = personCGT('chilli');
-  const cgt = {
-    netGain:    lumCGT.netGain + chiCGT.netGain,
-    totalLoss:  lumCGT.totalLoss + chiCGT.totalLoss,
-    shortGain:  lumCGT.shortGain + chiCGT.shortGain,
-    longGain:   lumCGT.longGain + chiCGT.longGain,
-  };
+  // Persons this Tax tab computes for — all of them, not just the couple.
+  const taxPersons = (typeof getAllPersons === 'function') ? getAllPersons() : ['lumia','chilli'];
+
+  // Shared CGT summary (for display totals) — sum of every person's attributed gains
+  const cgtByPerson = {};
+  taxPersons.forEach(p => { cgtByPerson[p] = personCGT(p); });
+  const cgt = taxPersons.reduce((acc, p) => {
+    const c = cgtByPerson[p];
+    acc.netGain   += c.netGain;
+    acc.totalLoss += c.totalLoss;
+    acc.shortGain += c.shortGain;
+    acc.longGain  += c.longGain;
+    return acc;
+  }, { netGain:0, totalLoss:0, shortGain:0, longGain:0 });
 
   // ── Dividends in FY — attributed by stock ownership ────────────
   // DRP dividends ARE assessable income (ATO: reinvestment doesn't change taxability)
@@ -509,7 +521,7 @@ function renderTax(){
   function personDivs(personKey){
     return fyDivs.filter(d=>{
       const own = getSymbolOwner(d.symbol);
-      return own===personKey || own==='joint';
+      return own===personKey || (own==='joint' && JOINT_PERSONS.includes(personKey));
     });
   }
   function personDivShare(d, personKey){
@@ -524,7 +536,11 @@ function renderTax(){
     let netRent=0, netExpenses=0, investInterest=0;
     properties.forEach(p=>{
       const pOwner = p.owner || 'joint';
-      const isOwner = pOwner===owner || pOwner==='joint';
+      // 'joint' means Lumia+Chilli specifically — a custom/extra person is
+      // never an owner of a joint property (mattered less while this only
+      // ever ran for Lumia/Chilli; now that it runs for everyone, an
+      // unscoped check would attribute every joint property to them too).
+      const isOwner = pOwner===owner || (pOwner==='joint' && JOINT_PERSONS.includes(owner));
       if(!isOwner) return;
       const share = pOwner==='joint' ? 0.5 : 1;
 
@@ -571,10 +587,15 @@ function renderTax(){
     const hasPrivH    = !!(p.privateHealth || rec.privateHealthFamily);
     const { netPropLoss, netPropGain, netRent, netExpenses } = propPnLResult;
     const myCGT    = cgtResult.netGain;  // already attributed to this person only
-    // Dividends attributed by actual stock ownership (not 50/50)
+    // Dividends attributed by actual stock ownership. 'joint' means split
+    // 50/50 between JOINT_PERSONS (Lumia/Chilli) specifically — a custom
+    // person (e.g. a child) querying a joint-owned symbol gets 0, not 0.5.
+    // This mattered less while personTax() only ever ran for Lumia/Chilli
+    // (every "other" person got 0 anyway); now that it runs for everyone,
+    // an unscoped check would double-count a joint symbol's dividend.
     const _myDivs  = fyDivs.filter(d=>{
       const own = getSymbolOwner(d.symbol);
-      return own===personKey || own==='joint';
+      return own===personKey || (own==='joint' && JOINT_PERSONS.includes(personKey));
     });
     const myDiv    = _myDivs.reduce((s,d)=>{
       const share = getSymbolOwner(d.symbol)==='joint' ? 0.5 : 1.0;
@@ -616,19 +637,33 @@ function renderTax(){
       const excess = div293Income - div293Threshold;
       div293 = Math.round(Math.min(totalConcess, excess) * 0.15);
     }
-    const otherKey     = personKey === 'lumia' ? 'chilli' : 'lumia';
-    const otherSalary  = +rec[otherKey]?.salary||0;
-    const otherSacr    = +rec[otherKey]?.sacrifice||0;
-    const _otherDivs   = personDivs(otherKey);
-    const otherDiv     = _otherDivs.reduce((s,d)=>s+(+d.amount||0)*personDivShare(d,otherKey),0);
-    // ATO: family income for MLS includes net rental of both persons
-    const otherPropResult = propPnL(otherKey);
-    const otherRental  = otherPropResult.netPropGain - otherPropResult.netPropLoss;
-    const otherRFB     = +rec[otherKey]?.rfb || 0;
-    const otherTI      = (otherSalary - otherSacr) + otherDiv + otherRental + otherRFB;
-    // MLS family income includes RFB and net investment loss for each person
-    const familyIncome = (taxableIncome + rfb + totalNetInvLoss) + (otherTI);
-    const deps         = +(rec.dependants||0);
+    // ATO's MLS family-income test applies to a couple (you + spouse) —
+    // it doesn't merge a dependent's own return with their parents' income.
+    // Only JOINT_PERSONS (Lumia/Chilli) get the coupled family-income
+    // treatment; anyone else (e.g. a custom/extra person like a child)
+    // is assessed purely on their own income against the single threshold.
+    const isCoupled = JOINT_PERSONS.includes(personKey);
+    let familyIncome;
+    if(isCoupled){
+      const otherKey     = personKey === JOINT_PERSONS[0] ? JOINT_PERSONS[1] : JOINT_PERSONS[0];
+      const otherSalary  = +rec[otherKey]?.salary||0;
+      const otherSacr    = +rec[otherKey]?.sacrifice||0;
+      const _otherDivs   = personDivs(otherKey);
+      const otherDiv     = _otherDivs.reduce((s,d)=>s+(+d.amount||0)*personDivShare(d,otherKey),0);
+      // ATO: family income for MLS includes net rental of both persons
+      const otherPropResult = propPnL(otherKey);
+      const otherRental  = otherPropResult.netPropGain - otherPropResult.netPropLoss;
+      const otherRFB     = +rec[otherKey]?.rfb || 0;
+      const otherTI      = (otherSalary - otherSacr) + otherDiv + otherRental + otherRFB;
+      // MLS family income includes RFB and net investment loss for each person
+      familyIncome = (taxableIncome + rfb + totalNetInvLoss) + otherTI;
+    } else {
+      // No spouse to combine with — family income reduces to own income, so
+      // calcMLS's family-threshold branch effectively never applies and
+      // only the single-filer threshold/rate logic governs this person.
+      familyIncome = taxableIncome + rfb + totalNetInvLoss;
+    }
+    const deps         = isCoupled ? +(rec.dependants||0) : 0;
     const mls          = calcMLS(taxableIncome, familyIncome, hasPrivH, deps);
     const totalLiability = grossTax + hecsRep + mls + div293;
     const netTax    = Math.max(0, totalLiability - withheld - payg - myFrank);
@@ -636,20 +671,24 @@ function renderTax(){
     return { salary, withheld, payg, sacrifice, rfb, myDiv, myFrank, investInterestDeduction, totalNetInvLoss, empSGManual, empSuper, sgRate, totalConcess, div293Income, div293Threshold:250000, medicareLevy,
              netPropLoss, netPropGain, netRent, netExpenses,
              myCGT, taxableIncome, grossTax, medicareLevy, hecsRep, mls, div293,
-             totalLiability, netTax, refund, hecsDebt, hasPrivH };
+             totalLiability, netTax, refund, hecsDebt, hasPrivH, isCoupled };
   }
 
-  const lumProp   = propPnL('lumia');
-  const chiProp   = propPnL('chilli');
-
-  const lumTax    = personTax('lumia',  lumProp,  lumCGT);
-  const chiTax    = personTax('chilli', chiProp,  chiCGT);
+  const propByPerson = {};
+  const taxByPerson  = {};
+  taxPersons.forEach(p => {
+    propByPerson[p] = propPnL(p);
+    taxByPerson[p]  = personTax(p, propByPerson[p], cgtByPerson[p]);
+  });
 
   // ── Property expense inputs per property ─────────────────────
   const propInputs = properties.length ? properties.map(p=>{
     const share = p.owner==='joint'?0.5:1;
     const pRec = rec.props[p.id] || {};
-    const ownerLabel = {lumia:'Lumia',chilli:'Chilli',joint:'Joint 50/50'}[p.owner||'lumia']||'Lumia';
+    // getPersonLabel() covers any person (built-in or custom); previously
+    // a custom owner (e.g. a property held by Cg) fell through this map to
+    // the 'Lumia' fallback and displayed the wrong name.
+    const ownerLabel = p.owner==='joint' ? 'Joint 50/50' : getPersonLabel(p.owner||'lumia');
     const fi = (field,label,placeholder) => {
       const fid = `tp-${p.id}-${field}-${fy}`;
       return `<div style="position:relative"><label style="font-size:10px;color:var(--text3)">${label}</label>
@@ -698,11 +737,10 @@ function renderTax(){
   }).join('') : '<div style="color:var(--text3);font-size:12px">No properties added yet.</div>';
 
   // ── Render ────────────────────────────────────────────────────
-  const row = (label, lumVal, chiVal, cls='', note='') =>
+  const row = (label, valuesArr, cls='', note='') =>
     `<tr ${cls?'class="'+cls+'"':''}>
       <td style="color:var(--text3);font-size:12px;padding:5px 8px">${label}${note?'<span style="color:var(--text3);font-size:10px"> '+note+'</span>':''}</td>
-      <td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px">${lumVal}</td>
-      <td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px">${chiVal}</td>
+      ${valuesArr.map(v=>`<td style="font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px">${v}</td>`).join('')}
     </tr>`;
 
   const sp = (v,cls)=>`<span class="${cls||''}">${v}</span>`;
@@ -718,13 +756,13 @@ function renderTax(){
   </div>
 
   <!-- Side by side income inputs -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px">
-    ${['lumia','chilli'].map((person,pi)=>{
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:18px">
+    ${taxPersons.map((person,pi)=>{
       const pRec = rec[person] || {};
-      const name = person==='lumia'?'Lumia':'Chilli';
-      const col  = person==='lumia'?'#60a5fa':'#f472b6';
+      const name = getPersonLabel(person);
+      const col  = getPersonColour(person);
       return `<div class="fs">
-        <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:${col};margin-bottom:12px">${name}</div>
+        <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:${col};margin-bottom:12px">${escHtml(name)}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <div><label class="fl">Gross Salary (AUD)</label>
             <input type="text" inputmode="text" class="fi math-tax-inp" style="padding:4px 8px"
@@ -840,7 +878,7 @@ function renderTax(){
       <input type="checkbox" id="chk-privhealth-family" ${rec.privateHealthFamily?'checked':''}
         onchange="taxFamilyUpdate('privateHealthFamily',this.checked,${fy})">
       <label for="chk-privhealth-family" style="font-size:12px;color:var(--text2);cursor:pointer">
-        <b>Family private hospital cover</b> — both persons covered under one policy
+        <b>Family private hospital cover</b> — everyone above covered under one policy
         (overrides individual settings above for MLS calculation)
       </label>
     </div>
@@ -852,11 +890,11 @@ function renderTax(){
 
   <!-- Family / Dependants -->
   <div class="fs" style="margin-bottom:18px">
-    <div class="fst">👨‍👩‍👧 Family Details</div>
+    <div class="fst">👨‍👩‍👧 Family Details — ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} &amp; ${escHtml(getPersonLabel(JOINT_PERSONS[1]))}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div>
         <label class="fl">Dependant Children
-          <span style="color:var(--text3);font-size:10px">(adds $1,500/child to MLS family threshold)</span>
+          <span style="color:var(--text3);font-size:10px">(adds $1,500/child to the MLS family threshold below)</span>
         </label>
         <input type="number" class="fi" style="padding:4px 8px" min="0" max="20" step="1"
           placeholder="0" value="${rec.dependants||''}"
@@ -867,6 +905,10 @@ function renderTax(){
         (base $186,000${+(rec.dependants||0)>1?' + '+n2(Math.max(0,+(rec.dependants||0)-1)*1500)+' for '+Math.max(0,+(rec.dependants||0)-1)+' extra child'+(Math.max(0,+(rec.dependants||0)-1)>1?'ren':''):''})
       </div>
     </div>
+    ${taxPersons.length>2?`<div style="font-size:10px;color:var(--text3);margin-top:8px">
+      This family income test applies only to ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} &amp; ${escHtml(getPersonLabel(JOINT_PERSONS[1]))} — the ATO MLS family test combines a couple's income, it doesn't merge a dependant's own return with their parents'.
+      ${taxPersons.filter(p=>!JOINT_PERSONS.includes(p)).map(p=>escHtml(getPersonLabel(p))).join(', ')} ${taxPersons.filter(p=>!JOINT_PERSONS.includes(p)).length===1?'is':'are'} assessed on their own income against the $93,000 single threshold instead.
+    </div>`:''}
   </div>
 
   <!-- Property expense inputs -->
@@ -883,122 +925,106 @@ function renderTax(){
     <table style="width:100%;border-collapse:collapse">
       <thead><tr>
         <th style="text-align:left;padding:6px 8px;font-size:11px;color:var(--text3);font-weight:400">Item</th>
-        <th style="text-align:right;padding:6px 8px;font-size:12px;font-family:var(--mono);color:#60a5fa">Lumia</th>
-        <th style="text-align:right;padding:6px 8px;font-size:12px;font-family:var(--mono);color:#f472b6">Chilli</th>
+        ${taxPersons.map(p=>`<th style="text-align:right;padding:6px 8px;font-size:12px;font-family:var(--mono);color:${getPersonColour(p)}">${escHtml(getPersonLabel(p))}</th>`).join('')}
       </tr></thead>
       <tbody>
-        ${row('Gross Salary',n2(lumTax.salary),n2(chiTax.salary))}
-        ${(lumTax.rfb>0||chiTax.rfb>0)?row('Reportable Fringe Benefits',
-          lumTax.rfb>0?'+'+n2(lumTax.rfb):'—',
-          chiTax.rfb>0?'+'+n2(chiTax.rfb):'—',
+        ${row('Gross Salary', taxPersons.map(p=>n2(taxByPerson[p].salary)))}
+        ${taxPersons.some(p=>taxByPerson[p].rfb>0)?row('Reportable Fringe Benefits',
+          taxPersons.map(p=>taxByPerson[p].rfb>0?'+'+n2(taxByPerson[p].rfb):'—'),
           '','not taxable income — used for Div293 & MLS threshold tests only'):''}
         ${`<tr>
           <td style='color:var(--text3);font-size:12px;padding:5px 8px'>Dividend Income (cash)<span style='color:var(--text3);font-size:10px'> from dividends tab</span></td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted;color:var(--green)' onclick='taxDrillDividends("lumia",${fy})' title='Click to see these dividends'>${n2(lumTax.myDiv)}</td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted;color:var(--green)' onclick='taxDrillDividends("chilli",${fy})' title='Click to see these dividends'>${n2(chiTax.myDiv)}</td>
+          ${taxPersons.map(p=>`<td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted;color:var(--green)' onclick='taxDrillDividends("${p}",${fy})' title='Click to see these dividends'>${n2(taxByPerson[p].myDiv)}</td>`).join('')}
         </tr>`}
         ${`<tr class='pos'>
           <td style='color:var(--text3);font-size:12px;padding:5px 8px'>Franking Credits</td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted' onclick='taxDrillDividends("lumia",${fy})' title='Click to see franked dividends'>+${n2(lumTax.myFrank)}</td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted' onclick='taxDrillDividends("chilli",${fy})' title='Click to see franked dividends'>+${n2(chiTax.myFrank)}</td>
+          ${taxPersons.map(p=>`<td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted' onclick='taxDrillDividends("${p}",${fy})' title='Click to see franked dividends'>+${n2(taxByPerson[p].myFrank)}</td>`).join('')}
         </tr>`}
-        ${(lumTax.investInterestDeduction>0||chiTax.investInterestDeduction>0)?row(
+        ${taxPersons.some(p=>taxByPerson[p].investInterestDeduction>0)?row(
           'Investment Interest Deduction',
-          lumTax.investInterestDeduction>0?'-'+n2(lumTax.investInterestDeduction):'—',
-          chiTax.investInterestDeduction>0?'-'+n2(chiTax.investInterestDeduction):'—',
+          taxPersons.map(p=>taxByPerson[p].investInterestDeduction>0?'-'+n2(taxByPerson[p].investInterestDeduction):'—'),
           'neg','interest on loan used to buy investments'
         ):''}
-        ${(lumTax.totalNetInvLoss>0||chiTax.totalNetInvLoss>0)?row(
+        ${taxPersons.some(p=>taxByPerson[p].totalNetInvLoss>0)?row(
           '  └ Net Investment Loss (added back for Div293/MLS)',
-          lumTax.totalNetInvLoss>0?n2(lumTax.totalNetInvLoss):'—',
-          chiTax.totalNetInvLoss>0?n2(chiTax.totalNetInvLoss):'—',
+          taxPersons.map(p=>taxByPerson[p].totalNetInvLoss>0?n2(taxByPerson[p].totalNetInvLoss):'—'),
           '','not added to taxable income — used for Div293 & MLS threshold tests only'):''}
-        ${row('Net Rental Income',lumTax.netRent>lumTax.netExpenses?'+'+n2(lumTax.netRent-lumTax.netExpenses):'—',chiTax.netRent>chiTax.netExpenses?'+'+n2(chiTax.netRent-chiTax.netExpenses):'—')}
-        ${row('Rental Loss (negative gearing)',lumTax.netPropLoss>0?'-'+n2(lumTax.netPropLoss):'—',chiTax.netPropLoss>0?'-'+n2(chiTax.netPropLoss):'—','neg')}
-        ${row('Net Capital Gain (after 50% disc)',n2(lumTax.myCGT),n2(chiTax.myCGT),'',cgt.totalLoss>0?'capital losses: -'+n2(cgt.totalLoss):'')}
-        <tr><td colspan="3" style="padding:2px 8px 8px">
+        ${row('Net Rental Income', taxPersons.map(p=>taxByPerson[p].netRent>taxByPerson[p].netExpenses?'+'+n2(taxByPerson[p].netRent-taxByPerson[p].netExpenses):'—'))}
+        ${row('Rental Loss (negative gearing)', taxPersons.map(p=>taxByPerson[p].netPropLoss>0?'-'+n2(taxByPerson[p].netPropLoss):'—'),'neg')}
+        ${row('Net Capital Gain (after 50% disc)', taxPersons.map(p=>n2(taxByPerson[p].myCGT)),'',cgt.totalLoss>0?'capital losses: -'+n2(cgt.totalLoss):'')}
+        <tr><td colspan="${taxPersons.length+1}" style="padding:2px 8px 8px">
           <span style="font-size:11px;color:var(--blue);cursor:pointer" onclick="switchTab('cgt',$('tab-cgt'))">
             ↳ View full Capital Gains report (per-parcel detail, any FY) →
           </span>
         </td></tr>
         <tr style="border-top:1px solid var(--border)">
           <td style="font-size:12px;font-weight:600;padding:6px 8px">Taxable Income</td>
-          <td style="font-family:var(--mono);font-size:13px;font-weight:600;text-align:right;padding:6px 8px">
-            ${n2(Math.max(0,lumTax.taxableIncome))}
-            ${lumTax.sacrifice>0?`<div style='font-size:10px;color:var(--text3)'>(pre-sacrifice: ${n2(lumTax.salary)})</div>`:''}
-          </td>
-          <td style="font-family:var(--mono);font-size:13px;font-weight:600;text-align:right;padding:6px 8px">
-            ${n2(Math.max(0,chiTax.taxableIncome))}
-            ${chiTax.sacrifice>0?`<div style='font-size:10px;color:var(--text3)'>(pre-sacrifice: ${n2(chiTax.salary)})</div>`:''}
-          </td>
+          ${taxPersons.map(p=>{
+            const t = taxByPerson[p];
+            return `<td style="font-family:var(--mono);font-size:13px;font-weight:600;text-align:right;padding:6px 8px">
+              ${n2(Math.max(0,t.taxableIncome))}
+              ${t.sacrifice>0?`<div style='font-size:10px;color:var(--text3)'>(pre-sacrifice: ${n2(t.salary)})</div>`:''}
+            </td>`;
+          }).join('')}
         </tr>
-        ${lumTax.sacrifice>0||chiTax.sacrifice>0?row('Salary Sacrifice',
-          lumTax.sacrifice>0?'-'+n2(lumTax.sacrifice):'—',
-          chiTax.sacrifice>0?'-'+n2(chiTax.sacrifice):'—','neg','reduces taxable income'):''}
-        ${row('Gross Tax Payable',n2(lumTax.grossTax),n2(chiTax.grossTax))}
+        ${taxPersons.some(p=>taxByPerson[p].sacrifice>0)?row('Salary Sacrifice',
+          taxPersons.map(p=>taxByPerson[p].sacrifice>0?'-'+n2(taxByPerson[p].sacrifice):'—'),'neg','reduces taxable income'):''}
+        ${row('Gross Tax Payable', taxPersons.map(p=>n2(taxByPerson[p].grossTax)))}
         ${row('  └ Medicare Levy (2%)',
-          lumTax.medicareLevy>0?n2(lumTax.medicareLevy):'—',
-          chiTax.medicareLevy>0?n2(chiTax.medicareLevy):'—',
+          taxPersons.map(p=>taxByPerson[p].medicareLevy>0?n2(taxByPerson[p].medicareLevy):'—'),
           'neg','included in gross tax above')}
         ${row('Effective Tax Rate',
-          lumTax.taxableIncome>0 ? (lumTax.grossTax/lumTax.taxableIncome*100).toFixed(1)+'%' : '—',
-          chiTax.taxableIncome>0 ? (chiTax.grossTax/chiTax.taxableIncome*100).toFixed(1)+'%' : '—',
+          taxPersons.map(p=>taxByPerson[p].taxableIncome>0 ? (taxByPerson[p].grossTax/taxByPerson[p].taxableIncome*100).toFixed(1)+'%' : '—'),
           '','% of taxable income'
         )}
         ${row('PAYG Withholding Rate',
-          lumTax.salary>0 ? (lumTax.withheld/lumTax.salary*100).toFixed(1)+'%' : '—',
-          chiTax.salary>0 ? (chiTax.withheld/chiTax.salary*100).toFixed(1)+'%' : '—',
+          taxPersons.map(p=>taxByPerson[p].salary>0 ? (taxByPerson[p].withheld/taxByPerson[p].salary*100).toFixed(1)+'%' : '—'),
           '','% of gross salary withheld by employer'
         )}
 ${(()=>{
-          if(!lumTax.div293&&!chiTax.div293) return '';
+          if(!taxPersons.some(p=>taxByPerson[p].div293>0)) return '';
           // Store breakdown data for popup (avoids JSON.stringify in onclick)
           window.__div293 = window.__div293 || {};
-          window.__div293['lumia']  = {...lumTax,  personLabel: getPersonLabel('lumia')};
-          window.__div293['chilli'] = {...chiTax, personLabel: getPersonLabel('chilli')};
+          taxPersons.forEach(p=>{ window.__div293[p] = {...taxByPerson[p], personLabel: getPersonLabel(p)}; });
           return `<tr class='neg'>
           <td style='color:var(--text3);font-size:12px;padding:5px 8px'>
             Division 293 Tax
             <span style='color:var(--text3);font-size:10px'> extra 15% on super · income &gt;$250k</span>
           </td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
-            ${lumTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
-            onclick='${lumTax.div293>0?"showDiv293Breakdown(\"lumia\")":""}'
-            title='${lumTax.div293>0?'Click to see calculation':''}'>
-            ${lumTax.div293>0?n2(lumTax.div293):'—'}
-          </td>
-          <td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
-            ${chiTax.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
-            onclick='${chiTax.div293>0?"showDiv293Breakdown(\"chilli\")":""}'
-            title='${chiTax.div293>0?'Click to see calculation':''}'>
-            ${chiTax.div293>0?n2(chiTax.div293):'—'}
-          </td>
+          ${taxPersons.map(p=>{
+            const t = taxByPerson[p];
+            return `<td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
+            ${t.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
+            onclick='${t.div293>0?`showDiv293Breakdown("${p}")`:""}'
+            title='${t.div293>0?'Click to see calculation':''}'>
+            ${t.div293>0?n2(t.div293):'—'}
+          </td>`;
+          }).join('')}
         </tr>`;
         })()}
-      ${(lumTax.hecsRep>0||chiTax.hecsRep>0)?row('HECS-HELP Repayment',
-        lumTax.hecsRep>0?n2(lumTax.hecsRep):'—',
-        chiTax.hecsRep>0?n2(chiTax.hecsRep):'—'):''
+      ${taxPersons.some(p=>taxByPerson[p].hecsRep>0)?row('HECS-HELP Repayment',
+        taxPersons.map(p=>taxByPerson[p].hecsRep>0?n2(taxByPerson[p].hecsRep):'—')):''
       }
-      ${(lumTax.mls>0||chiTax.mls>0)?row('Medicare Levy Surcharge',
-        lumTax.mls>0?n2(lumTax.mls)+'<span style="font-size:10px;color:var(--neg)"> (no priv. health)</span>':'—',
-        chiTax.mls>0?n2(chiTax.mls)+'<span style="font-size:10px;color:var(--neg)"> (no priv. health)</span>':'—'):''
+      ${taxPersons.some(p=>taxByPerson[p].mls>0)?row('Medicare Levy Surcharge',
+        taxPersons.map(p=>taxByPerson[p].mls>0?n2(taxByPerson[p].mls)+'<span style="font-size:10px;color:var(--neg)"> (no priv. health)</span>':'—')):''
       }
-        ${row('Less: Tax Withheld','-'+n2(lumTax.withheld),'-'+n2(chiTax.withheld),'neg')}
-        ${row('Less: PAYG Instalments',lumTax.payg?'-'+n2(lumTax.payg):'—',chiTax.payg?'-'+n2(chiTax.payg):'—','neg')}
-        ${row('Less: Franking Credits','-'+n2(lumTax.myFrank),'-'+n2(chiTax.myFrank),'neg')}
+        ${row('Less: Tax Withheld', taxPersons.map(p=>'-'+n2(taxByPerson[p].withheld)),'neg')}
+        ${row('Less: PAYG Instalments', taxPersons.map(p=>taxByPerson[p].payg?'-'+n2(taxByPerson[p].payg):'—'),'neg')}
+        ${row('Less: Franking Credits', taxPersons.map(p=>'-'+n2(taxByPerson[p].myFrank)),'neg')}
         <tr style="border-top:2px solid var(--border);background:rgba(255,255,255,0.03)">
-          <td style="font-size:13px;font-weight:700;padding:8px 8px">
-            ${lumTax.refund>0||chiTax.refund>0?'Estimated Refund':'Estimated Tax Owing'}</td>
-          <td style="font-family:var(--mono);font-size:15px;font-weight:700;text-align:right;padding:8px 8px" class="${lumTax.refund>0?'pos':'neg'}">
-            <span class="${lumTax.refund>0?'pos':'neg'}">${lumTax.refund>0?'REFUND '+n2(lumTax.refund):'OWING '+n2(lumTax.netTax)}</span></td>
-          <td style="font-family:var(--mono);font-size:15px;font-weight:700;text-align:right;padding:8px 8px">
-            <span class="${chiTax.refund>0?'pos':'neg'}">${chiTax.refund>0?'REFUND '+n2(chiTax.refund):'OWING '+n2(chiTax.netTax)}</span></td>
+          <td style="font-size:13px;font-weight:700;padding:8px 8px">Estimated Refund / Owing</td>
+          ${taxPersons.map(p=>{
+            const t = taxByPerson[p];
+            return `<td style="font-family:var(--mono);font-size:15px;font-weight:700;text-align:right;padding:8px 8px">
+              <span class="${t.refund>0?'pos':'neg'}">${t.refund>0?'REFUND '+n2(t.refund):'OWING '+n2(t.netTax)}</span>
+            </td>`;
+          }).join('')}
         </tr>
       </tbody>
     </table>
     </div>
     <div style="margin-top:10px;font-size:10px;color:var(--text3)">
-      ⚠ Estimates only. CGT split 50/50 between persons. Dividends split 50/50. FY2025/26 Stage 3 rates + 2% Medicare levy. MLS applies if family income &gt; $186,000 and no private hospital cover. HECS uses ATO FY2025/26 repayment rates. Consult your accountant.
+      ⚠ Estimates only. CGT and dividends on jointly-owned holdings split 50/50 between ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} and ${escHtml(getPersonLabel(JOINT_PERSONS[1]))} specifically — other persons' shares come only from their own individual stock ownership. FY2025/26 Stage 3 rates + 2% Medicare levy. MLS family income test (threshold &gt;$186,000) applies only to ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} &amp; ${escHtml(getPersonLabel(JOINT_PERSONS[1]))}; other persons use the $93,000 individual threshold. HECS uses ATO FY2025/26 repayment rates. Consult your accountant.
     </div>
   </div>`;
 }

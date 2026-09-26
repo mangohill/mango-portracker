@@ -73,11 +73,16 @@ function saveStockOwners(){ localStorage.setItem('pt_stock_owners', JSON.stringi
 function saveExtraPersons(){ localStorage.setItem('pt_extra_persons', JSON.stringify(extraPersons)); }
 function getSymbolOwner(sym){ return stockOwners[sym]||'joint'; }
 function setSymbolOwner(sym, owner){ stockOwners[sym]=owner; saveStockOwners(); }
+// 'joint' means split 50/50 between Lumia and Chilli specifically (the pair
+// the "Joint (50/50)" label refers to), not an equal split across everyone
+// getAllPersons() returns. Custom/extra persons are always individually
+// owned — never part of the joint pool — so they get 0 of a joint holding.
+const JOINT_PERSONS = ['lumia', 'chilli'];
 // Get share for a given person (0-1)
 function ownerShare(sym, person){
   const own = getSymbolOwner(sym);
   if(own === person) return 1.0;
-  if(own === 'joint') return 0.5; // joint = 50/50 between all persons
+  if(own === 'joint') return JOINT_PERSONS.includes(person) ? 0.5 : 0.0;
   return 0.0;
 }
 // Add a custom person

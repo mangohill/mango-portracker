@@ -100,10 +100,12 @@ function saveCGTLossCarryIn(o){ localStorage.setItem('pt_cgt_loss_carry_in', JSO
 
 // Generic ownership share (100% / 50%-joint / 0%) off a raw owner key
 // rather than a symbol — used for properties, which store a single owner
-// field the same way stock ownership does.
+// field the same way stock ownership does. 'joint' is scoped to the
+// JOINT_PERSONS pair (helpers.js) — not everyone in getAllPersons() — so a
+// custom/extra person never gets a share of a joint-owned property.
 function shareForOwner(ownerKey, person){
   if(ownerKey === person) return 1.0;
-  if(ownerKey === 'joint') return 0.5;
+  if(ownerKey === 'joint') return JOINT_PERSONS.includes(person) ? 0.5 : 0.0;
   return 0.0;
 }
 
@@ -1480,7 +1482,7 @@ function cgtRunSimulation(){
   const { openParcels } = computeCGTSummary();
   const fullList = (openParcels[sym]||[]).filter(p=>p.units>0.000001);
   // Use owner share: simulate only the selected person's portion of each parcel
-  const share = (typeof ownerShare === 'function') ? ownerShare(sym, person) : (getSymbolOwner(sym)===person?1:(getSymbolOwner(sym)==='joint'?0.5:0));
+  const share = (typeof ownerShare === 'function') ? ownerShare(sym, person) : (getSymbolOwner(sym)===person?1:(getSymbolOwner(sym)==='joint'&&JOINT_PERSONS.includes(person)?0.5:0));
   const list = fullList.map(p=>({ ...p, units: p.units * share, cost: p.cost * share }));
   if(!list.length){ notify('No open parcels for '+sym,'err'); return; }
   const price = prices[priceSymbol(sym)] || 0;
@@ -1523,17 +1525,19 @@ function cgtRunSimulation(){
       const rec = getTaxRecord(prevFY) || {};
       const pRec = rec[person] || {};
       const salaryNet = (+pRec.salary || 0) - (+pRec.sacrifice || 0);
-      // Dividends (grossed-up + franking) for prevFY attributed by ownership
+      // Dividends (grossed-up + franking) for prevFY attributed by ownership.
+      // 'joint' is scoped to JOINT_PERSONS (Lumia/Chilli) — a custom/extra
+      // person queried here gets 0, not 0.5, of a jointly-owned dividend.
       const myDivs = dividends.filter(d=>dateToFY(d.date)===prevFY && ['dividend','distribution','drp','interest'].includes(d.type))
         .reduce((s,d)=>{
           const own = getSymbolOwner(d.symbol);
-          const share = own===person ? 1 : (own==='joint'?0.5:0);
+          const share = own===person ? 1 : (own==='joint' && JOINT_PERSONS.includes(person)?0.5:0);
           return s + ((+d.amount||0) * share);
         },0);
       const myFrank = dividends.filter(d=>dateToFY(d.date)===prevFY && ['dividend','distribution','drp','interest'].includes(d.type))
         .reduce((s,d)=>{
           const own = getSymbolOwner(d.symbol);
-          const share = own===person ? 1 : (own==='joint'?0.5:0);
+          const share = own===person ? 1 : (own==='joint' && JOINT_PERSONS.includes(person)?0.5:0);
           return s + frankingCredit((+d.amount||0)*share, d.frankingPct||0);
         },0);
       // CGT realised in prevFY for this person
@@ -1543,7 +1547,9 @@ function cgtRunSimulation(){
       let netPropGain = 0, netPropLoss = 0, investInterestDeduction = 0;
       (properties||[]).forEach(p=>{
         const pOwner = p.owner || 'lumia';
-        const isOwner = pOwner===person || pOwner==='joint';
+        // Same joint-scoping fix: a joint property's isOwner/share must not
+        // resolve true/0.5 for every person queried, only the actual pair.
+        const isOwner = pOwner===person || (pOwner==='joint' && JOINT_PERSONS.includes(person));
         if(!isOwner) return;
         const share = pOwner==='joint' ? 0.5 : 1;
         if(p.propType === 'ppor') return; // PPOR excluded
@@ -2013,7 +2019,7 @@ function cgtUpdateSlider(){
   const mode = modeEl.value;
   const { openParcels } = computeCGTSummary();
   const fullList = (openParcels[sym]||[]).filter(p=>p.units>0.000001);
-  const share = (typeof ownerShare==='function') ? ownerShare(sym, person) : (getSymbolOwner(sym)===person?1:(getSymbolOwner(sym)==='joint'?0.5:0));
+  const share = (typeof ownerShare==='function') ? ownerShare(sym, person) : (getSymbolOwner(sym)===person?1:(getSymbolOwner(sym)==='joint'&&JOINT_PERSONS.includes(person)?0.5:0));
   const availableUnits = fullList.reduce((s,p)=>s + (p.units * share), 0);
   const price = prices[priceSymbol(sym)] || 0;
   // load stored cutoff price for this symbol (if any)
@@ -2127,17 +2133,18 @@ function cgtAutoFillIncome(person){
     const rec = getTaxRecord(prevFY) || {};
     const pRec = rec[person] || {};
     const salaryNet = (+pRec.salary || 0) - (+pRec.sacrifice || 0);
+    // 'joint' scoped to JOINT_PERSONS — see cgtRunSimulation's prevFY block above.
     const myDivs = (dividends||[]).filter(d=>dateToFY(d.date)===prevFY && ['dividend','distribution','drp','interest'].includes(d.type))
-      .reduce((s,d)=>{ const own = getSymbolOwner(d.symbol); const share = own===person ? 1 : (own==='joint'?0.5:0); return s + ((+d.amount||0) * share); },0);
+      .reduce((s,d)=>{ const own = getSymbolOwner(d.symbol); const share = own===person ? 1 : (own==='joint' && JOINT_PERSONS.includes(person)?0.5:0); return s + ((+d.amount||0) * share); },0);
     const myFrank = (dividends||[]).filter(d=>dateToFY(d.date)===prevFY && ['dividend','distribution','drp','interest'].includes(d.type))
-      .reduce((s,d)=>{ const own = getSymbolOwner(d.symbol); const share = own===person ? 1 : (own==='joint'?0.5:0); return s + frankingCredit((+d.amount||0)*share, d.frankingPct||0); },0);
+      .reduce((s,d)=>{ const own = getSymbolOwner(d.symbol); const share = own===person ? 1 : (own==='joint' && JOINT_PERSONS.includes(person)?0.5:0); return s + frankingCredit((+d.amount||0)*share, d.frankingPct||0); },0);
     const cgts = computeCGTSummary();
     const myCGT = ((cgts.result||{})[person]||{})[prevFY] ? +(((cgts.result||{})[person]||{})[prevFY].netCapitalGain||0) : 0;
 
     let netPropGain = 0, netPropLoss = 0, investInterestDeduction = 0;
     (properties||[]).forEach(p=>{
       const pOwner = p.owner || 'lumia';
-      const isOwner = pOwner===person || pOwner==='joint';
+      const isOwner = pOwner===person || (pOwner==='joint' && JOINT_PERSONS.includes(person));
       if(!isOwner) return;
       const share = pOwner==='joint' ? 0.5 : 1;
       if(p.propType === 'ppor') return;

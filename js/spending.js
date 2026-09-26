@@ -439,7 +439,13 @@ function parseFormatA(lines){
     if(!date) continue;
     const fy = spDateToFY(date);
     if(!fy) continue;
-    const category = SP_CAT_MAP[catRaw] || 'Other Shopping';
+    // Same fallback as parseFormatGeneric: an unrecognised category on a
+    // positive-amount row must fall back to __OTHER_INCOME__, not
+    // 'Other Shopping' — otherwise it still counts toward the Money In
+    // total card (any amount>0, any category) but never appears in any
+    // category breakdown (Money In list only shows __REFUND__/
+    // __OTHER_INCOME__ rows), so it's silently uncategorised money.
+    const category = SP_CAT_MAP[catRaw] || (amt>0 ? '__OTHER_INCOME__' : 'Other Shopping');
     results.push({date, fy, amount:amt, category, merchant:merch||details.slice(0,40), details});
   }
   return results;
