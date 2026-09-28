@@ -4,10 +4,14 @@ function renderR(){
   const man=[...trades].filter(t=>t.source==='manual').sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
   $('re').style.display=man.length?'none':'';
   const im={}; trades.forEach((t,i)=>im[t.id]=i);
+  // Total column: a buy's cash impact is units*price+fees (you pay more
+  // than the raw value); a sell's is units*price-fees (you receive less).
+  // Only the buy case was handled before — every sell showed gross
+  // proceeds with fees silently omitted.
   $('rb').innerHTML=man.map(t=>`<tr>
     <td>${t.date}</td><td>${bS(t.type)}</td><td><b>${displaySymbol(t.symbol)}</b></td>
     <td>${nN(t.units,8)}</td><td>${n2(t.price,dec(t.price))}</td>
-    <td>${n2((+t.units * +t.price)+(t.type==='buy'?+t.fees:0))}</td>
+    <td>${n2((+t.units * +t.price)+(t.type==='buy'?+t.fees:-(+t.fees||0)))}</td>
     <td><button class="del-btn" onclick="delT(${im[t.id]});renderR()">✕</button></td>
   </tr>`).join('');
 }
@@ -186,7 +190,11 @@ function setCaType(t){
 }
 
 function caAutoFillUnits(){
-  const sym = $('ca-from-sym').value.trim();
+  // Must match addCorporateAction's .toUpperCase() lookup — without it, a
+  // lowercase/mixed-case symbol here silently fails to find holdings while
+  // the actual submit works fine (since it does uppercase), so auto-fill
+  // just doesn't populate with no indication why.
+  const sym = $('ca-from-sym').value.trim().toUpperCase();
   if(!sym) return;
   const h = calcH().find(x=>x.symbol===sym);
   if(h){
@@ -196,7 +204,14 @@ function caAutoFillUnits(){
 }
 
 function caPreview(){
+  // Same case-matching fix as caAutoFillUnits — this lookup previously used
+  // the raw (possibly lowercase) input, so the preview could show "no
+  // holdings found" or a $0 cost basis right before the user clicks
+  // submit, even though the actual submit handler (which does uppercase)
+  // would have found the holdings correctly. Keep the raw text only for
+  // display via escHtml below; use the uppercased form for the lookup.
   const fromSymRaw = $('ca-from-sym').value.trim();
+  const fromSymKey = fromSymRaw.toUpperCase();
   const toSymRaw   = caType==='split' ? fromSymRaw : $('ca-to-sym').value.trim();
   const fromSym  = escHtml(fromSymRaw);
   const toSym    = escHtml(toSymRaw);
@@ -210,7 +225,7 @@ function caPreview(){
 
   if(!fromSymRaw){ $('ca-preview').style.display='none'; return; }
 
-  const h = calcH().find(x=>x.symbol===fromSymRaw);
+  const h = calcH().find(x=>x.symbol===fromSymKey);
   const costBasis = h ? h.costBasis : 0;
   const newCostBasis = caType==='spinoff' ? costBasis*(alloc/100) : costBasis;
   const remainCost   = caType==='spinoff' ? costBasis*(1-alloc/100) : 0;

@@ -1,6 +1,14 @@
 // ── imports.js ─────────────────────────────────────────────
 
 function parseCSV(text){
+  // Excel/Windows-exported CSVs (very common for AU bank/broker exports)
+  // often prepend a UTF-8 byte-order-mark to the file. Left in place, it
+  // attaches invisibly to the FIRST header cell (e.g. "Date" becomes
+  // "\uFEFFDate"), so every exact-key lookup on that column — r['Date'],
+  // r['Details'] if it happened to be first, etc. — silently returns
+  // undefined for every row. The result is every trade in the file getting
+  // filtered out as "no date", with nothing in the UI to explain why.
+  if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const lines=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').trim().split('\n').filter(l=>l.trim());
   if(lines.length<2) return {headers:[],rows:[]};
   const pl=line=>{
@@ -53,9 +61,14 @@ function parseCommsec(rows){
     const debit  = parseFloat((r['Debit($)']||r['Debit($) ']||'').replace(/[,$]/g,''))||0;
     const credit = parseFloat((r['Credit($)']||r['Credit($) ']||'').replace(/[,$]/g,''))||0;
     const gross  = units*price;
-    // Fees = difference between total paid/received and gross
+    // Fees = |difference between total paid/received and gross|. A BUY's
+    // debit is gross+fees (total>gross, positive diff) but a SELL's credit
+    // is gross-fees (total<gross, negative diff) — Math.max(0, total-gross)
+    // used to clamp every sell's negative diff straight to zero, silently
+    // recording $0 brokerage on every sell trade ever imported from this
+    // parser. abs() handles both directions correctly.
     const total  = side==='buy'?debit:credit;
-    const fees   = +Math.max(0, total-gross).toFixed(4);
+    const fees   = +Math.abs(total-gross).toFixed(4);
     if(!sym||!units||!price||!date) return null;
     return {date,type:side,symbol:sym,assetType:resolveAssetType(sym,'stock'),units,price,fees,source:'commsec',notes:'',id:uid()};
   }).filter(Boolean);
@@ -93,10 +106,20 @@ function parseSW(rows){
     const price=parseFloat(m[4])||0;
     const date=nd(r['TransactionDate']||r['Date']||'');
     if(!sym||!units||!price||!date) return null;
-    // Brokerage: difference between debit and gross (often 0 for Selfwealth $9.50 flat)
+    // Brokerage: difference between the settled amount and gross value.
+    // Only 'Debit' was read here — fine for buys, but if a sell's proceeds
+    // land in a separate 'Credit' column (as with the CommSec export this
+    // codebase also supports), a sell's fee would always compute as 0
+    // since Debit would be blank/0 for that row. Checking both is a safe
+    // improvement either way: if neither column has data, settled stays 0
+    // and fees fall back to 0 exactly as before — never a spurious fee.
+    // NOT verified against a real Selfwealth sell export — worth checking
+    // your own sell trades' fees after a reimport.
     const debit=parseFloat((r['Debit']||'').replace(/[,$]/g,''))||0;
+    const credit=parseFloat((r['Credit']||'').replace(/[,$]/g,''))||0;
+    const settled=side==='sell'&&credit>0?credit:debit;
     const gross=+(units*price).toFixed(4);
-    const fees=debit>gross?+(debit-gross).toFixed(4):0;
+    const fees=settled>0?+Math.abs(settled-gross).toFixed(4):0;
     return {date,type:side,symbol:sym,assetType:resolveAssetType(sym,'etf'),units,price,fees,source:'selfwealth',notes:'',id:uid()};
   }).filter(Boolean);
 }

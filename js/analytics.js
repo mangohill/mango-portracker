@@ -192,11 +192,27 @@ function exportXLSX(){
 }
 
 function clearAll(){
-  if(!confirm('Delete ALL data? This clears trades, dividends, properties, super, tax records, prices and spending. Cannot be undone.')) return;
+  if(!confirm('Delete ALL data? This clears trades, dividends, properties, super, tax records, prices, spending, portfolio history, AMIT adjustments and carried-forward CGT losses. Settings (worker URL, sync, alerts, brokers) are kept. Cannot be undone.')) return;
   trades=[]; prices={}; dividends=[]; properties=[];
   superAccounts=[]; taxData={}; stockOwners={}; spendingData=[]; extraPersons=[];
+  // Portfolio-derived stores that used to survive a "delete ALL data" and
+  // silently leak into whatever was imported next: AMIT cost-base adjustments
+  // are applied by symbol+date to the CGT engine's parcels (so a re-imported
+  // fund inherited the old adjustments), carried-forward losses reduced the
+  // new portfolio's CGT, and old snapshots/benchmarks/ATH described a
+  // portfolio that no longer existed. The in-memory copies must be reset too —
+  // otherwise the next save*() call just rewrites the key we removed.
+  pfSnapshots = {};
+  amitAdjustments = [];
+  benchmarkHistory = {};
+  resetAnalyticsPriceCache();
   const keys = ['pt_trades','pt_prices','pt_divs','pt_props','pt_super','pt_tax',
-                 'pt_stock_owners','pt_spending','pt_extra_persons','pt_drp_carry','pt_drp_settings','pt_drp_skipped','pt_expdiv_skipped'];
+                 'pt_stock_owners','pt_spending','pt_extra_persons','pt_drp_carry','pt_drp_settings','pt_drp_skipped','pt_expdiv_skipped',
+                 'pt_pf_snapshots','pt_amit','pt_cgt_loss_carry_in','pt_ath','pt_benchmarks','pt_holdings_fy_snapshots',
+                 'pt_price_cgt_cutoff','pt_price_cgt_cutoff_auto_saved',
+                 // once-per-day backfill guards — left in place, a same-day re-import
+                 // would skip its history backfill until tomorrow
+                 'pt_pf_backfill_date','pt_pf_upgrade_date','pt_pf_pruned_date','pt_bm_backfill_date'];
   keys.forEach(k => localStorage.removeItem(k));
   renderH(); renderT(); renderR(); renderHD();
   renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards();
@@ -257,21 +273,28 @@ function filterByPeriod(arr, period){
   const now = new Date();
   // Australian FY: 1 Jul - 30 Jun
   const fyYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear()-1;
-  const cfyStart = new Date(fyYear, 6, 1);        // 1 Jul current FY
-  const cfyEnd   = new Date(fyYear+1, 5, 30);     // 30 Jun current FY
-  const pfyStart = new Date(fyYear-1, 6, 1);      // 1 Jul prev FY
-  const pfyEnd   = new Date(fyYear, 5, 30);       // 30 Jun prev FY
+  // Bounds are ISO date strings compared against t.date as strings. This used
+  // to build the FY bounds as LOCAL-midnight Date objects but compare them to
+  // new Date('YYYY-MM-DD'), which parses as UTC midnight — east of UTC (all of
+  // Australia) that put 30 June's own UTC midnight AFTER the local-midnight FY
+  // end, so anything dated 30 June (a very common dividend/distribution date)
+  // was dropped from both the current and previous FY filters.
+  const cfyStart = fyYear+'-07-01',     cfyEnd = (fyYear+1)+'-06-30';
+  const pfyStart = (fyYear-1)+'-07-01', pfyEnd = fyYear+'-06-30';
+  const back = (y,m) => localDateStr(new Date(now.getFullYear()-y, now.getMonth()-m, now.getDate()));
+  const from1y = back(1,0), from6m = back(0,6), from3m = back(0,3);
+  const yearStr = String(now.getFullYear());
   const fromVal  = $('an-from') ? $('an-from').value : '';
   const toVal    = $('an-to')   ? $('an-to').value   : '';
   return arr.filter(t => {
-    const d = new Date(t.date);
-    if(period==='ytd')    return d.getFullYear()===now.getFullYear();
-    if(period==='1y')     return d >= new Date(now.getFullYear()-1, now.getMonth(), now.getDate());
-    if(period==='6m')     return d >= new Date(now.getFullYear(), now.getMonth()-6, now.getDate());
-    if(period==='3m')     return d >= new Date(now.getFullYear(), now.getMonth()-3, now.getDate());
+    const d = t.date;
+    if(period==='ytd')    return d.slice(0,4)===yearStr;
+    if(period==='1y')     return d >= from1y;
+    if(period==='6m')     return d >= from6m;
+    if(period==='3m')     return d >= from3m;
     if(period==='cfy')    return d >= cfyStart && d <= cfyEnd;
     if(period==='pfy')    return d >= pfyStart && d <= pfyEnd;
-    if(period==='custom') return (!fromVal || t.date >= fromVal) && (!toVal || t.date <= toVal);
+    if(period==='custom') return (!fromVal || d >= fromVal) && (!toVal || d <= toVal);
     return true;
   });
 }
@@ -482,52 +505,52 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
   }
   if(!allDates.length){ mkChart('an-main-chart',{type:'line',data:{labels:[],datasets:[]}}); return; }
 
+  // Trades must be walked in date order (with _from before _to on the same
+  // date — the same comparator calcH() uses). This loop used to iterate the
+  // raw array, which is insertion order; a newest-first broker CSV puts a
+  // sell ahead of its own buy, so the sell removed nothing from cost and the
+  // chart's cost basis stayed permanently inflated.
+  const tradesChrono = [...trades].sort((a,b)=>{
+    const dateD = a.date.localeCompare(b.date);
+    if(dateD!==0) return dateD;
+    const aIsFrom = (a.subtype||'').endsWith('_from') ? -1 : 0;
+    const bIsFrom = (b.subtype||'').endsWith('_from') ? -1 : 0;
+    return aIsFrom - bIsFrom;
+  });
+
   const datasets = groups.map((g,i)=>{
     // Always compute from the FULL trade history (not the period-filtered
     // list) so cost/value/P&L carried INTO the period reflects the real
     // accumulated position, rather than incorrectly resetting to zero at
     // the start of whatever period is selected.
-    const groupTrades = groupBy==='combined' ? trades :
-                        groupBy==='bytype'   ? trades.filter(t=>t.assetType===g) :
-                                               trades.filter(t=>t.symbol===g);
+    const groupTrades = groupBy==='combined' ? tradesChrono :
+                        groupBy==='bytype'   ? tradesChrono.filter(t=>t.assetType===g) :
+                                               tradesChrono.filter(t=>t.symbol===g);
 
     const data = allDates.map(month=>{
       const monthTrades = groupTrades.filter(t=>t.date.slice(0,7)<=month);
-      // Calculate cost basis up to this month
+      // Calculate cost basis up to this month. Corporate actions go through
+      // the same applyCorporateAction() as Holdings (calcH) and the Trades ROI
+      // — this loop carried its own fourth copy, and it was wrong: split_to
+      // never restored the stashed cost (cost dropped to $0 at every split),
+      // spinoff_to never restored the parent's units (parent value vanished),
+      // and in by-symbol view a merger's to-side got $0 cost because the
+      // from-symbol wasn't in that group's map.
       const costMap = {};
       for(const t of monthTrades){
         const s=t.symbol;
-        if(!costMap[s]) costMap[s]={units:0,cost:0};
+        if(!costMap[s]) costMap[s]={units:0,costBasis:0};
         if(t.type==='buy'||t.type==='drp'){
-          costMap[s].units+=+t.units; costMap[s].cost+=(+t.units * +t.price)+(+t.fees||0);
+          costMap[s].units+=+t.units; costMap[s].costBasis+=(+t.units * +t.price)+(+t.fees||0);
         } else if(t.type==='corporate_action'){
-          const sub = t.subtype||'';
-          if(sub==='merger_from'||sub==='rename_from'||sub==='split_from'||sub==='spinoff_from'){
-            // Stash cost, zero out from-symbol
-            costMap[s]._caStash = costMap[s].cost;
-            costMap[s].units    = 0;
-            costMap[s].cost     = 0;
-          } else if(sub==='merger_to'||sub==='rename_to'||sub==='spinoff_to'){
-            // Transfer cost from from-symbol
-            const fromSym = t.fromSymbol||'';
-            const fromEntry = fromSym && costMap[fromSym];
-            const allocPct = t.allocPct!=null ? +t.allocPct/100 : 1;
-            const transferCost = fromEntry ? (fromEntry._caStash||fromEntry.cost||0)*allocPct : 0;
-            if(fromEntry && sub==='spinoff_to') fromEntry.cost = (fromEntry._caStash||0)*(1-allocPct);
-            if(!costMap[s]) costMap[s]={units:0,cost:0};
-            costMap[s].units += +t.units;
-            costMap[s].cost  += t.overrideCostBasis ? +t.overrideCostBasis : transferCost;
-          } else if(sub==='split_to'){
-            // Split: same symbol, just update units
-            costMap[s].units = +t.units; // to-side has the new unit count
-          }
+          applyCorporateAction(costMap, s, t);
         } else if(t.type==='sell'){
           const r=costMap[s].units>0?+t.units/costMap[s].units:0;
-          costMap[s].cost-=costMap[s].cost*r;
+          costMap[s].costBasis-=costMap[s].costBasis*r;
           costMap[s].units-=+t.units;
         }
       }
-      const totalCost = Object.values(costMap).reduce((s,h)=>s+h.cost,0);
+      const totalCost = Object.values(costMap).reduce((s,h)=>s+h.costBasis,0);
       if(chartType==='cost') return +totalCost.toFixed(2);
 
       // Real historical mark-to-market: the actual price on/before this
@@ -541,7 +564,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
         const psym = priceSymbol(sym);
         const hist = historicalPriceOnOrBefore(psym, lookupDate);
         const p = hist!=null ? hist : prices[psym];
-        val += p!=null ? p*h.units : h.cost;
+        val += p!=null ? p*h.units : h.costBasis;
       }
       if(chartType==='value') return +val.toFixed(2);
 
@@ -549,9 +572,16 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
       // dividends only — DRP is excluded since it's already reflected
       // above via the extra reinvested units, not double-counted here).
       // A capital-only P&L understates real performance for income assets.
-      const groupSyms = new Set(Object.keys(costMap));
+      // Trades can carry a broker suffix ("DHHF:AU") while dividend records are
+      // stored against the plain symbol, so an exact match silently dropped
+      // those holdings' dividends from cumulative P&L. Compare underlying
+      // symbols — except in by-symbol view, where each suffixed lot is its own
+      // line and base matching would show the same dividends on every lot.
+      const baseMatch = groupBy!=='bysymbol';
+      const normSym = x => baseMatch ? priceSymbol(x) : x;
+      const groupSyms = new Set(Object.keys(costMap).map(normSym));
       const divsToDate = dividends
-        .filter(d => d.type!=='drp' && d.date<=lookupDate && groupSyms.has(d.symbol))
+        .filter(d => d.type!=='drp' && d.date<=lookupDate && groupSyms.has(normSym(d.symbol)))
         .reduce((s,d)=>s+(+d.amount||0), 0);
       return +(val - totalCost + divsToDate).toFixed(2); // pnl (total return, incl. dividends)
     });
@@ -632,7 +662,14 @@ function renderAnInsights(chartType, groups, datasets, allDates){
     el.style.display = 'none';
     return;
   }
-  const series = datasets[0].data;
+  // Documented intent is "combined series, else the first VISIBLE group" — this
+  // used to take datasets[0] even after the user hid that group, describing a
+  // line that wasn't on the chart. Name the group when it isn't the combined
+  // total so the chips can't be misread as whole-portfolio figures.
+  let sIdx = groups.findIndex(g=>!anHiddenGroups.has(g));
+  if(sIdx<0) sIdx = 0;
+  const series = datasets[sIdx].data;
+  const seriesName = groups[sIdx]==='All' ? '' : ' · '+groups[sIdx];
   const first = series.find(v=>v!=null), last = [...series].reverse().find(v=>v!=null);
   if(first==null || last==null){ el.style.display='none'; return; }
 
@@ -650,7 +687,7 @@ function renderAnInsights(chartType, groups, datasets, allDates){
   }
 
   const fmtMoney = v => (v>=0?'+':'−')+'$'+Math.abs(v).toLocaleString('en-AU',{maximumFractionDigits:0});
-  const label = chartType==='pnl' ? 'Total P&L change' : chartType==='cost' ? 'Total cost change' : 'Total change';
+  const label = (chartType==='pnl' ? 'Total P&L change' : chartType==='cost' ? 'Total cost change' : 'Total change') + seriesName;
 
   const chips = [
     `<div><div style="font-size:10px;color:var(--text3)">${label}</div><div style="font-family:var(--mono);font-weight:700;font-size:14px" class="${totalChange>=0?'pos':'neg'}">${fmtMoney(totalChange)}${totalPct!=null?` (${totalPct>=0?'+':''}${totalPct.toFixed(1)}%)`:''}</div></div>`,
@@ -868,7 +905,10 @@ function renderHD(){
   const totCost = rows.reduce((s,h)=>s+h.costBasis,0);
   const totMkt  = rows.reduce((s,h)=>s+(h.mkt??0),0);
   const totPnl  = rows.some(h=>h.pnl!=null) ? rows.reduce((s,h)=>s+(h.pnl??0),0) : null;
-  const totPct  = totPnl!=null&&totCost>0?totPnl/totCost*100:null;
+  // totPnl only sums PRICED rows, so its % must use those rows' cost too — dividing
+  // by every row's cost let a single unpriced holding drag the footer % down.
+  const pricedCost = rows.filter(h=>h.pnl!=null).reduce((s,h)=>s+h.costBasis,0);
+  const totPct  = totPnl!=null&&pricedCost>0?totPnl/pricedCost*100:null;
   const totAlloc= rows.reduce((s,h)=>s+(h.alloc??0),0);
 
   // Sortable headers

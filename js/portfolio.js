@@ -50,6 +50,63 @@ function displaySymbol(sym){ sym = escHtml(sym||'');
 
 // Plain text version (no HTML) for exports/search
 
+// Shared by calcH() and computeTradeROIData() — these two work off the same
+// simple {units, costBasis} aggregate-per-symbol model (unlike cgt.js's FIFO
+// engine, which tracks individual parcels with their own dates for accurate
+// long/short-term CGT — a different enough data model that it isn't a
+// candidate for this consolidation). calcH() and computeTradeROIData() used
+// to carry two byte-for-byte identical copies of this state machine; any fix
+// to one had no way of propagating to the other. `map` is mutated in place;
+// `s` is the current trade's own symbol key (map[s] must already exist).
+function applyCorporateAction(map, s, t){
+  const sub = t.subtype||'';
+  if(sub==='merger_from'||sub==='split_from'||sub==='rename_from'||sub==='spinoff_from'){
+    // From-side: remove all units, cost basis transfers to to-side record
+    map[s]._caTransfer = map[s].costBasis; // stash for to-side
+    map[s].units = 0;
+    map[s].costBasis = 0;
+  } else if(sub==='merger_to'||sub==='split_to'||sub==='rename_to'||sub==='spinoff_to'){
+    // To-side: receive transferred cost basis from the from-symbol
+    const fromSym = t.fromSymbol||'';
+    // Look up from-entry — also check if it already had _caTransfer stashed
+    const fromEntry = fromSym ? (map[fromSym] || null) : null;
+    const allocPct = t.allocPct!=null ? +t.allocPct/100 : 1;
+    let costToAdd;
+    if(t.overrideCostBasis){
+      costToAdd = +t.overrideCostBasis;
+    } else if(sub==='spinoff_to'){
+      costToAdd = fromEntry ? (fromEntry._caTransfer||0)*allocPct : +t.units * +t.price;
+    } else if(fromEntry && fromEntry._caTransfer != null){
+      // Normal path: from-side was processed first, cost was stashed
+      costToAdd = fromEntry._caTransfer||0;
+    } else if(fromEntry){
+      // From-entry exists but no stash — use its current cost basis
+      costToAdd = fromEntry.costBasis||0;
+      fromEntry.costBasis = 0;
+      fromEntry.units = 0;
+    } else if(sub==='split_to' || sub==='rename_to' || sub==='merger_to'){
+      // fromSymbol missing — try same symbol (handles stock splits)
+      const selfEntry = map[s];
+      if(selfEntry && selfEntry._caTransfer != null){
+        costToAdd = selfEntry._caTransfer;
+      } else {
+        costToAdd = +t.units * +t.price;
+      }
+    } else {
+      costToAdd = +t.units * +t.price;
+    }
+    map[s].units += +t.units;
+    map[s].costBasis += costToAdd;
+    // If spinoff, reduce from-side cost by the portion allocated away
+    if(sub==='spinoff_to' && fromEntry){
+      const fromFull = map[fromSym];
+      fromFull.costBasis = (fromFull._caTransfer||0) * (1-allocPct);
+      fromFull.units = +t.fromUnits||fromFull.units; // restore from-units if provided
+      delete fromFull._caTransfer;
+    }
+  }
+}
+
 function calcH(asOfDate){
   const map={};
   // Sort trades by date so corporate actions apply in correct order
@@ -68,52 +125,7 @@ function calcH(asOfDate){
     if(!map[s]) map[s]={symbol:s,assetType:t.assetType,units:0,costBasis:0,source:t.source};
 
     if(t.type==='corporate_action'){
-      const sub = t.subtype||'';
-      if(sub==='merger_from'||sub==='split_from'||sub==='rename_from'||sub==='spinoff_from'){
-        // From-side: remove all units, cost basis transfers to to-side record
-        map[s]._caTransfer = map[s].costBasis; // stash for to-side
-        map[s].units = 0;
-        map[s].costBasis = 0;
-      } else if(sub==='merger_to'||sub==='split_to'||sub==='rename_to'||sub==='spinoff_to'){
-        // To-side: receive transferred cost basis from the from-symbol
-        const fromSym = t.fromSymbol||'';
-        // Look up from-entry — also check if it already had _caTransfer stashed
-        const fromEntry = fromSym ? (map[fromSym] || null) : null;
-        const allocPct = t.allocPct!=null ? +t.allocPct/100 : 1;
-        let costToAdd;
-        if(t.overrideCostBasis){
-          costToAdd = +t.overrideCostBasis;
-        } else if(sub==='spinoff_to'){
-          costToAdd = fromEntry ? (fromEntry._caTransfer||0)*allocPct : +t.units * +t.price;
-        } else if(fromEntry && fromEntry._caTransfer != null){
-          // Normal path: from-side was processed first, cost was stashed
-          costToAdd = fromEntry._caTransfer||0;
-        } else if(fromEntry){
-          // From-entry exists but no stash — use its current cost basis
-          costToAdd = fromEntry.costBasis||0;
-          fromEntry.costBasis = 0;
-          fromEntry.units = 0;
-        } else if(sub==='split_to' || sub==='rename_to' || sub==='merger_to'){
-          // fromSymbol missing — try same symbol (handles stock splits)
-          const selfEntry = map[s];
-          if(selfEntry && selfEntry._caTransfer != null){
-            costToAdd = selfEntry._caTransfer;
-          } else {
-            costToAdd = +t.units * +t.price;
-          }
-        } else {
-          costToAdd = +t.units * +t.price;
-        }
-        map[s].units += +t.units;
-        map[s].costBasis += costToAdd;
-        // If spinoff, reduce from-side cost by the portion allocated away
-        if(sub==='spinoff_to' && fromEntry){
-          const fromFull = map[fromSym];
-          fromFull.costBasis = (fromFull._caTransfer||0) * (1-allocPct);
-          fromFull.units = +t.fromUnits||fromFull.units; // restore from-units if provided
-          delete fromFull._caTransfer;
-        }
-      }
+      applyCorporateAction(map, s, t);
     } else if(t.type==='buy' || t.type==='drp'){
       map[s].units+=+t.units;
       map[s].costBasis+=(+t.units * +t.price)+(+t.fees||0);
@@ -227,45 +239,7 @@ function computeTradeROIData(){
     if(!map[s]) map[s] = {units:0, costBasis:0};
 
     if(t.type==='corporate_action'){
-      const sub = t.subtype||'';
-      if(sub==='merger_from'||sub==='split_from'||sub==='rename_from'||sub==='spinoff_from'){
-        map[s]._caTransfer = map[s].costBasis;
-        map[s].units = 0;
-        map[s].costBasis = 0;
-      } else if(sub==='merger_to'||sub==='split_to'||sub==='rename_to'||sub==='spinoff_to'){
-        const fromSym = t.fromSymbol||'';
-        const fromEntry = fromSym ? (map[fromSym] || null) : null;
-        const allocPct = t.allocPct!=null ? +t.allocPct/100 : 1;
-        let costToAdd;
-        if(t.overrideCostBasis){
-          costToAdd = +t.overrideCostBasis;
-        } else if(sub==='spinoff_to'){
-          costToAdd = fromEntry ? (fromEntry._caTransfer||0)*allocPct : +t.units * +t.price;
-        } else if(fromEntry && fromEntry._caTransfer != null){
-          costToAdd = fromEntry._caTransfer||0;
-        } else if(fromEntry){
-          costToAdd = fromEntry.costBasis||0;
-          fromEntry.costBasis = 0;
-          fromEntry.units = 0;
-        } else if(sub==='split_to' || sub==='rename_to' || sub==='merger_to'){
-          const selfEntry = map[s];
-          if(selfEntry && selfEntry._caTransfer != null){
-            costToAdd = selfEntry._caTransfer;
-          } else {
-            costToAdd = +t.units * +t.price;
-          }
-        } else {
-          costToAdd = +t.units * +t.price;
-        }
-        map[s].units += +t.units;
-        map[s].costBasis += costToAdd;
-        if(sub==='spinoff_to' && fromEntry){
-          const fromFull = map[fromSym];
-          fromFull.costBasis = (fromFull._caTransfer||0) * (1-allocPct);
-          fromFull.units = +t.fromUnits||fromFull.units;
-          delete fromFull._caTransfer;
-        }
-      }
+      applyCorporateAction(map, s, t);
     } else if(t.type==='buy' || t.type==='drp'){
       const netCost = (+t.units * +t.price) + (+t.fees||0);
       map[s].units += +t.units;
@@ -1707,7 +1681,7 @@ function renderT(){
       html += '</select></td>';
       html += '<td><input class="fi" type="number" id="et-units" value="' + t.units + '" step="any" style="width:85px;padding:3px 5px"></td>';
       html += '<td><input class="fi" type="number" id="et-price" value="' + t.price + '" step="any" style="width:85px;padding:3px 5px"></td>';
-      html += '<td <input class="fi" type="number" id="et-fees" value="' + (+t.fees||0) + '" step="any" style="width:75px;padding:3px 5px"></td>';
+      html += '<td><input class="fi" type="number" id="et-fees" value="' + (+t.fees||0) + '" step="any" style="width:75px;padding:3px 5px"></td>';
 
       html += '<td><select class="fi" id="et-source" style="padding:3px 5px;font-size:11px">';
       getAllBrokers().forEach(b=>{ html += '<option value="' + b.value + '"' + (t.source===b.value?' selected':'') + '>' + b.label + '</option>'; });

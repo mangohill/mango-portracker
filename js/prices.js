@@ -194,6 +194,10 @@ async function refreshPrices(){
     if(ids){
       try{
         const res  = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=aud`);
+        // A rate-limited (429) or failed response is a JSON error object, not
+        // a price map — without this check every coin silently "wasn't
+        // returned" and the refresh reported nothing wrong.
+        if(!res.ok) throw new Error(res.status===429 ? 'rate-limited (HTTP 429) — try again in a minute' : 'HTTP '+res.status);
         const data = await res.json();
         symbols.forEach(sym=>{
           const id = idMap[sym];
@@ -220,9 +224,16 @@ async function refreshPrices(){
     } else {
       // Fetch exchange-traded ASX prices
       if(others.length){
-        const stockPrices = await fetchASXPrices([...new Set(others.map(x=>priceSymbol(x.symbol)))]);
+        const requestedStocks = [...new Set(others.map(x=>priceSymbol(x.symbol)))];
+        const stockPrices = await fetchASXPrices(requestedStocks);
         for(const [sym,p] of Object.entries(stockPrices)){
           prices[sym]=p; stockFetched++;
+        }
+        // Symbols the worker didn't return keep whatever price was stored
+        // before — silently stale valuations otherwise. Name them.
+        const notReturned = requestedStocks.filter(sym=>!(sym in stockPrices));
+        if(stockFetched>0 && notReturned.length){
+          notify(`Price not updated for: ${notReturned.join(', ')} (kept last stored value)`,'err');
         }
       }
       // MAIF: auto-fetch unavailable — Monash removed the public price file.
@@ -313,17 +324,24 @@ async function backfillPortfolioHistory(forceSince){
     const s = pfSnapshots[d];
     return s && (s.all!=null || s.stocks!=null || s.crypto!=null) && !(s.prices && Object.keys(s.prices).length);
   });
-  if(!forceSince && localStorage.getItem('pt_pf_backfill_date') === todayStr && !needsPriceUpgrade) return;
+  // The upgrade pass gets its own once-per-day marker. Snapshots that predate
+  // per-symbol price recording, from days the worker never priced, can NEVER
+  // be upgraded — so needsPriceUpgrade stays true forever, and using it
+  // directly as a guard bypass meant every single price refresh re-fetched
+  // history back to the earliest such day and re-ran calcH() for each day.
+  const upgradeTriedToday = localStorage.getItem('pt_pf_upgrade_date') === todayStr;
+  const upgrading = needsPriceUpgrade && !upgradeTriedToday;
+  if(!forceSince && localStorage.getItem('pt_pf_backfill_date') === todayStr && !upgrading) return;
 
   const knownDates = Object.keys(pfSnapshots).sort();
   // If upgrading, pull from earliest missing-prices day; else from day after last snapshot
   let since = forceSince || '1970-01-01';
   if(!forceSince){
-    if(!needsPriceUpgrade && knownDates.length){
+    if(!upgrading && knownDates.length){
       const dayAfterLast = new Date(knownDates[knownDates.length-1]+'T00:00:00');
       dayAfterLast.setDate(dayAfterLast.getDate()+1);
       since = localDateStr(dayAfterLast);
-    } else if(needsPriceUpgrade){
+    } else if(upgrading){
       const missing = knownDates.filter(d=>{
         const s = pfSnapshots[d];
         return !(s && s.prices && Object.keys(s.prices).length);
@@ -338,6 +356,7 @@ async function backfillPortfolioHistory(forceSince){
     if(!r.ok) return;
     history = await r.json();
   }catch(e){ console.warn('backfillPortfolioHistory fetch failed:', e); return; }
+  if(upgrading && !forceSince) localStorage.setItem('pt_pf_upgrade_date', todayStr);
 
   const unlistedSyms = new Set(['MAIF','MAAT']);
   // Reverse CoinGecko map so worker crypto ids become our symbol keys (BTC,
@@ -424,10 +443,19 @@ function setManualPrice(){
 function bulkSetPrices(){
   const raw = $('mp-bulk').value.trim();
   if(!raw){ notify('Paste prices first.','err'); return; }
-  const lines = raw.replace(/,[ ]*/g,'\n').split('\n').map(l=>l.trim()).filter(Boolean);
+  // Strip thousands separators BEFORE splitting entries on commas. Previously
+  // "BTC 95,000" was torn into "BTC 95" and "000", silently pricing BTC at
+  // $95 — crypto prices over $1,000 are routine. A thousands comma sits
+  // between a digit and exactly three more digits; an entry-separating comma
+  // is followed by a space or a letter.
+  const cleaned = raw.replace(/(\d),(?=\d{3}(?!\d))/g,'$1');
+  const lines = cleaned.replace(/,[ ]*/g,'\n').split('\n').map(l=>l.trim()).filter(Boolean);
   let count = 0;
   for(const line of lines){
-    const m = line.match(/([A-Za-z0-9]+)[\s:=]+([0-9.]+)/);
+    // Symbol may carry a broker suffix as shown in the app ("DHHF:AU 39.50");
+    // the old pattern read that as symbol "AU" and stored a bogus price
+    // under it. priceSymbol() below strips the suffix. Optional "$" on price.
+    const m = line.match(/([A-Za-z0-9]+(?::[A-Za-z0-9]+)?)[\s:=]+\$?([0-9]+(?:\.[0-9]+)?|\.[0-9]+)/);
     if(m){
       const sym=m[1].toUpperCase(), price=parseFloat(m[2]);
       if(sym && price>0){ prices[priceSymbol(sym)]=price; count++; }
