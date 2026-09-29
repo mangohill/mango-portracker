@@ -31,8 +31,17 @@ function saveBenchmarkHistory(){
   localStorage.setItem('pt_benchmarks', JSON.stringify(benchmarkHistory));
 }
 
+// Local (Brisbane) calendar date, matching the Worker's brisbaneDateKey() and
+// backfillBenchmarkHistory() below. toISOString() is UTC, which is still
+// "yesterday" for the first 10 hours of every Brisbane day.
+function _bmToday(){ return typeof localDateStr === 'function' ? localDateStr() : new Date().toISOString().slice(0,10); }
+// Plain string date maths — avoids the local-midnight → toISOString() UTC shift.
+function _bmAddDays(ymd, n){
+  const [y,m,d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m-1, d+n)).toISOString().slice(0,10);
+}
 async function snapshotBenchmarks(){
-  const today = new Date().toISOString().slice(0,10);
+  const today = _bmToday();
   let stw = null, btc = null;
 
   try{
@@ -66,15 +75,13 @@ async function backfillBenchmarkHistory(forceSince){
   const workerURL = typeof getWorkerURL === 'function' ? getWorkerURL() : (localStorage.getItem('cf_worker_url')||'');
   if(!workerURL) return;
 
-  const todayStr = typeof localDateStr === 'function' ? localDateStr() : new Date().toISOString().slice(0,10);
+  const todayStr = _bmToday();
   if(!forceSince && localStorage.getItem('pt_bm_backfill_date') === todayStr) return;
 
   const knownDates = Object.keys(benchmarkHistory).sort();
   let since = forceSince || '1970-01-01';
   if(!forceSince && knownDates.length){
-    const dayAfterLast = new Date(knownDates[knownDates.length-1]+'T00:00:00');
-    dayAfterLast.setDate(dayAfterLast.getDate()+1);
-    since = dayAfterLast.toISOString().slice(0,10);
+    since = _bmAddDays(knownDates[knownDates.length-1], 1); // was off by one day in UTC+10
   }
 
   let history;
@@ -106,6 +113,7 @@ async function backfillBenchmarkHistory(forceSince){
   localStorage.setItem('pt_bm_backfill_date', todayStr);
 }
 
+const BM_MAX_STALE_DAYS = 45;
 let _bmChart = null;
 let _bmMode = 'rolling'; // 'rolling' (12mo window, re-rebased each time) | 'inception' (always rebased to your first tracked day)
 function renderBenchmarkSection(){
@@ -165,13 +173,18 @@ function renderBenchmarkSection(){
   function buildRawSeries(key){
     const bmKeyDates = Object.keys(benchmarkHistory).filter(d => benchmarkHistory[d]?.[key] != null).sort();
     const raw = {};
-    let bi = 0, lastVal = null;
+    let bi = 0, lastVal = null, lastDate = null;
     for(const d of dates){ // dates (pfDates) is already sorted ascending
       while(bi < bmKeyDates.length && bmKeyDates[bi] <= d){
         lastVal = benchmarkHistory[bmKeyDates[bi]][key];
+        lastDate = bmKeyDates[bi];
         bi++;
       }
-      if(lastVal != null) raw[d] = lastVal; // forward-filled from last real reading; never fabricated between two real points
+      // Staleness cap: pre-2025-07 anchors are ~fortnightly/monthly, so a carried
+      // reading is legitimate for a while — but not indefinitely. Beyond the cap the
+      // line breaks instead of running flat (e.g. Worker cron stopped).
+      const stale = lastDate != null && (Date.parse(d) - Date.parse(lastDate)) > BM_MAX_STALE_DAYS*86400000;
+      if(lastVal != null && !stale) raw[d] = lastVal; // forward-filled from last real reading; never fabricated between two real points
     }
     return raw;
   }
@@ -237,8 +250,8 @@ function renderBenchmarkSection(){
       btn.classList.toggle('active', btn.dataset.mode === _bmMode);
     });
     hint.textContent = _bmMode === 'inception'
-      ? `Rebased to 100 on ${dates[0]} (your first complete-coverage day) — drag the slider to see performance as of any date since. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF).`
-      : `Each window rebased to 100 at its own start${hasFullWindow?' — drag the slider to scroll through history':''}. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF).`;
+      ? `Rebased to 100 on ${dates[0]} (your first complete-coverage day) — drag the slider to see performance as of any date since. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF). Portfolio line is market value — NOT time-weighted, so new contributions lift it; benchmarks are price-only.`
+      : `Each window rebased to 100 at its own start${hasFullWindow?' — drag the slider to scroll through history':''}. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF). Portfolio line is market value — NOT time-weighted, so new contributions lift it; benchmarks are price-only.`;
   }
   updateModeButtons();
 
@@ -266,12 +279,26 @@ function renderBenchmarkSection(){
     }
     ctx.style.display = '';
     emptyMsg.style.display = 'none';
-    const pfBase = pfRaw[winDates[0]];
-    const pfSeries = winDates.map(d => pfBase ? (pfRaw[d]/pfBase*100) : null);
-    const stwBase = firstAvailable(stwRaw, winDates);
-    const btcBase = firstAvailable(btcRaw, winDates);
-    const stwSeries = stwBase != null ? winDates.map(d => stwRaw[d] != null ? (stwRaw[d]/stwBase*100) : null) : null;
-    const btcSeries = btcBase != null ? winDates.map(d => btcRaw[d] != null ? (btcRaw[d]/btcBase*100) : null) : null;
+    // Rebase every series at ONE shared date — the first day in the window where the
+    // portfolio AND every benchmark that has data in this window all have a value.
+    // (Previously each series was rebased at its own first reading, so a benchmark
+    // whose history started later than the portfolio's was compared from a
+    // different starting point, not apples to apples.)
+    const stwOk = winDates.some(d => stwRaw[d] != null);
+    const btcOk = winDates.some(d => btcRaw[d] != null);
+    const baseIdx = winDates.findIndex(d => pfRaw[d] != null && (!stwOk || stwRaw[d] != null) && (!btcOk || btcRaw[d] != null));
+    if(baseIdx < 0){
+      if(_bmChart){ _bmChart.destroy(); _bmChart = null; }
+      ctx.style.display = 'none';
+      emptyMsg.style.display = 'flex';
+      emptyMsg.textContent = 'No day in this window has both portfolio and benchmark data — try a different position.';
+      return;
+    }
+    const baseD = winDates[baseIdx];
+    const rebase = (raw) => winDates.map((d,i) => (i >= baseIdx && raw[d] != null) ? raw[d]/raw[baseD]*100 : null);
+    const pfSeries  = rebase(pfRaw);
+    const stwSeries = stwOk ? rebase(stwRaw) : null;
+    const btcSeries = btcOk ? rebase(btcRaw) : null;
 
     const datasets = [{ label:'Portfolio', data:pfSeries, borderColor:'#8b5cf6', backgroundColor:'transparent', pointRadius:0, tension:0.2 }];
     if(stwSeries) datasets.push({ label:'ASX 200 (STW)', data:stwSeries, borderColor:'#22d3ee', backgroundColor:'transparent', pointRadius:0, tension:0.2 });

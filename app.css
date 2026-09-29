@@ -4,6 +4,9 @@
   /* ── Pulse — neutral canvas, gradient signature, saturated cards ─── */
   --bg:#121316; --surface:#1a1c20; --surface2:#212327; --border:#2c2e33; --border2:#3a3d43;
   --text:#f4f4f6; --text2:#a5a8ae; --text3:#65686f;
+  /* Legacy aliases — index.html's preview boxes use these names; without them
+     the var() is invalid and the box renders with no background/border/title colour. */
+  --bg2:var(--surface2); --bo:var(--border); --text1:var(--text);
 
   --violet:#8b5cf6; --pink:#ec4899; --cyan:#22d3ee; --amber:#fbbf24; --orange:#fb923c;
   --grad:linear-gradient(135deg,var(--violet),var(--pink));

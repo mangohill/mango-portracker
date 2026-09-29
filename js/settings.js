@@ -42,7 +42,11 @@ function paApplyEnabledVisual(enabled){
 function savePriceAlertSettings(){
   const enabled = $('pa-enabled') ? $('pa-enabled').checked : false;
   paApplyEnabledVisual(enabled);
+  // Rows only exist for CURRENTLY held symbols — carry over saved thresholds for
+  // anything else so a temporarily-sold holding doesn't lose its config.
   const symbols = {};
+  const _paShown = new Set([...document.querySelectorAll('#pa-symbol-list .pa-sym-cb')].map(cb=>cb.dataset.sym));
+  Object.entries(loadPriceAlertSettings().symbols).forEach(([sym,v])=>{ if(!_paShown.has(sym)) symbols[sym]=v; });
   document.querySelectorAll('#pa-symbol-list .pa-row').forEach(row=>{
     const cb = row.querySelector('.pa-sym-cb');
     const dropInput = row.querySelector('.pa-sym-drop');
@@ -109,6 +113,8 @@ function saveConcentrationAlertSettings(){
   const enabled = $('ca-enabled') ? $('ca-enabled').checked : false;
   caApplyEnabledVisual(enabled);
   const symbols = {};
+  const _caShown = new Set([...document.querySelectorAll('#ca-symbol-list .ca-sym-cb')].map(cb=>cb.dataset.sym));
+  Object.entries(loadConcentrationAlertSettings().symbols).forEach(([sym,v])=>{ if(!_caShown.has(sym)) symbols[sym]=v; });
   document.querySelectorAll('#ca-symbol-list .ca-row').forEach(row=>{
     const cb = row.querySelector('.ca-sym-cb');
     const num = row.querySelector('.ca-sym-threshold');
@@ -143,6 +149,7 @@ function renderConcentrationAlertSettings(){
 function saveCFUrl(){
   const url = $('cf-url').value.trim().replace(/\/$/,'');
   if(!url){ notify('Paste your worker URL first.','err'); return; }
+  if(!/^https:\/\//i.test(url)){ notify('Worker URL must start with https://','err'); return; }
   localStorage.setItem('cf_worker_url', url);
   $('cf-status').textContent = '✓ Worker URL saved. Click ↻ PRICES to test.';
   $('cf-status').style.color = 'var(--green)';
@@ -201,6 +208,7 @@ async function runBackfill(){
   status.textContent = 'Starting…'; status.style.color = 'var(--text3)';
 
   let offset = 0, totalSymbols = null, totalDaysStored = 0, hadError = false;
+  const zeroDay = []; // symbols Yahoo returned NO history for (e.g. a renamed ticker) — silent before
   try{
     while(true){
       const url = `${workerURL}?backfillFull=1&since=${since}&resolution=${resolution}&offset=${offset}&limit=${limit}`;
@@ -217,6 +225,7 @@ async function runBackfill(){
       status.textContent = `Backfilling… ${doneSoFar}/${totalSymbols} symbols · ${totalDaysStored} days stored so far`;
 
       if((d.report || []).some(x => x.error)) hadError = true;
+      (d.report || []).forEach(x => { if(!x.error && x.days === 0) zeroDay.push(x.symbol); });
       if(d.done) break;
       offset = d.nextOffset;
       await new Promise(res => setTimeout(res, 400)); // gentle pacing between calls
@@ -225,6 +234,7 @@ async function runBackfill(){
     bar.style.width = '100%';
     status.textContent = `✓ Backfill complete — ${totalDaysStored} days stored across ${totalSymbols} symbols`
       + (hadError ? ' (some symbols had errors — check browser console)' : '')
+      + (zeroDay.length ? ` ⚠ No history returned for: ${zeroDay.join(', ')} — likely a renamed/migrated ticker (see Worker RUNBOOK).` : '')
       + '. Pulling into local history…';
     status.style.color = 'var(--green)';
 
@@ -300,10 +310,10 @@ function renderPrices(){
   const keys=Object.entries(prices).sort((a,b)=>a[0].localeCompare(b[0]));
   $('prices-empty').style.display=keys.length?'none':'';
   $('prices-body').innerHTML=keys.map(([sym,p])=>`<tr>
-    <td><b>${sym}</b></td>
+    <td><b>${escHtml(sym)}</b></td>
     <td class="pos">${n2(p,dec(p))}</td>
     <td>${typeMap[sym]?bT(typeMap[sym]):''}</td>
-    <td><button class="del-btn" onclick="deletePrice(this)" data-sym="${sym}">✕</button></td>
+    <td><button class="del-btn" onclick="deletePrice(this)" data-sym="${escHtml(sym)}">✕</button></td>
   </tr>`).join('');
 }
 function deletePrice(btn){

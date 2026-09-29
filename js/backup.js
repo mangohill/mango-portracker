@@ -7,8 +7,19 @@ function triggerDownload(url, filename){
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Revoking synchronously can cancel the download on iOS Safari (this app's main
+  // platform) before it has started — give it a moment.
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
 }
+
+// Local (Brisbane) date for filenames — toISOString() is UTC and reads as
+// "yesterday" for the first 10 hours of each Brisbane day.
+function _bkDate(){ return typeof localDateStr === 'function' ? localDateStr() : new Date().toISOString().slice(0,10); }
+
+// Small localStorage-only settings that had no home in the backup payload. Stored
+// as raw strings under data.pt_ls_extras so new keys can be added here alone.
+const BACKUP_LS_EXTRAS = ['pt_benchmarks','pt_price_alerts','pt_concentration_alerts',
+  'pt_fire_current_age','pt_fire_re_age','pt_fire_fi_age','pt_fire_monthly_contrib','pt_fire_growth_pct','pt_fire_annual_spend'];
 
 // ── BACKUP STALENESS REMINDER ─────────────────────────────────────────
 // This app is localStorage-only with no server database — a cleared
@@ -96,13 +107,16 @@ function backupExport(){
       pt_sync_gist_id:  localStorage.getItem('pt_sync_gist_id') || '',
       pt_sync_device:   localStorage.getItem('pt_sync_device') || '',
       pt_last_sync:     localStorage.getItem('pt_last_sync') || '',
+      // Benchmark history, price/concentration alert thresholds, FIRE calculator inputs.
+      // (Cloud Sync's own payload is built elsewhere — same omission worth checking there.)
+      pt_ls_extras: Object.fromEntries(BACKUP_LS_EXTRAS.map(k=>[k, localStorage.getItem(k)]).filter(([,v])=>v!=null)),
     }
   };
 
   const json = JSON.stringify(payload, null, 2);
   const blob = new Blob([json], {type:'application/json'});
   const url  = URL.createObjectURL(blob);
-  const date = new Date().toISOString().slice(0,10);
+  const date = _bkDate();
   triggerDownload(url, `portfolio-backup-${date}.json`);
   localStorage.setItem('pt_last_backup_export', new Date().toISOString());
   if(typeof renderBackupReminder === 'function') renderBackupReminder();
@@ -200,7 +214,12 @@ function backupConfirm(){
     notify('Backup contains unusually large data. Aborting for safety.','err'); return;
   }
   const d = _pendingRestore.data;
+  for(const k of ['pt_trades','pt_divs','pt_props','pt_spending']){
+    if(d[k] != null && !Array.isArray(d[k])){ notify(`Backup field ${k} is malformed — restore aborted, nothing changed.`,'err'); return; }
+  }
+  if(d.pt_prices != null && (typeof d.pt_prices !== 'object' || Array.isArray(d.pt_prices))){ notify('Backup field pt_prices is malformed — restore aborted, nothing changed.','err'); return; }
 
+  try {
   // Restore all data
   trades      = d.pt_trades     || [];
   dividends   = d.pt_divs       || [];
@@ -242,7 +261,19 @@ function backupConfirm(){
   if(d.pt_sync_gist_id)    localStorage.setItem('pt_sync_gist_id', d.pt_sync_gist_id);
   if(d.pt_sync_device)   { syncDevice = d.pt_sync_device; localStorage.setItem('pt_sync_device', d.pt_sync_device); }
   if(d.pt_last_sync)       localStorage.setItem('pt_last_sync', d.pt_last_sync);
+  if(d.pt_ls_extras && typeof d.pt_ls_extras === 'object'){
+    BACKUP_LS_EXTRAS.forEach(k => { if(typeof d.pt_ls_extras[k] === 'string') localStorage.setItem(k, d.pt_ls_extras[k]); });
+    if(typeof d.pt_ls_extras.pt_benchmarks === 'string'){ try{ benchmarkHistory = JSON.parse(d.pt_ls_extras.pt_benchmarks); }catch(e){} }
+  }
   // Worker code is embedded in the app — no need to restore it
+  } catch(err) {
+    // Most likely a localStorage quota error part-way through. Storage may now be a
+    // mix of old and restored data — say so rather than reporting success.
+    console.error('Restore failed:', err);
+    backupStatus('✗ Restore failed part-way: ' + err.message + ' — data may be partially restored. Do NOT push to Cloud Sync; re-run the restore or pull from the cloud.', 'var(--red)');
+    notify('Restore failed: ' + err.message, 'err');
+    return;
+  }
 
   _pendingRestore = null;
   $('backup-preview').style.display = 'none';
@@ -257,6 +288,9 @@ function backupConfirm(){
   try { renderSpending(); } catch(e){}
   try { renderTax(); } catch(e){}
   try { renderOwnershipGrid(); } catch(e){}
+  try { if(typeof renderBenchmarkSection === 'function') renderBenchmarkSection(); } catch(e){}
+  try { if(typeof renderNetWorth === 'function') renderNetWorth(); } catch(e){}
+  try { if(typeof renderPriceAlertSettings === 'function'){ renderPriceAlertSettings(); renderConcentrationAlertSettings(); } } catch(e){}
   try { syncInitUI(); } catch(e){} // repopulate Settings → Cloud Sync fields with restored token/gist ID/device
 
   backupStatus('✓ Restore complete — ' + trades.length + ' trades, ' + dividends.length + ' dividends, ' + properties.length + ' properties, ' + Object.keys(pfSnapshots).length + ' days of portfolio history.', 'var(--green)');
@@ -284,7 +318,7 @@ function backupStatus(msg, color){
 
 
 function exportCSVZip(){
-  const date = new Date().toISOString().slice(0,10);
+  const date = _bkDate();
 
   const sheets = buildExportSheets();
 
@@ -301,7 +335,7 @@ function exportCSVZip(){
     if(!rows.length){ next(); return; }
     const ws = XLSX.utils.json_to_sheet(rows);
     const csv = XLSX.utils.sheet_to_csv(ws);
-    const blob = new Blob([csv], {type:'text/csv'});
+    const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8'}); // BOM so Excel reads UTF-8 correctly
     const url = URL.createObjectURL(blob);
     triggerDownload(url, `portfolio-${name.toLowerCase()}-${date}.csv`);
     setTimeout(next, 400);
@@ -330,6 +364,7 @@ function buildExportSheets(){
   const divRows = dividends.map(d => ({
     date: d.date, symbol: csvSafe(d.symbol), type: d.type,
     amount: +d.amount, fy: dateToFY ? dateToFY(d.date) : '', notes: csvSafe(d.notes||''),
+    franking_pct: d.frankingPct == null ? '' : d.frankingPct, // csvImportDividends already reads this; export used to drop it
   }));
 
   const propRows = properties.map(p => {
@@ -354,7 +389,7 @@ function buildExportSheets(){
       fy_debt_data_json: JSON.stringify(p.fyDebtData||{}),
       fy_offset_data_json: JSON.stringify(p.fyOffsetData||{}),
       weekly_rent: p.weeklyRent||0, annual_expenses: p.annualExpenses||0,
-      has_manager: p.hasManager||'', notes: csvSafe(p.notes||''),
+      has_manager: p.hasManager||'', owner: p.owner||'', notes: csvSafe(p.notes||''),
     };
   });
 
@@ -473,32 +508,51 @@ function csvImport(type, input){
   reader.readAsText(file);
 }
 
-// Parse CSV text → array of {header: value} objects
+// Parse CSV text → array of {header: value} objects.
+// RFC-4180 state machine over the WHOLE text. The old version split on newlines first
+// and stripped every quote character, which (a) turned "" into nothing, so any JSON
+// cell the app itself exports (splits_json, fy_data_json, contrib_json…) came back as
+// invalid JSON and was silently dropped, and (b) broke any quoted field containing a
+// newline into extra bogus rows.
 function csvParseRows(text){
-  const lines = text.replace(/^\uFEFF/,'').split(/\r?\n/).filter(l => l.trim());
-  if(lines.length < 2) return [];
-  const headers = csvSplitLine(lines[0]).map(h => h.trim().toLowerCase().replace(/[\uFEFF]/g,'').replace(/\s+/g,'_'));
-  const rows = [];
-  for(let i = 1; i < lines.length; i++){
-    const vals = csvSplitLine(lines[i]);
-    if(!vals.some(v => v.trim())) continue; // skip blank rows
+  text = String(text).replace(/^\uFEFF/,'');
+  const table = []; let row = [], cur = '', inQ = false;
+  for(let i = 0; i < text.length; i++){
+    const ch = text[i];
+    if(inQ){
+      if(ch === '"'){ if(text[i+1] === '"'){ cur += '"'; i++; } else inQ = false; }
+      else cur += ch;
+    } else if(ch === '"'){ inQ = true; }
+    else if(ch === ','){ row.push(cur); cur = ''; }
+    else if(ch === '\n' || ch === '\r'){
+      if(ch === '\r' && text[i+1] === '\n') i++;
+      row.push(cur); cur = '';
+      if(row.some(v => v.trim())) table.push(row);
+      row = [];
+    } else cur += ch;
+  }
+  row.push(cur); if(row.some(v => v.trim())) table.push(row);
+  if(table.length < 2) return [];
+  const headers = table[0].map(h => h.trim().toLowerCase().replace(/[\uFEFF]/g,'').replace(/\s+/g,'_'));
+  return table.slice(1).map(vals => {
     const obj = {};
     headers.forEach((h, idx) => { obj[h] = (vals[idx] || '').trim(); });
-    rows.push(obj);
-  }
-  return rows;
+    return obj;
+  });
 }
 
+// Kept for any external caller; csvParseRows no longer uses it.
 function csvSplitLine(line){
-  const result = []; let cur = '', inQ = false;
+  const out = []; let cur = '', inQ = false;
   for(let i = 0; i < line.length; i++){
     const ch = line[i];
-    if(ch === '"'){ inQ = !inQ; }
-    else if(ch === ',' && !inQ){ result.push(cur); cur = ''; }
-    else { cur += ch; }
+    if(inQ){ if(ch === '"'){ if(line[i+1] === '"'){ cur += '"'; i++; } else inQ = false; } else cur += ch; }
+    else if(ch === '"') inQ = true;
+    else if(ch === ','){ out.push(cur); cur = ''; }
+    else cur += ch;
   }
-  result.push(cur);
-  return result;
+  out.push(cur);
+  return out;
 }
 
 // ── Trades CSV import ─────────────────────────────────────────────────
@@ -550,7 +604,8 @@ function csvImportDividends(rows, filename){
   }
   let added = 0, skipped = 0, errors = 0;
   for(const r of rows){
-    const frkV = r.frankingPct ?? r.franking_pct ?? r['franking%'] ?? r.frankingpct ?? null;
+    let frkV = r.frankingPct ?? r.franking_pct ?? r['franking%'] ?? r.frankingpct ?? null;
+    if(frkV === '') frkV = null; // blank cell = unknown, NOT 0% franked
     const frkPct = frkV !== null ? Math.min(100,Math.max(0,parseFloat(frkV)||0)) : null;
     const d = {
       date:   r.date || '',
@@ -690,11 +745,12 @@ function csvImportSpending(rows, filename){
     const fy = spDateToFY(date);
     if(!fy){ errors++; continue; }
     const catRaw = (r.category || '').toLowerCase().trim();
+    const rawCat = r.category || '';
     const category = CAT_REVERSE[catRaw]
-      || SP_CAT_MAP[r.category]
-      || SP_CAT_MAP[r.category.toLowerCase()]
-      || r.category
-      || 'Other Shopping';
+      || SP_CAT_MAP[rawCat]
+      || SP_CAT_MAP[rawCat.toLowerCase()]
+      || rawCat
+      || (amt > 0 ? '__OTHER_INCOME__' : 'Other Shopping'); // same sign rule as spending.js parseFormatGeneric()
     const merchant = (r.merchant || r.details || '').slice(0, 60);
     const details  = r.details || r.merchant || '';
     const rec = { date, fy, amount: amt, category, merchant, details };
