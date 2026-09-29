@@ -17,7 +17,20 @@ function nwPortfolioValue(){
 
 function nwPropertyEquity(){
   if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
-  return properties.filter(p => !p.sold).reduce((s,p) => s + propMetrics(p).equity, 0);
+  // propMetrics().equity is value minus the FULL loan balance — offset cash
+  // isn't subtracted from the loan for this figure (see propMetrics'
+  // effectiveLoan, which is separate and only used for interest/LVR). The
+  // annual FY snapshots below already add offset balances as a distinct
+  // "Cash" line via fyOffsetData; live Net Worth had no equivalent, so an
+  // offset account's balance was invisible to it entirely. Add each
+  // property's current offset balance (propMetrics().splits[].offset) the
+  // same way, keeping it inside "Property Equity" here since live Net Worth
+  // has no separate Cash line the way the annual snapshots do.
+  return properties.filter(p => !p.sold).reduce((s,p) => {
+    const m = propMetrics(p);
+    const offset = (m.splits||[]).reduce((t,sp)=>t+(+sp.offset||0),0);
+    return s + m.equity + offset;
+  }, 0);
 }
 
 // Property's real annual cash effect, using the exact same "Net Annual
@@ -50,14 +63,28 @@ function nwLatestAnnualSpend(){
   if(typeof spendingData === 'undefined') return null;
   if(!spendingData.length && typeof loadSpending === 'function') loadSpending();
   if(!spendingData.length) return null;
-  const fys = [...new Set(spendingData.map(d=>d.fy))].sort((a,b)=>b-a);
-  const fy = fys[0];
-  if(fy == null) return null;
   const SP_MONEY_IN = new Set(['__REFUND__','__OTHER_INCOME__']);
   const SP_EXCLUDE = new Set(['__TRANSFERS__']);
-  const total = spendingData.filter(d => d.fy===fy && d.amount<0 && !SP_MONEY_IN.has(d.category) && !SP_EXCLUDE.has(d.category))
+  const sumFY = fy => spendingData
+    .filter(d => d.fy===fy && d.amount<0 && !SP_MONEY_IN.has(d.category) && !SP_EXCLUDE.has(d.category))
     .reduce((s,d) => s + (-d.amount), 0);
-  return total > 0 ? total : null;
+  const allFys = [...new Set(spendingData.map(d=>d.fy))].filter(f=>f!=null).sort((a,b)=>b-a);
+  if(!allFys.length) return null;
+  // This used to take the newest FY in the data unconditionally. Once you've
+  // imported anything since 1 July that is the IN-PROGRESS year — a few months
+  // of spend — and the FIRE number (25x this) came out several times too low.
+  // Prefer the latest COMPLETE FY; only if the in-progress year is all there
+  // is, annualise it by the months elapsed rather than using the raw partial.
+  const curFY = +dateToFY(localDateStr());
+  const completeFY = allFys.find(f => f < curFY);
+  if(completeFY != null){
+    const t = sumFY(completeFY);
+    if(t > 0) return t;
+  }
+  const t = sumFY(allFys[0]);
+  if(!(t > 0)) return null;
+  const monthsElapsed = (new Date().getMonth() + 6) % 12 + 1; // Jul=1 ... Jun=12
+  return t / monthsElapsed * 12;
 }
 
 function nwFireInputs(){
@@ -174,7 +201,13 @@ function refreshHoldingsFYSnapshots(){
     const targetDate = `${y}-06-30`;
     if(targetDate > todayStr) continue; // hasn't happened yet
     const built = buildHoldingsSnapshotForDate(targetDate);
-    if(built.rows.length || y === curFYEnd) store[y] = Object.assign({date: targetDate}, built);
+    // A 30 June before any price data exists (holdings present, nothing
+    // priced) totalled to $0 and was stored as "$0 *", reading as a real
+    // zero-value portfolio. Treat it as no data instead, and drop any such
+    // stale entry a previous version stored.
+    const anyPriced = built.rows.some(r=>r.price!=null);
+    if(built.rows.length && anyPriced) store[y] = Object.assign({date: targetDate}, built);
+    else if(built.rows.length && !anyPriced) delete store[y];
   }
   saveHoldingsFYSnapshots(store);
   return store;
@@ -299,7 +332,9 @@ function csvEscape(v){
 }
 function downloadCSVRows(filename, rows){
   const csv = rows.map(r=>r.map(csvEscape).join(',')).join('\r\n');
-  const blob = new Blob([csv], {type:'text/csv'});
+  // BOM + charset: without them Excel on Windows reads the file as ANSI and
+  // mangles non-ASCII text (the U+2212 minus in the NET WORTH note row).
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8'});
   const url = URL.createObjectURL(blob);
   triggerDownload(url, filename);
 }
@@ -355,12 +390,16 @@ function renderNetWorth(){
     {label:'Property equity', val:propertyEq, color:'var(--cyan)'},
     {label:'Super', val:superBal, color:'var(--amber)'},
   ].filter(s => s.val > 0);
-  const barHtml = netWorth > 0 ? `
+  // Percentages use the sum of the segments actually drawn. Dividing by
+  // netWorth instead meant a negative component (e.g. underwater property
+  // equity) shrank the denominator, so the drawn segments summed past 100%.
+  const barTotal = segs.reduce((t,x)=>t+x.val,0);
+  const barHtml = barTotal > 0 ? `
     <div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:10px 0 8px">
-      ${segs.map(s=>`<div style="width:${(s.val/netWorth*100).toFixed(2)}%;background:${s.color}"></div>`).join('')}
+      ${segs.map(s=>`<div style="width:${(s.val/barTotal*100).toFixed(2)}%;background:${s.color}"></div>`).join('')}
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text2)">
-      ${segs.map(s=>`<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${s.color};margin-right:5px"></span>${s.label} · ${n2(s.val)} (${(s.val/netWorth*100).toFixed(1)}%)</span>`).join('')}
+      ${segs.map(s=>`<span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${s.color};margin-right:5px"></span>${s.label} · ${n2(s.val)} (${(s.val/barTotal*100).toFixed(1)}%)</span>`).join('')}
     </div>` : `<div style="color:var(--text3);font-size:12px">No portfolio, property, or super data yet.</div>`;
 
   // ── FIRE projection ──────────────────────────────────────────────
@@ -440,7 +479,7 @@ function renderNetWorth(){
     <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
       <div class="card"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Property + Super</div></div>
       <div class="card"><div class="card-label">Portfolio</div><div class="card-value neu">${n2(portfolioVal)}</div><div class="card-sub">Market value</div></div>
-      <div class="card"><div class="card-label">Property Equity</div><div class="card-value neu">${n2(propertyEq)}</div><div class="card-sub">Value − debt</div></div>
+      <div class="card"><div class="card-label">Property Equity</div><div class="card-value neu">${n2(propertyEq)}</div><div class="card-sub">Value − debt + offset cash</div></div>
       <div class="card"><div class="card-label">Super</div><div class="card-value neu">${n2(superBal)}</div><div class="card-sub">All accounts</div></div>
     </div>
 
