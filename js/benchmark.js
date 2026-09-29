@@ -52,8 +52,7 @@ async function snapshotBenchmarks(){
   }catch(e){ console.warn('Benchmark STW fetch failed:', e); }
 
   try{
-    const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=aud');
-    const d = await r.json();
+    const d = await fetchCryptoAUD('bitcoin');
     if(d?.bitcoin?.aud) btc = d.bitcoin.aud;
   }catch(e){ console.warn('Benchmark BTC fetch failed:', e); }
 

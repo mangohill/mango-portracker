@@ -50,6 +50,28 @@ async function fetchASXPrices(symbols){
   }catch(e){ console.warn('Worker fetch error:', e); return {}; }
 }
 
+// Crypto prices in AUD. Prefers the Cloudflare Worker (?cryptoPrices=) because
+// CoinGecko's public API intermittently blocks browser requests (no CORS
+// headers on its error/rate-limit responses). Falls back to a direct call if
+// the worker isn't configured, is an older version without the endpoint, or
+// returns nothing. Returns CoinGecko's shape: { id: { aud: price } }.
+async function fetchCryptoAUD(ids){
+  const workerURL = getWorkerURL();
+  if(workerURL){
+    try{
+      const r = await fetch(`${workerURL}?cryptoPrices=${encodeURIComponent(ids)}`);
+      if(r.ok){
+        const d = await r.json();
+        if(d && Object.keys(d).length)
+          return Object.fromEntries(Object.entries(d).map(([k,v]) => [k,{aud:v}]));
+      }
+    }catch(e){ console.warn('Worker crypto fetch failed, falling back:', e); }
+  }
+  const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=aud`);
+  if(!res.ok) throw new Error(res.status===429 ? 'rate-limited (HTTP 429) — try again in a minute' : 'HTTP '+res.status);
+  return res.json();
+}
+
 // ── MAIF price via worker (fetches Monash xlsx, returns buy price) ───
 const MAIF_SYMBOLS = new Set(['MAIF','MAAT']); // unlisted Monash funds
 
@@ -193,12 +215,7 @@ async function refreshPrices(){
     const ids = [...new Set(Object.values(idMap))].join(',');
     if(ids){
       try{
-        const res  = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=aud`);
-        // A rate-limited (429) or failed response is a JSON error object, not
-        // a price map — without this check every coin silently "wasn't
-        // returned" and the refresh reported nothing wrong.
-        if(!res.ok) throw new Error(res.status===429 ? 'rate-limited (HTTP 429) — try again in a minute' : 'HTTP '+res.status);
-        const data = await res.json();
+        const data = await fetchCryptoAUD(ids);
         symbols.forEach(sym=>{
           const id = idMap[sym];
           if(id && data[id]?.aud){ prices[sym]=data[id].aud; cryptoFetched++; }
