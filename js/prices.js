@@ -50,22 +50,22 @@ async function fetchASXPrices(symbols){
   }catch(e){ console.warn('Worker fetch error:', e); return {}; }
 }
 
-// Crypto prices in AUD. Prefers the Cloudflare Worker (?cryptoPrices=) because
-// CoinGecko's public API intermittently blocks browser requests (no CORS
-// headers on its error/rate-limit responses). Falls back to a direct call if
-// the worker isn't configured, is an older version without the endpoint, or
-// returns nothing. Returns CoinGecko's shape: { id: { aud: price } }.
-async function fetchCryptoAUD(ids){
+// Crypto prices in AUD. CoinGecko's public API no longer allows browser
+// requests from this site (403, no CORS headers), so when a Cloudflare Worker
+// is configured the app asks the Worker (?cryptoPrices=), which fetches from
+// CoinGecko/Yahoo server-side. idMap ({ SYM: coingeckoId }) is sent as hints
+// so the Worker can price coins it has no built-in mapping for. A direct
+// browser call is only attempted when no Worker is configured.
+// Returns CoinGecko's shape: { id: { aud: price } }.
+async function fetchCryptoAUD(ids, idMap){
   const workerURL = getWorkerURL();
   if(workerURL){
-    try{
-      const r = await fetch(`${workerURL}?cryptoPrices=${encodeURIComponent(ids)}`);
-      if(r.ok){
-        const d = await r.json();
-        if(d && Object.keys(d).length)
-          return Object.fromEntries(Object.entries(d).map(([k,v]) => [k,{aud:v}]));
-      }
-    }catch(e){ console.warn('Worker crypto fetch failed, falling back:', e); }
+    const hints = idMap ? Object.entries(idMap).map(([sym,id])=>`${id}:${sym}`).join(',') : '';
+    const r = await fetch(`${workerURL}?cryptoPrices=${encodeURIComponent(ids)}${hints?`&hints=${encodeURIComponent(hints)}`:''}`);
+    if(!r.ok) throw new Error('Worker HTTP '+r.status);
+    const d = await r.json();
+    if(!d || !Object.keys(d).length) throw new Error('Worker returned no crypto prices — redeploy the updated worker code from Settings');
+    return Object.fromEntries(Object.entries(d).map(([k,v]) => [k,{aud:v}]));
   }
   const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=aud`);
   if(!res.ok) throw new Error(res.status===429 ? 'rate-limited (HTTP 429) — try again in a minute' : 'HTTP '+res.status);
@@ -215,7 +215,7 @@ async function refreshPrices(){
     const ids = [...new Set(Object.values(idMap))].join(',');
     if(ids){
       try{
-        const data = await fetchCryptoAUD(ids);
+        const data = await fetchCryptoAUD(ids, idMap);
         symbols.forEach(sym=>{
           const id = idMap[sym];
           if(id && data[id]?.aud){ prices[sym]=data[id].aud; cryptoFetched++; }
