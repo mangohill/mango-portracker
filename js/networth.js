@@ -15,7 +15,8 @@ function nwPortfolioValue(){
   }, 0);
 }
 
-// Live Net Worth = Portfolio + Property Equity + Offset Cash + Super.
+// Live Net Worth = Portfolio + Super + Offset Cash + Property Value − Loan
+// (algebraically the same as Portfolio + Property Equity + Offset Cash + Super).
 // propMetrics().equity is value minus the FULL loan balance — offset cash isn't
 // netted off the loan for that figure (propMetrics' effectiveLoan is separate and
 // only used for interest/LVR). The annual FY snapshots below already carry offset
@@ -25,6 +26,17 @@ function nwPortfolioValue(){
 function nwPropertyEquity(){
   if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
   return properties.filter(p => !p.sold).reduce((s,p) => s + propMetrics(p).equity, 0);
+}
+// Gross value of all unsold properties, and the FULL loan balance owed on
+// them (offset cash is NOT netted off the loan — it's shown separately as
+// Offset Cash and added to net worth on its own line).
+function nwPropertyValue(){
+  if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
+  return properties.filter(p => !p.sold).reduce((s,p) => s + propMetrics(p).cval, 0);
+}
+function nwLoanBalance(){
+  if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
+  return properties.filter(p => !p.sold).reduce((s,p) => s + propMetrics(p).loanCur, 0);
 }
 function nwOffsetCash(){
   if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
@@ -384,7 +396,10 @@ function renderNetWorth(){
   const propertyEq = nwPropertyEquity();
   const superBal = nwSuperBalance();
   const offsetCash = nwOffsetCash();
-  const netWorth = portfolioVal + propertyEq + offsetCash + superBal;
+  const propertyVal = nwPropertyValue();
+  const loanBal = nwLoanBalance();
+  // Net Worth = Portfolio + Super + Offset Cash + Property Value − Loan
+  const netWorth = portfolioVal + superBal + offsetCash + propertyVal - loanBal;
   const {growthPct, monthlyContrib, annualSpend, currentAge, fiAge, reAge} = nwFireInputs();
   const fireNumber = annualSpend * 25; // 4% rule
 
@@ -482,11 +497,12 @@ function renderNetWorth(){
 
   panel.innerHTML = `
     <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
-      <div class="card"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Property + Cash + Super</div></div>
+      <div class="card"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Super + Cash + Property − Loan</div></div>
       <div class="card"><div class="card-label">Portfolio</div><div class="card-value neu">${n2(portfolioVal)}</div><div class="card-sub">Market value</div></div>
-      <div class="card"><div class="card-label">Property Equity</div><div class="card-value neu">${n2(propertyEq)}</div><div class="card-sub">Value − debt</div></div>
-      <div class="card"><div class="card-label">Offset Cash</div><div class="card-value neu">${n2(offsetCash)}</div><div class="card-sub">Offset account balances</div></div>
       <div class="card"><div class="card-label">Super</div><div class="card-value neu">${n2(superBal)}</div><div class="card-sub">All accounts</div></div>
+      <div class="card"><div class="card-label">Offset Cash</div><div class="card-value neu">${n2(offsetCash)}</div><div class="card-sub">Offset account balances</div></div>
+      <div class="card"><div class="card-label">Property Value</div><div class="card-value neu">${n2(propertyVal)}</div><div class="card-sub">Current value, gross</div></div>
+      <div class="card"><div class="card-label">Loan</div><div class="card-value neu">${n2(loanBal)}</div><div class="card-sub">Total loan balance</div></div>
     </div>
 
     <div class="tw" style="margin-bottom:18px">
