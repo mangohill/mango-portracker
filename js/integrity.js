@@ -32,11 +32,15 @@ function runIntegrityCheck(){
 
   // ── Orphaned dividends — symbol never appears in any trade at all
   // (not just "no longer held"), which usually means a typo on import.
-  const tradedSymbols = new Set((typeof trades !== 'undefined' ? trades : []).map(t => t.symbol));
+  // Trades can carry a broker suffix (DHHF:AU) while dividends are stored plain (DHHF) — compare
+  // on the underlying symbol, or every suffixed holding was reported as an orphan.
+  const norm = s => typeof priceSymbol === 'function' ? priceSymbol(s) : s;
+  const tradedSymbols = new Set((typeof trades !== 'undefined' ? trades : []).map(t => norm(t.symbol)));
   const seenDivSymbols = new Set();
   (typeof dividends !== 'undefined' ? dividends : []).forEach(d => {
-    if(!tradedSymbols.has(d.symbol) && !seenDivSymbols.has(d.symbol)){
-      seenDivSymbols.add(d.symbol);
+    const ds = norm(d.symbol);
+    if(!tradedSymbols.has(ds) && !seenDivSymbols.has(ds)){
+      seenDivSymbols.add(ds);
       issues.orphanDiv.push(`${d.symbol} — has dividends but no trades`);
     }
   });
@@ -62,7 +66,7 @@ function runIntegrityCheck(){
       <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px">${title} (${items.length})</div>
       <div style="font-size:11px;color:var(--text3);margin-bottom:6px">${hint}</div>
       <ul style="margin:0;padding-left:18px;font-family:var(--mono);font-size:11px;color:var(--text2)">
-        ${items.slice(0,20).map(i=>`<li>${i}</li>`).join('')}
+        ${items.slice(0,20).map(i=>`<li>${typeof escHtml==='function'?escHtml(i):i}</li>`).join('')}
         ${items.length>20?`<li style="color:var(--text3)">…and ${items.length-20} more</li>`:''}
       </ul>
     </div>`;

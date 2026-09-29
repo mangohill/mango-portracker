@@ -205,8 +205,24 @@ function buildDisposals(){
         const allocPct = t.allocPct != null ? (+t.allocPct/100) : 1;
         const destList = ensure(sym);
         if(t.overrideCostBasis){
-          const earliest = stash.length ? stash.reduce((a,b)=> a.date < b.date ? a : b).date : t.date;
-          destList.push({ id:'p'+(seq++), units:+t.units, cost:+t.overrideCostBasis, originalCost:+t.overrideCostBasis, amitTotal:0, date:earliest, source:'buy' });
+          // Override = the TOTAL cost base for the new holding. Previously every from-lot
+          // was collapsed into ONE lot dated at the EARLIEST purchase, so a recently-bought
+          // portion inherited the oldest lot's date and could wrongly look long-term (50%
+          // discount). Now each from-lot keeps its own acquisition date and units (scaled by
+          // the same ratio as a plain merger), and the override is apportioned across them
+          // by each lot's share of the existing cost base (by units if cost base is zero).
+          if(!stash.length){
+            destList.push({ id:'p'+(seq++), units:+t.units, cost:+t.overrideCostBasis, originalCost:+t.overrideCostBasis, amitTotal:0, date:t.date, source:'buy' });
+          } else {
+            const ovStashUnits = stash.reduce((s,p)=>s+p.units,0) || 1;
+            const ovStashCost  = stash.reduce((s,p)=>s+p.cost,0);
+            const ovRatio = +t.units / ovStashUnits;
+            stash.forEach(p=>{
+              const share = ovStashCost > 0 ? p.cost / ovStashCost : p.units / ovStashUnits;
+              const c = +t.overrideCostBasis * share;
+              destList.push({ id:'p'+(seq++), units:p.units*ovRatio, cost:c, originalCost:c, amitTotal:0, date:p.date, source:'buy' });
+            });
+          }
         } else if(sub === 'spinoff_to'){
           const stashUnits = stash.reduce((s,p)=>s+p.units,0) || 1;
           stash.forEach(p=>{
@@ -613,7 +629,7 @@ function renderCGT(){
     ...propDisposals.filter(p=>!p.exempt).map(p=>dateToFY(p.soldDate)),
   ])].sort((a,b)=>b-a);
 
-  if(cgtFY == null) cgtFY = allFYs[0] || dateToFY(new Date().toISOString().slice(0,10));
+  if(cgtFY == null) cgtFY = allFYs[0] || dateToFY(localDateStr());
 
   const fyPillsHtml = allFYs.length
     ? allFYs.map(fy=>`<span class="ca-pill${fy===cgtFY?' active':''}" onclick="cgtFY=${fy};cgtExpanded={};renderCGT()">FY${fy}</span>`).join('')
@@ -762,7 +778,7 @@ function renderCGT(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <input class="fi" type="number" step="any" min="0" placeholder="Amount"
           id="cgt-carryin-amt-${person}" value="${c.amount||''}" style="flex:1;min-width:100px">
-        <input class="fi" type="number" step="1" placeholder="As at FY (e.g. ${dateToFY(new Date().toISOString().slice(0,10))})"
+        <input class="fi" type="number" step="1" placeholder="As at FY (e.g. ${dateToFY(localDateStr())})"
           id="cgt-carryin-fy-${person}" value="${c.fy||''}" style="flex:1;min-width:150px">
       </div>
     </div>`;
@@ -862,7 +878,7 @@ function renderCGT(){
           <div style="display:flex;gap:6px"><input class="fi" id="cgt-sim-price-cutoff" type="number" step="any" placeholder="Optional - stored per symbol" onchange="(function(){ cgtSaveCutoffPrice(); cgtRunSimulation(); })()">
           <button class="btn" onclick="cgtFetchCutoffPrice()">Fetch</button></div></div>
         <div class="fgi" style="flex:0 0 180px"><label class="fl">Sell date</label>
-          <input class="fi" type="date" id="cgt-sim-selldate" value="${new Date().toISOString().slice(0,10)}" onchange="cgtUpdateSlider(); cgtRunSimulation();"></div>
+          <input class="fi" type="date" id="cgt-sim-selldate" value="${localDateStr()}" onchange="cgtUpdateSlider(); cgtRunSimulation();"></div>
         <div style="width:100%">
           <input type="range" id="cgt-sim-slider" min="0" max="0" step="1" oninput="cgtSyncSliderChange(this)" disabled>
           <div style="font-size:11px;color:var(--text3);margin-top:6px">Selected: <span id="cgt-sim-slider-val">—</span></div>
@@ -1454,7 +1470,7 @@ function computeFIFOvsLIFOSummary(openParcels){
       // doesn't apply the CGT discount. Run each through the same discount-aware
       // engine used everywhere else so "taxable" here means the same thing it
       // does in the simulation popup and the exported CSV.
-      const today = new Date().toISOString().slice(0,10);
+      const today = localDateStr();
       fifo.taxable = computeTaxOnLots(fifo.lots, { saleDate: today }).taxableTotal;
       lifo.taxable = computeTaxOnLots(lifo.lots, { saleDate: today }).taxableTotal;
       const fifoTax30 = Math.max(0, fifo.taxable) * 0.30;
@@ -1496,7 +1512,7 @@ function cgtRunSimulation(){
     if(dollars == null) sellUnits = null; else sellUnits = price > 0 ? (dollars / price) : 0;
   }
 
-  const sellDateStr = $('cgt-sim-selldate') ? $('cgt-sim-selldate').value : new Date().toISOString().slice(0,10);
+  const sellDateStr = $('cgt-sim-selldate') ? $('cgt-sim-selldate').value : localDateStr();
   const explicitCutoffPrice = parseFloat($('cgt-sim-price-cutoff')?.value);
   const cutoffPrice = !isNaN(explicitCutoffPrice) ? explicitCutoffPrice : cgtLoadCutoffPrice(sym);
   const fifo = simulateMatchingForSymbol(list, salePricePerUnit, 'FIFO', sellUnits, { saleDate: sellDateStr });
@@ -1520,7 +1536,7 @@ function cgtRunSimulation(){
   // If income not provided, try to load previous FY tax record for this person
   if(income == null){
     try{
-      const curFY = dateToFY(new Date().toISOString().slice(0,10));
+      const curFY = dateToFY(localDateStr());
       const prevFY = curFY - 1;
       const rec = getTaxRecord(prevFY) || {};
       const pRec = rec[person] || {};
@@ -1607,7 +1623,7 @@ function cgtRunSimulation(){
   // so the main results table can display authoritative full deltas.
   let fifoFull = null, lifoFull = null;
   try{
-    const curFY = dateToFY(new Date().toISOString().slice(0,10));
+    const curFY = dateToFY(localDateStr());
     const prevFY = curFY - 1;
     const taxRec = getTaxRecord(prevFY) || {};
     const personRec = taxRec[person] || {};
@@ -1694,7 +1710,7 @@ function cgtRunSimulation(){
 
   // Compute full tax estimates using existing tax functions (calcTax, calcHECS, calcMLS)
   try{
-    const curFY = dateToFY(new Date().toISOString().slice(0,10));
+    const curFY = dateToFY(localDateStr());
     const prevFY = curFY - 1;
     const taxRec = getTaxRecord(prevFY) || {};
     const personRec = taxRec[person] || {};
@@ -1756,7 +1772,7 @@ function cgtExportLotsCSV(method){
   const csv = rows.map(r=>r.map(c=>typeof c==='string'&&c.includes(',')?`"${c.replace(/"/g,'""')}"`:c).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
-  const filename = `cgt-${sim.sym}-${methodKey}-${new Date().toISOString().slice(0,10)}.csv`;
+  const filename = `cgt-${sim.sym}-${methodKey}-${localDateStr()}.csv`;
   triggerDownload(url, filename);
 }
 
@@ -1901,7 +1917,7 @@ function cgtShowMethodDetails(method){
   // compute marginal/full tax impacts if possible
   let marginal = null, full = null, baseIncome = 0;
   try{
-    const recFY = dateToFY(new Date().toISOString().slice(0,10)) - 1;
+    const recFY = dateToFY(localDateStr()) - 1;
     const taxRec = getTaxRecord(recFY) || {};
     const personRec = taxRec[sim.person] || {};
     baseIncome = $('cgt-sim-income') ? parseFloat($('cgt-sim-income').value) || 0 : 0;
@@ -2128,7 +2144,7 @@ function cgtFetchCutoffPrice(){
 
 function cgtAutoFillIncome(person){
   try{
-    const curFY = dateToFY(new Date().toISOString().slice(0,10));
+    const curFY = dateToFY(localDateStr());
     const prevFY = curFY - 1;
     const rec = getTaxRecord(prevFY) || {};
     const pRec = rec[person] || {};

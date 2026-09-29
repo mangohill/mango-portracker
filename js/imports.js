@@ -173,12 +173,16 @@ function parseBTCM(rows){
 // Format: Transaction Id, Transaction Date (UTC), Transaction, Asset, Volume, Price (AUD), Fee (AUD)
 function utcToAEST(utcStr){
   if(!utcStr) return '';
-  const dt = new Date(utcStr);
-  if(isNaN(dt)) return utcStr.slice(0,10);
-  const month = dt.getUTCMonth()+1;
-  const offsetHrs = (month>=10||month<=3) ? 11 : 10; // AEDT or AEST
-  const local = new Date(dt.getTime()+offsetHrs*3600*1000);
-  return local.toISOString().slice(0,10);
+  let s = String(utcStr).trim();
+  // The column is "Transaction Date (UTC)". A timestamp with no zone designator must be read as
+  // UTC — new Date('2026-01-05 13:30:00') would otherwise be parsed as LOCAL time and shift.
+  if(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) s = s.replace(' ','T') + 'Z';
+  const dt = new Date(s);
+  if(isNaN(dt)) return String(utcStr).slice(0,10);
+  // Brisbane is UTC+10 all year (no DST) — same fixed offset the Worker's brisbaneDateKey() uses.
+  // The old rule added 11h for Oct–Mar (Sydney/Melbourne DST), pushing trades made 13:00–14:00 UTC
+  // onto the next calendar day.
+  return new Date(dt.getTime() + 10*3600*1000).toISOString().slice(0,10);
 }
 function parseBTCMTax(rows){
   const results=[];

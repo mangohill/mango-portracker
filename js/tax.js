@@ -157,7 +157,7 @@ function calcTax(taxable, fy){
   if(taxable <= 0) return 0;
   let targetFY;
   if(fy) targetFY = +fy;
-  else if(typeof dateToFY === 'function') targetFY = dateToFY(new Date().toISOString().slice(0,10));
+  else if(typeof dateToFY === 'function') targetFY = dateToFY(localDateStr());
   else { const d = new Date(); targetFY = d.getMonth() >= 6 ? d.getFullYear()+1 : d.getFullYear(); }
 
   let tax = 0;
@@ -235,7 +235,7 @@ function calcHECS(income, hecsDebt, fy){
   // small discontinuity at the top threshold).
   let targetFY;
   if(fy) targetFY = +fy;
-  else if(typeof dateToFY === 'function') targetFY = dateToFY(new Date().toISOString().slice(0,10));
+  else if(typeof dateToFY === 'function') targetFY = dateToFY(localDateStr());
   else { const d = new Date(); targetFY = d.getMonth() >= 6 ? d.getFullYear()+1 : d.getFullYear(); }
 
   let brackets;

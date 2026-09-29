@@ -232,7 +232,9 @@ function getAnnualSnapshot(year){
   // zero: debtKnown/offsetKnown record that so Loan and Cash totals are
   // never silently understated as if nothing were owed/held.
   const propRows = (typeof properties!=='undefined' ? properties : [])
-    .filter(p=>p.fyData && p.fyData[year]!=null)
+    // Also drop properties sold on/before that FY's 30 June — older rollovers captured sold
+    // properties too, so already-stored data can contain them.
+    .filter(p=>p.fyData && p.fyData[year]!=null && !(p.sold && p.soldDate && p.soldDate <= year+'-06-30'))
     .map(p=>{
       const debtKnown = !!(p.fyDebtData && p.fyDebtData[year]!=null);
       const offsetKnown = !!(p.fyOffsetData && p.fyOffsetData[year]!=null);

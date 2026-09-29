@@ -3,7 +3,7 @@
 function exportXLSX(){
   try {
     const wb   = XLSX.utils.book_new();
-    const date = new Date().toISOString().slice(0,10);
+    const date = localDateStr();
     const fmt2 = n => (n==null||n==='') ? '' : +Number(n).toFixed(2);
     const fmt4 = n => (n==null||n==='') ? '' : +Number(n).toFixed(4);
 

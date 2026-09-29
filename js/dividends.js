@@ -811,7 +811,7 @@ function dvClear(){
   const pc=$('dv-drp-prev-carry'); if(pc) pc.innerHTML='';
   // reset type to dividend
   const t=$('dv-type'); if(t){ t.value='dividend'; dvTypeChange(); }
-  const d=$('dv-date'); if(d) d.value=new Date().toISOString().slice(0,10);
+  const d=$('dv-date'); if(d) d.value=localDateStr();
 }
 
 // Cycle state for each dividend card: 0=current FY, 1=prev FY, 2=all time

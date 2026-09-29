@@ -1007,9 +1007,16 @@ function buildSyncPayload(){
       pt_pf_pruned_date:   localStorage.getItem('pt_pf_pruned_date') || '',
       pt_super_last_fy:    localStorage.getItem('pt_super_last_fy') || '',
       pt_price_feed_url:   localStorage.getItem('pt_price_feed_url') || '',
+      // Small local-only stores that previously never left the device. pt_holdings_fy_snapshots
+      // is the important one: past-year Net Worth holdings can't be reconstructed (see
+      // networth.js), so a new device / restore used to lose them permanently.
+      // (pt_benchmarks is deliberately left out — the Worker backfill rebuilds it.)
+      pt_ls_extras: Object.fromEntries(SYNC_LS_EXTRAS.map(k=>[k, localStorage.getItem(k)]).filter(([,v])=>v!=null)),
     }
   };
 }
+const SYNC_LS_EXTRAS = ['pt_holdings_fy_snapshots','pt_price_alerts','pt_concentration_alerts','pt_ath',
+  'pt_fire_current_age','pt_fire_re_age','pt_fire_fi_age','pt_fire_monthly_contrib','pt_fire_growth_pct','pt_fire_annual_spend'];
 
 async function gistRequest(method, path, body){
   if(!syncKey) throw new Error('No GitHub token set');
@@ -1194,6 +1201,9 @@ function applyRemoteData(remote){
   if(d.pt_pf_pruned_date)   localStorage.setItem('pt_pf_pruned_date',   d.pt_pf_pruned_date);
   if(d.pt_super_last_fy)    localStorage.setItem('pt_super_last_fy',    d.pt_super_last_fy);
   if(d.pt_price_feed_url)   localStorage.setItem('pt_price_feed_url',   d.pt_price_feed_url);
+  if(d.pt_ls_extras && typeof d.pt_ls_extras === 'object'){
+    SYNC_LS_EXTRAS.forEach(k => { if(typeof d.pt_ls_extras[k] === 'string') localStorage.setItem(k, d.pt_ls_extras[k]); });
+  }
   if(d.su_combined_color){ suCombinedColor = d.su_combined_color;
                            localStorage.setItem('su_combined_color', d.su_combined_color); }
   try { resetMtmCache(); } catch(e){} // pfSnapshots just changed — drop the stale mark-to-market date cache
@@ -1699,7 +1709,7 @@ function saveDRPSkipped(obj){
 }
 function markDRPSkipped(divId, sym, date, reason){
   const skipped = getDRPSkipped();
-  skipped[divId] = { symbol:sym, date, skippedAt:new Date().toISOString().slice(0,10), reason: reason||'manual' };
+  skipped[divId] = { symbol:sym, date, skippedAt:localDateStr(), reason: reason||'manual' };
   saveDRPSkipped(skipped);
 }
 function unskipDRPItem(divId){
@@ -1725,7 +1735,7 @@ function saveExpDivSkipped(obj){
 }
 function markExpDivSkipped(r){
   const skipped = getExpDivSkipped();
-  skipped[dvChkKey(r)] = { symbol:r.symbol, date:r.date, perUnit:r.perUnit, skippedAt:new Date().toISOString().slice(0,10) };
+  skipped[dvChkKey(r)] = { symbol:r.symbol, date:r.date, perUnit:r.perUnit, skippedAt:localDateStr() };
   saveExpDivSkipped(skipped);
 }
 function unskipExpDivItem(key){
@@ -2146,6 +2156,10 @@ function checkPropertyFYRollover(){
     if(lastFY && lastFY < CUR_FY && Array.isArray(properties)){
       let changed = false;
       properties.forEach(p=>{
+        // A property sold on/before 30 June of PREV_FY wasn't owned at that year-end — capturing it
+        // here made every later FY's Net Worth snapshot keep counting a sold property at its stale
+        // last value/debt. (Sold with no date: can't tell, so it's not captured going forward.)
+        if(p.sold && (!p.soldDate || p.soldDate <= PREV_FY + '-06-30')) return;
         if(!p.fyData) p.fyData = {};
         if(p.fyData[PREV_FY] == null && p.currentValue != null){
           p.fyData[PREV_FY] = +p.currentValue;

@@ -4,7 +4,7 @@
 // Scope: https://mangohill.github.io/mango-portracker/
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'portfolio-tracker-1';
+const CACHE_NAME = 'portfolio-tracker-2';
 const BASE       = '/mango-portracker/';
 
 const PRECACHE_URLS = [
@@ -90,7 +90,9 @@ self.addEventListener('fetch', event => {
   if (url.pathname.endsWith('/version.json')) return;
   if(isNF(event.request.url)){
     event.respondWith(fetch(event.request,{cache:'no-cache'}).then(res=>{
-      if(res&&res.ok) caches.open(CACHE_NAME).then(cache=>cache.put(event.request,res.clone()));
+      // Clone synchronously — inside the async .then the body may already be consumed by the page,
+      // which throws and silently skips the cache update the offline fallback depends on.
+      if(res&&res.ok){ const copy=res.clone(); caches.open(CACHE_NAME).then(cache=>cache.put(event.request,copy)).catch(()=>{}); }
       return res;
     }).catch(()=>caches.match(event.request)));
   } else {

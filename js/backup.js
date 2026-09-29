@@ -19,6 +19,7 @@ function _bkDate(){ return typeof localDateStr === 'function' ? localDateStr() :
 // Small localStorage-only settings that had no home in the backup payload. Stored
 // as raw strings under data.pt_ls_extras so new keys can be added here alone.
 const BACKUP_LS_EXTRAS = ['pt_benchmarks','pt_price_alerts','pt_concentration_alerts',
+  'pt_holdings_fy_snapshots','pt_ath',
   'pt_fire_current_age','pt_fire_re_age','pt_fire_fi_age','pt_fire_monthly_contrib','pt_fire_growth_pct','pt_fire_annual_spend'];
 
 // ── BACKUP STALENESS REMINDER ─────────────────────────────────────────
@@ -426,7 +427,7 @@ function buildExportSheets(){
     {key: 'pt_drp_skipped', value: localStorage.getItem('pt_drp_skipped') || '{}'},
     {key: 'pt_expdiv_skipped', value: localStorage.getItem('pt_expdiv_skipped') || '{}'},
     {key: 'cf_worker_code', value: WORKER_CODE},
-    {key: 'export_date',    value: new Date().toISOString().slice(0,10)},
+    {key: 'export_date',    value: localDateStr()},
     {key: 'app_version',    value: 'Portfolio Tracker v3'},
   ];
 
@@ -536,7 +537,10 @@ function csvParseRows(text){
   const headers = table[0].map(h => h.trim().toLowerCase().replace(/[\uFEFF]/g,'').replace(/\s+/g,'_'));
   return table.slice(1).map(vals => {
     const obj = {};
-    headers.forEach((h, idx) => { obj[h] = (vals[idx] || '').trim(); });
+    // csvSafe() (helpers.js) prefixes ' onto text starting with = + - @ to stop spreadsheet
+    // formula injection on EXPORT. Undo it on import, otherwise every note/merchant such as
+    // "-refund" comes back permanently changed as "'-refund".
+    headers.forEach((h, idx) => { obj[h] = (vals[idx] || '').trim().replace(/^'(?=[=+\-@])/, ''); });
     return obj;
   });
 }
@@ -1383,7 +1387,7 @@ const WORKER_CODE = [
 // ── INIT ─────────────────────────────────────────────────────────────
 setDate();
 // Set default date for dividend form
-const dvd=$('dv-date'); if(dvd&&!dvd.value) dvd.value=new Date().toISOString().slice(0,10);
+const dvd=$('dv-date'); if(dvd&&!dvd.value) dvd.value=localDateStr();
 refreshAllBrokerSelects();
 renderH(); renderT(); renderR();
 const wcBox = $('worker-code-box');

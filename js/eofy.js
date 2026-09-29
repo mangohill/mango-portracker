@@ -62,7 +62,8 @@ function generateEofyPack(fy){
   const cgtAll = typeof computeCGTSummary === 'function' ? computeCGTSummary().result : {};
 
   const money = v => v==null ? '—' : '$'+Number(v).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const label = k => typeof getPersonLabel === 'function' ? getPersonLabel(k) : k;
+  const esc = v => typeof escHtml === 'function' ? escHtml(v) : String(v);
+  const label = k => esc(typeof getPersonLabel === 'function' ? getPersonLabel(k) : k);
 
   const cgtRows = persons.map(p => {
     const r = (cgtAll[p]||{})[fy];
@@ -126,7 +127,7 @@ function generateEofyPack(fy){
       <tr><td>Money in (refunds, other income)</td><td style="text-align:right">${money(spend.totalIn)}</td></tr>
       <tr style="font-weight:700"><td>Net</td><td style="text-align:right">${money(spend.net)}</td></tr>
     </tbody></table>
-    ${spend.topCats.length ? `<div class="note" style="margin-bottom:4px">Top categories:</div><table><tbody>${spend.topCats.map(([c,v])=>`<tr><td>${c}</td><td style="text-align:right">${money(v)}</td></tr>`).join('')}</tbody></table>` : ''}`
+    ${spend.topCats.length ? `<div class="note" style="margin-bottom:4px">Top categories:</div><table><tbody>${spend.topCats.map(([c,v])=>`<tr><td>${esc(c)}</td><td style="text-align:right">${money(v)}</td></tr>`).join('')}</tbody></table>` : ''}`
     : `<div class="empty">No spending data recorded for FY${fy}.</div>`}
 
   <h2>Portfolio Snapshot</h2>

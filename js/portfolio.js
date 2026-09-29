@@ -1920,7 +1920,7 @@ function saveEditTrade(){
 
 
 // ── ADD/DELETE ───────────────────────────────────────────────────────
-function setDate(){const d=$('fd');if(!d.value)d.value=new Date().toISOString().slice(0,10);}
+function setDate(){const d=$('fd');if(!d.value)d.value=localDateStr();}
 function prevw(){
   const u=parseFloat($('fun').value)||0, p=parseFloat($('fpr').value)||0;
   const f=parseFloat($('ffe').value)||0, s=$('fsi').value;

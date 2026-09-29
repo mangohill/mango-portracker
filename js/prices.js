@@ -8,8 +8,8 @@ function switchTab(name,el){
   for(const k in SORT_STATE) delete SORT_STATE[k];
   if(name==='portfolio') renderH();
   refreshAllBrokerSelects();
-  if(name==='trades'){ renderT(); setDate(); setCaType('merger'); const cd=$('ca-date');if(cd&&!cd.value)cd.value=new Date().toISOString().slice(0,10); const dd=$('dv-date');if(dd&&!dd.value)dd.value=new Date().toISOString().slice(0,10); }
-  if(name==='add'){renderR();setDate();setCaType('merger');const cd=$('ca-date');if(cd&&!cd.value)cd.value=new Date().toISOString().slice(0,10);}
+  if(name==='trades'){ renderT(); setDate(); setCaType('merger'); const cd=$('ca-date');if(cd&&!cd.value)cd.value=localDateStr(); const dd=$('dv-date');if(dd&&!dd.value)dd.value=localDateStr(); }
+  if(name==='add'){renderR();setDate();setCaType('merger');const cd=$('ca-date');if(cd&&!cd.value)cd.value=localDateStr();}
   if(name==='analytics'){ renderAnalytics(); if(typeof renderBenchmarkSection==='function') renderBenchmarkSection(); }
   if(name==='holdings2'){ renderHD(); }
   if(name==='dividends'){ dvFYFilter='ALL'; renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards(); }
@@ -243,6 +243,11 @@ async function refreshPrices(){
         const maifPrice = await fetchMAIFPrice();
         if(maifPrice){ prices['MAIF']=maifPrice; stockFetched++; }
         else notify('MAIF fetch failed — check Worker is deployed with latest code.','err');
+      }
+      // MAAT has no auto-price path (the Worker's ?maif=1 endpoint returns MAIF only). Only flag it
+      // when it has NO stored price, so a manually-set value doesn't nag on every refresh.
+      if(h.some(x => priceSymbol(x.symbol) === 'MAAT') && prices['MAAT'] == null){
+        notify('MAAT has no auto price feed and no stored price — set it manually under Prices.','err');
       }
       if(stockFetched===0){
         notify('Worker reachable but no prices returned — check console for details.','err');

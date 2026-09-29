@@ -367,15 +367,18 @@ function spDateToFY(dateStr){
 }
 
 function spNormaliseDate(dateStr){
-  // Returns YYYY-MM-DD
+  // Returns YYYY-MM-DD.
+  // new Date('05 Jan 2026') is LOCAL midnight; .toISOString() converts to UTC, which in
+  // Brisbane (UTC+10) is the PREVIOUS day — every such row imported one day early, and 1 July
+  // rows landed on 30 June (the wrong FY). localDateStr() reads the local calendar date.
   if(/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
   if(/^\d{2} [A-Za-z]{3} \d{2}$/.test(dateStr)){
     const d = new Date(dateStr.replace(/(\d{2} [A-Za-z]{3} )(\d{2})$/, '$120$2'));
-    if(!isNaN(d)) return d.toISOString().slice(0,10);
+    if(!isNaN(d)) return localDateStr(d);
   }
   if(/^\d{2} [A-Za-z]{3} \d{4}$/.test(dateStr)){
     const d = new Date(dateStr);
-    if(!isNaN(d)) return d.toISOString().slice(0,10);
+    if(!isNaN(d)) return localDateStr(d);
   }
   if(/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(dateStr)){
     let [p1,p2,yy] = dateStr.split('/');
@@ -386,12 +389,12 @@ function spNormaliseDate(dateStr){
     // Validate — if month still > 12 after swap, fall through to native parser
     if(parseInt(mm,10) > 12){
       const d = new Date(dateStr);
-      return isNaN(d) ? null : d.toISOString().slice(0,10);
+      return isNaN(d) ? null : localDateStr(d);
     }
     return `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
   }
   const d = new Date(dateStr);
-  return isNaN(d) ? null : d.toISOString().slice(0,10);
+  return isNaN(d) ? null : localDateStr(d);
 }
 
 // Detect bank format and parse accordingly

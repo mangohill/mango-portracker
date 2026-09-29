@@ -114,6 +114,39 @@ async function backfillBenchmarkHistory(forceSince){
 }
 
 const BM_MAX_STALE_DAYS = 45;
+
+// Converts pfRaw from raw market value → cumulative time-weighted-return index
+// (starts at 1 on the first date). Market value alone rises whenever you BUY, so
+// comparing it against STW/BTC price returns flatters the portfolio by the size of
+// every contribution (same distortion as Portfolio Change "Value Δ"). This chains
+// leg-by-leg returns using portfolio.js's own legReturnFactor() — the identical
+// Modified-Dietz leg maths calcPortfolioChangeTWR() uses — with buys/sells as the
+// external cash flows. A degenerate leg (non-positive factor) is skipped, i.e. the
+// index stays flat across it, exactly as the Portfolio Change TWR does.
+// Returns false (leaving pfRaw as market value) if the engine isn't available.
+function _bmApplyTwr(pfRaw, dates){
+  if(typeof legReturnFactor !== 'function' || typeof trades === 'undefined' || !dates.length) return false;
+  const cfByDate = {};
+  trades.forEach(t => {
+    if(t.type !== 'buy' && t.type !== 'sell') return;
+    const gross = (+t.units||0) * (+t.price||0);
+    const cf = t.type === 'buy' ? gross + (+t.fees||0) : -(gross - (+t.fees||0));
+    cfByDate[t.date] = (cfByDate[t.date]||0) + cf;
+  });
+  const cfDates = Object.keys(cfByDate).sort();
+  const values = Object.assign({}, pfRaw);
+  let chain = 1;
+  pfRaw[dates[0]] = 1;
+  for(let i = 1; i < dates.length; i++){
+    const dA = dates[i-1], dB = dates[i];
+    const vA = values[dA], vB = values[dB];
+    const cf = cfDates.filter(d => d > dA && d <= dB).map(d => [d, cfByDate[d]]);
+    const f = vA > 0 ? legReturnFactor(vA, vB, dA, dB, cf) : null;
+    if(f != null && f > 0) chain *= f;
+    pfRaw[dB] = chain;
+  }
+  return true;
+}
 let _bmChart = null;
 let _bmMode = 'rolling'; // 'rolling' (12mo window, re-rebased each time) | 'inception' (always rebased to your first tracked day)
 function renderBenchmarkSection(){
@@ -154,6 +187,11 @@ function renderBenchmarkSection(){
     el.innerHTML = `<div style="color:var(--text3);font-size:12px">Not enough complete portfolio history yet to compare against.</div>`;
     return;
   }
+
+  const pfIsTwr = _bmApplyTwr(pfRaw, pfDates);
+  const pfNote = pfIsTwr
+    ? 'Portfolio line is time-weighted (buys/sells stripped out, same engine as Portfolio Change); benchmarks are price-only.'
+    : 'Portfolio line is market value — NOT time-weighted, so new contributions lift it; benchmarks are price-only.';
 
   // The slider below re-rebases to 100 fresh for whichever 12-month window
   // is in view, so pfRaw (built above, alongside pfDates) holds the raw
@@ -250,8 +288,8 @@ function renderBenchmarkSection(){
       btn.classList.toggle('active', btn.dataset.mode === _bmMode);
     });
     hint.textContent = _bmMode === 'inception'
-      ? `Rebased to 100 on ${dates[0]} (your first complete-coverage day) — drag the slider to see performance as of any date since. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF). Portfolio line is market value — NOT time-weighted, so new contributions lift it; benchmarks are price-only.`
-      : `Each window rebased to 100 at its own start${hasFullWindow?' — drag the slider to scroll through history':''}. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF). Portfolio line is market value — NOT time-weighted, so new contributions lift it; benchmarks are price-only.`;
+      ? `Rebased to 100 on ${dates[0]} (your first complete-coverage day) — drag the slider to see performance as of any date since. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF). ${pfNote}`
+      : `Each window rebased to 100 at its own start${hasFullWindow?' — drag the slider to scroll through history':''}. ASX 200 proxied by STW (SPDR S&P/ASX 200 ETF). ${pfNote}`;
   }
   updateModeButtons();
 

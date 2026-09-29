@@ -56,7 +56,7 @@ function checkAthMilestone(tv, portfolioView) {
   try { ath = parseFloat(localStorage.getItem('pt_ath')); } catch (e) {}
   const hadPrior = ath != null && isFinite(ath);
   if (!hadPrior || tv > ath + 0.01) {
-    localStorage.setItem('pt_ath', String(tv));
+    try { localStorage.setItem('pt_ath', String(tv)); } catch (e) {}
     if (hadPrior) {
       const card = document.getElementById('cv') && document.getElementById('cv').closest('.card');
       if (card) {
