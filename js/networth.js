@@ -15,21 +15,22 @@ function nwPortfolioValue(){
   }, 0);
 }
 
+// Live Net Worth = Portfolio + Property Equity + Offset Cash + Super.
+// propMetrics().equity is value minus the FULL loan balance — offset cash isn't
+// netted off the loan for that figure (propMetrics' effectiveLoan is separate and
+// only used for interest/LVR). The annual FY snapshots below already carry offset
+// balances as their own "Cash" line via fyOffsetData, so live Net Worth does the
+// same: equity and offset cash are separate figures, and they sum to the same total
+// as before.
 function nwPropertyEquity(){
   if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
-  // propMetrics().equity is value minus the FULL loan balance — offset cash
-  // isn't subtracted from the loan for this figure (see propMetrics'
-  // effectiveLoan, which is separate and only used for interest/LVR). The
-  // annual FY snapshots below already add offset balances as a distinct
-  // "Cash" line via fyOffsetData; live Net Worth had no equivalent, so an
-  // offset account's balance was invisible to it entirely. Add each
-  // property's current offset balance (propMetrics().splits[].offset) the
-  // same way, keeping it inside "Property Equity" here since live Net Worth
-  // has no separate Cash line the way the annual snapshots do.
+  return properties.filter(p => !p.sold).reduce((s,p) => s + propMetrics(p).equity, 0);
+}
+function nwOffsetCash(){
+  if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
   return properties.filter(p => !p.sold).reduce((s,p) => {
     const m = propMetrics(p);
-    const offset = (m.splits||[]).reduce((t,sp)=>t+(+sp.offset||0),0);
-    return s + m.equity + offset;
+    return s + (m.splits||[]).reduce((t,sp)=>t+(+sp.offset||0),0);
   }, 0);
 }
 
@@ -380,7 +381,8 @@ function renderNetWorth(){
   const portfolioVal = nwPortfolioValue();
   const propertyEq = nwPropertyEquity();
   const superBal = nwSuperBalance();
-  const netWorth = portfolioVal + propertyEq + superBal;
+  const offsetCash = nwOffsetCash();
+  const netWorth = portfolioVal + propertyEq + offsetCash + superBal;
   const {growthPct, monthlyContrib, annualSpend, currentAge, fiAge, reAge} = nwFireInputs();
   const fireNumber = annualSpend * 25; // 4% rule
 
@@ -388,6 +390,7 @@ function renderNetWorth(){
   const segs = [
     {label:'Portfolio', val:portfolioVal, color:'var(--violet)'},
     {label:'Property equity', val:propertyEq, color:'var(--cyan)'},
+    {label:'Offset cash', val:offsetCash, color:'var(--green)'},
     {label:'Super', val:superBal, color:'var(--amber)'},
   ].filter(s => s.val > 0);
   // Percentages use the sum of the segments actually drawn. Dividing by
@@ -477,9 +480,10 @@ function renderNetWorth(){
 
   panel.innerHTML = `
     <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
-      <div class="card"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Property + Super</div></div>
+      <div class="card"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Property + Cash + Super</div></div>
       <div class="card"><div class="card-label">Portfolio</div><div class="card-value neu">${n2(portfolioVal)}</div><div class="card-sub">Market value</div></div>
-      <div class="card"><div class="card-label">Property Equity</div><div class="card-value neu">${n2(propertyEq)}</div><div class="card-sub">Value − debt + offset cash</div></div>
+      <div class="card"><div class="card-label">Property Equity</div><div class="card-value neu">${n2(propertyEq)}</div><div class="card-sub">Value − debt</div></div>
+      <div class="card"><div class="card-label">Offset Cash</div><div class="card-value neu">${n2(offsetCash)}</div><div class="card-sub">Offset account balances</div></div>
       <div class="card"><div class="card-label">Super</div><div class="card-value neu">${n2(superBal)}</div><div class="card-sub">All accounts</div></div>
     </div>
 
@@ -506,7 +510,7 @@ function renderNetWorth(){
           <div class="card"><div class="card-label">Liquid Starting Balance</div><div class="card-value neu">${n2(liquidStart)}</div><div class="card-sub">Portfolio only — Super locked until retired at 60+</div></div>
           <div class="card"><div class="card-label">Net Rental Income</div><div class="card-value ${propertyCF>=0?'pos':'neg'}">${propertyCF>=0?'+':''}${n2(propertyCF)}/yr</div><div class="card-sub">Sum of each rental's Net Annual Income</div></div>
         </div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Property equity (${n2(propertyEq)}) isn't counted in the liquid balance above — it can't be drawn down like an investment. Instead, its Net Rental Income (same figure shown per-property in the Property tab — rent minus expenses minus interest, excluding your own home) ${propertyCF>=0?'is currently boosting':'is currently reducing'} your yearly contribution by ${n2(Math.abs(propertyCF))}.</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Property equity (${n2(propertyEq)}) and offset cash (${n2(offsetCash)}) aren't counted in the liquid balance above — it can't be drawn down like an investment. Instead, its Net Rental Income (same figure shown per-property in the Property tab — rent minus expenses minus interest, excluding your own home) ${propertyCF>=0?'is currently boosting':'is currently reducing'} your yearly contribution by ${n2(Math.abs(propertyCF))}.</div>
         <div style="height:220px"><canvas id="nw-fire-chart"></canvas></div>
         <div style="font-size:11px;color:var(--text3);margin-top:8px">Rough compound-growth estimate only — ignores tax, fees, sequence-of-returns risk, and inflation on the spend figure. Not financial advice.</div>
       </div>
