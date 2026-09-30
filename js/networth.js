@@ -15,7 +15,7 @@ function nwPortfolioValue(){
   }, 0);
 }
 
-// Live Net Worth = Portfolio + Super + Offset Cash + Property Value − Loan
+// Live Net Worth = Portfolio + Property Value + Offset Cash + Super − Loan
 // (algebraically the same as Portfolio + Property Equity + Offset Cash + Super).
 // propMetrics().equity is value minus the FULL loan balance — offset cash isn't
 // netted off the loan for that figure (propMetrics' effectiveLoan is separate and
@@ -415,8 +415,8 @@ function renderNetWorth(){
   const offsetCash = nwOffsetCash();
   const propertyVal = nwPropertyValue();
   const loanBal = nwLoanBalance();
-  // Net Worth = Portfolio + Super + Offset Cash + Property Value − Loan
-  const netWorth = portfolioVal + superBal + offsetCash + propertyVal - loanBal;
+  // Net Worth = Portfolio + Property Value + Offset Cash + Super − Loan
+  const netWorth = portfolioVal + propertyVal + offsetCash + superBal - loanBal;
   const {growthPct, monthlyContrib, annualSpend, currentAge, fiAge, reAge} = nwFireInputs();
   const fireNumber = annualSpend * 25; // 4% rule
 
@@ -515,12 +515,12 @@ function renderNetWorth(){
   panel.innerHTML = `
     <style>#nw-cards .card[style*="--c"]::before{background:var(--c);}</style>
     <div class="cards" id="nw-cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
-      <div class="card"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Super + Cash + Property − Loan</div></div>
+      <div class="card"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Property + Cash + Super − Loan</div></div>
       <div class="card" style="${nwTint(NW_COLORS.portfolio)}"><div class="card-label">Portfolio</div><div class="card-value neu">${n2(portfolioVal)}</div><div class="card-sub">Market value</div></div>
       <div class="card" style="${nwTint(NW_COLORS.property)}"><div class="card-label">Property Value</div><div class="card-value neu">${n2(propertyVal)}</div><div class="card-sub">Current value, gross</div></div>
-      <div class="card" style="${nwTint(NW_COLORS.loan)}"><div class="card-label">Loan</div><div class="card-value neu">${n2(loanBal)}</div><div class="card-sub">Total loan balance</div></div>
       <div class="card" style="${nwTint(NW_COLORS.cash)}"><div class="card-label">Offset Cash</div><div class="card-value neu">${n2(offsetCash)}</div><div class="card-sub">Offset account balances</div></div>
       <div class="card" style="${nwTint(NW_COLORS.super)}"><div class="card-label">Super</div><div class="card-value neu">${n2(superBal)}</div><div class="card-sub">All accounts</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.loan)}"><div class="card-label">Loan</div><div class="card-value neu">${n2(loanBal)}</div><div class="card-sub">Total loan balance</div></div>
     </div>
 
     <div class="tw" style="margin-bottom:18px">
