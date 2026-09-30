@@ -388,6 +388,23 @@ function exportAllAnnualSnapshotsCSV(){
   downloadCSVRows('eofy-snapshots-all-years.csv', rows);
 }
 
+// One set of colours shared by the top cards and the Composition bar so they
+// always match. Property Value / Property equity share pink.
+const NW_COLORS = {
+  portfolio: 'var(--violet)',
+  property:  'var(--pink)',
+  cash:      'var(--amber)',
+  super:     'var(--green)',
+  loan:      'var(--red)',   // card only — not part of the Composition bar
+};
+// Shades a card in the given colour: tinted background + border, and a matching
+// top strip (see the <style> block in the cards markup). color-mix is supported
+// by all current browsers; older ones just show the plain card.
+function nwTint(c){
+  return `--c:${c};border-color:color-mix(in srgb,var(--c) 40%,var(--border));` +
+         `background:linear-gradient(160deg,color-mix(in srgb,var(--c) 18%,var(--surface)),var(--surface) 75%)`;
+}
+
 function renderNetWorth(){
   const panel = document.getElementById('panel-networth');
   if(!panel) return;
@@ -405,10 +422,10 @@ function renderNetWorth(){
 
   // Composition bar — simple flex segments, no chart library needed.
   const segs = [
-    {label:'Portfolio', val:portfolioVal, color:'var(--violet)'},
-    {label:'Property equity', val:propertyEq, color:'var(--cyan)'},
-    {label:'Offset cash', val:offsetCash, color:'var(--green)'},
-    {label:'Super', val:superBal, color:'var(--amber)'},
+    {label:'Portfolio', val:portfolioVal, color:NW_COLORS.portfolio},
+    {label:'Property equity', val:propertyEq, color:NW_COLORS.property},
+    {label:'Offset cash', val:offsetCash, color:NW_COLORS.cash},
+    {label:'Super', val:superBal, color:NW_COLORS.super},
   ].filter(s => s.val > 0);
   // Percentages use the sum of the segments actually drawn. Dividing by
   // netWorth instead meant a negative component (e.g. underwater property
@@ -496,13 +513,14 @@ function renderNetWorth(){
   }
 
   panel.innerHTML = `
-    <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+    <style>#nw-cards .card[style*="--c"]::before{background:var(--c);}</style>
+    <div class="cards" id="nw-cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
       <div class="card"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Super + Cash + Property − Loan</div></div>
-      <div class="card"><div class="card-label">Portfolio</div><div class="card-value neu">${n2(portfolioVal)}</div><div class="card-sub">Market value</div></div>
-      <div class="card"><div class="card-label">Super</div><div class="card-value neu">${n2(superBal)}</div><div class="card-sub">All accounts</div></div>
-      <div class="card"><div class="card-label">Offset Cash</div><div class="card-value neu">${n2(offsetCash)}</div><div class="card-sub">Offset account balances</div></div>
-      <div class="card"><div class="card-label">Property Value</div><div class="card-value neu">${n2(propertyVal)}</div><div class="card-sub">Current value, gross</div></div>
-      <div class="card"><div class="card-label">Loan</div><div class="card-value neu">${n2(loanBal)}</div><div class="card-sub">Total loan balance</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.portfolio)}"><div class="card-label">Portfolio</div><div class="card-value neu">${n2(portfolioVal)}</div><div class="card-sub">Market value</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.super)}"><div class="card-label">Super</div><div class="card-value neu">${n2(superBal)}</div><div class="card-sub">All accounts</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.cash)}"><div class="card-label">Offset Cash</div><div class="card-value neu">${n2(offsetCash)}</div><div class="card-sub">Offset account balances</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.property)}"><div class="card-label">Property Value</div><div class="card-value neu">${n2(propertyVal)}</div><div class="card-sub">Current value, gross</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.loan)}"><div class="card-label">Loan</div><div class="card-value neu">${n2(loanBal)}</div><div class="card-sub">Total loan balance</div></div>
     </div>
 
     <div class="tw" style="margin-bottom:18px">
