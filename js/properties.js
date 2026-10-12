@@ -1650,6 +1650,7 @@ function readPropForm(){
     soldDate:      $('pf-sdate')?.value || '',
     salePrice:     parseFloat($('pf-sprice')?.value)||0,
     sellingCosts:  parseFloat($('pf-scosts')?.value)||0,
+    estSellCostPct: parseFloat($('pf-estsell')?.value)||0,
     mainResExempt: $('pf-mainres')?.checked || false,
     debtRecycling: ($('pf-type').value==='ppor' && $('pf-dr')?.checked) || false,
     drSymbols:     (()=>{ try{ return JSON.parse($('pf-dr-symbols')?.dataset.selected||'[]'); }catch(e){ return []; } })(),
@@ -2044,7 +2045,7 @@ function togglePropSoldFields(){
 }
 
 function clearPropForm(){
-  ['pf-name','pf-pprice','pf-pcosts','pf-improvements','pf-cval','pf-rent','pf-expenses','pf-notes','pf-sdate','pf-sprice','pf-scosts']
+  ['pf-name','pf-pprice','pf-pcosts','pf-improvements','pf-cval','pf-rent','pf-expenses','pf-notes','pf-sdate','pf-sprice','pf-scosts','pf-estsell']
     .forEach(id=>{ const el=$(id); if(el) el.value=''; });
   $('pf-pdate').value='';
   updatePropFormFYFields();
@@ -2084,6 +2085,7 @@ function editProperty(btn){
   if($('pf-owner')) $('pf-owner').value = p.owner||'lumia';
   $('pf-mgr').value          = p.hasManager||'no';
   $('pf-notes').value        = p.notes||'';
+  if($('pf-estsell')) $('pf-estsell').value = p.estSellCostPct||'';
   if($('pf-sold')){
     $('pf-sold').checked   = !!p.sold;
     $('pf-sdate').value    = p.soldDate||'';
@@ -2194,6 +2196,9 @@ function renderProperties(){
   }
   window.__drBreakdown = {};
   window.__drGainBreakdown = {};
+  // Built once so each card's CGT estimate doesn't re-run the whole parcel engine.
+  let __cgtCtx = null;
+  try{ if(typeof cgtSaleContext === 'function') __cgtCtx = cgtSaleContext(); }catch(e){ console.error('CGT context failed', e); }
   wrap.innerHTML = properties.map(p=>{
     const m = propMetrics(p);
     const typeLabel = PROP_TYPE_LABEL[p.propType]||p.propType;
@@ -2257,6 +2262,37 @@ function renderProperties(){
           </table>
         </div>
       </div>` : '';
+
+    // ── Estimated CGT if this property were sold today ──
+    const saleBox = (()=>{
+      if(typeof cgtEstimatePropertySale !== 'function') return '';
+      let est;
+      try{ est = cgtEstimatePropertySale(p, __cgtCtx || undefined); }
+      catch(e){ console.error('Property CGT estimate failed', e); return ''; }
+      if(!est || est.status === 'sold') return '';
+      const boxStyle = 'background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-top:12px';
+      const title = '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">ESTIMATED CGT IF SOLD TODAY</div>';
+      const note = t => `<div style="font-size:11px;color:var(--text3);font-family:var(--mono);line-height:1.5">${t}</div>`;
+      if(est.status === 'exempt') return `<div style="${boxStyle}">${title}${note('Main residence — assumed exempt from CGT, so no tax on a sale.')}</div>`;
+      if(est.status === 'missing') return `<div style="${boxStyle}">${title}${note('Add a purchase price and purchase date to estimate CGT (needed for the cost base and the 12-month discount).')}</div>`;
+      const equityAfter = m.equity - est.sellCosts - est.totalTax;
+      const ownerLines = est.rows.length > 1
+        ? `<div style="font-size:11px;color:var(--text2);font-family:var(--mono);margin-top:10px">${est.rows.map(r => `${escHtml(typeof getPersonLabel==='function' ? getPersonLabel(r.person) : r.person)}: <b>${n2(r.tax)}</b>`).join(' &nbsp;·&nbsp; ')}</div>` : '';
+      return `<div style="${boxStyle}">
+        ${title}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+          ${stat('Sale Value (current)', n2(est.value))}
+          ${stat('Cost Base', n2(est.costBase))}
+          ${est.sellCosts > 0 ? stat('Selling Costs' + (est.sellCostPct ? ' (' + est.sellCostPct + '%)' : ''), n2(est.sellCosts)) : ''}
+          ${stat('Capital Gain', n2(est.gain), clr(est.gain))}
+          ${stat('CGT Discount', est.long ? '50% (held 12+ months)' : 'None (under 12 months)')}
+          ${stat('Est. CGT Payable', est.gain > 0 ? n2(est.totalTax) : 'None — capital loss', est.gain > 0 ? 'neg' : 'neu')}
+          ${stat('Equity after est. CGT', n2(equityAfter), clr(equityAfter))}
+        </div>
+        ${ownerLines}
+        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);line-height:1.5;margin-top:10px">Estimate if this property alone were sold today: current value${est.sellCosts ? ' less selling costs' : ''} less cost base (purchase price + costs + improvements), 50% discount if held over 12 months, taxed at each owner's marginal rate on top of their estimated income, including gains/losses already realised this year and carried-forward losses. ${est.sellCosts ? '' : 'Selling costs aren\'t included — set "Est. Selling Costs %" when you edit this property to include agent/legal fees. '}Not tax advice.</div>
+      </div>`;
+    })();
 
     return `<div class="fs" style="margin-bottom:16px">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
@@ -2364,6 +2400,8 @@ function renderProperties(){
           <div style="text-align:center;color:var(--text3);font-family:var(--mono);font-size:12px">🏠<br>Primary Residence<br>No rental income</div>
         </div>`)}
       </div>
+
+      ${saleBox}
     </div>`;
   }).join('');
 }
