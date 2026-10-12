@@ -418,8 +418,9 @@ function nwTint(c){
 //    — the same ordering the CGT tab uses. Capital gains/losses already
 //    realised this FY and any carried-forward losses are included, so the tax
 //    shown is the EXTRA tax the hypothetical sale would add.
-//  • Tax = marginal income tax + Medicare levy on top of each person's
-//    estimated base income (the CGT simulator's own auto-fill figure).
+//  • Tax = marginal tax (calcTax(), which already includes the Medicare levy)
+//    on top of each person's estimated base income (the CGT simulator's own
+//    auto-fill figure).
 //  • Super is not reduced (its earnings are taxed inside the fund).
 function nwEstimateCGTIfSold(){
   const todayStr = localDateStr();
@@ -509,10 +510,10 @@ function nwEstimateCGTIfSold(){
       const before = applyLosses(realised, carry);
       const after  = applyLosses({ short: realised.short + hyp.short, long: realised.long + hyp.long, loss: realised.loss + hyp.loss }, carry);
       const base = +(typeof cgtEstimateBaseIncome === 'function' ? cgtEstimateBaseIncome(person) : 0) || 0;
-      const incomeTax = calcTax(base + after.ncg, curFY) - calcTax(base + before.ncg, curFY);
-      const medicare  = typeof calcMedicareLevy === 'function'
-        ? calcMedicareLevy(base + after.ncg) - calcMedicareLevy(base + before.ncg) : 0;
-      const tax = +(incomeTax + medicare).toFixed(2);
+      // calcTax() already includes the Medicare levy (it's baked into its
+      // return value), so the incremental tax is just the difference — adding
+      // calcMedicareLevy() on top would count the levy twice.
+      const tax = +(calcTax(base + after.ncg, curFY) - calcTax(base + before.ncg, curFY)).toFixed(2);
       rows.push({ person, short: hyp.short, long: hyp.long, loss: hyp.loss, added: after.ncg - before.ncg, base, tax });
       totalTax += tax;
     });
