@@ -2197,6 +2197,96 @@ function cgtAutoFillIncome(person){
 }
 
 
+// ── HYPOTHETICAL-SALE TAX ───────────────────────────────────────────────
+// Shared by the Net Worth "after-tax" popup and each property's "Estimated
+// CGT if sold" box. Answers: "if these gains/losses were realised today, how
+// much EXTRA tax would that add?" — on top of gains/losses already realised
+// this FY and any carried-forward losses, taxed at the person's marginal
+// rate. calcTax() already includes the Medicare levy, so it isn't added again.
+// ctx (from cgtSaleContext) is built once and reused so a page full of
+// properties doesn't re-run the whole parcel engine for each one.
+function cgtSaleContext(){
+  const curFY = +dateToFY(localDateStr());
+  const sum = computeCGTSummary();
+  return { curFY, result: sum.result || {}, openParcels: sum.openParcels || {}, base: {} };
+}
+
+// Losses (this FY + carried) offset short-term gains first, then long-term;
+// the 50% discount applies to whatever long-term gain remains.
+function cgtApplyLosses(a, carryIn){
+  const pool = a.loss + carryIn;
+  const offShort = Math.min(a.short, pool);
+  let rem = pool - offShort;
+  const netShort = a.short - offShort;
+  const offLong = Math.min(a.long, rem);
+  const netLong = a.long - offLong;
+  return { ncg: netShort + netLong * 0.5 };
+}
+
+// hyp = { short, long, loss } — gains/losses this person would realise.
+// Returns { tax, added, base }: tax = incremental tax, added = extra taxable
+// capital gain (after losses and discount), base = estimated base income.
+function cgtHypotheticalTax(person, hyp, ctx){
+  const res = ctx.result[person] || {};
+  const cur = res[ctx.curFY] || null;
+  const realised = cur ? { short: cur.shortGain, long: cur.longGain, loss: cur.losses } : { short:0, long:0, loss:0 };
+  let carry = 0;
+  if(cur) carry = cur.lossCarryIn || 0;
+  else {
+    const prior = Object.keys(res).map(Number).filter(f => f < ctx.curFY).sort((a,b)=>b-a)[0];
+    if(prior != null) carry = res[prior].lossCarryOut || 0;
+    else {
+      const o = (typeof getCGTLossCarryIn === 'function' ? getCGTLossCarryIn() : {})[person] || null;
+      if(o && +o.amount > 0 && +o.fy <= ctx.curFY) carry = +o.amount;
+    }
+  }
+  const before = cgtApplyLosses(realised, carry);
+  const after  = cgtApplyLosses({ short: realised.short + hyp.short, long: realised.long + hyp.long, loss: realised.loss + hyp.loss }, carry);
+  if(ctx.base[person] === undefined) ctx.base[person] = +cgtEstimateBaseIncome(person) || 0;
+  const base = ctx.base[person];
+  const tax = +(calcTax(base + after.ncg, ctx.curFY) - calcTax(base + before.ncg, ctx.curFY)).toFixed(2);
+  return { tax, added: after.ncg - before.ncg, base };
+}
+
+// Selling costs for a property sale estimate: the property's own "Est. Selling
+// Costs %" of the sale value if set, otherwise any dollar selling costs already
+// entered on it (those fields only appear once a property is marked sold).
+function cgtPropertySellingCosts(p, value){
+  const pct = +p.estSellCostPct || 0;
+  if(pct > 0) return +(value * pct / 100).toFixed(2);
+  return +p.sellingCosts || 0;
+}
+
+// Estimated CGT if ONE property were sold today (independent of any other
+// property). status: 'sold' | 'exempt' (main residence) | 'missing' (no
+// purchase price/date, so no cost base) | 'ok'.
+function cgtEstimatePropertySale(p, ctx){
+  if(!p || p.sold) return { status: 'sold' };
+  if(p.propType === 'ppor' || p.mainResExempt) return { status: 'exempt' };
+  if(!(+p.purchasePrice > 0) || !p.purchaseDate) return { status: 'missing' };
+  ctx = ctx || cgtSaleContext();
+  const value = +p.currentValue || 0;
+  const costBase = (+p.purchasePrice||0) + (+p.purchaseCosts||0) + (+p.capitalImprovements||0);
+  const sellCosts = cgtPropertySellingCosts(p, value);
+  const gain = value - sellCosts - costBase;
+  const heldDays = Math.floor((new Date(localDateStr()) - new Date(p.purchaseDate)) / 86400000);
+  const long = heldDays > 365;
+  const owner = p.owner || 'lumia';
+  const rows = [];
+  let totalTax = 0;
+  getAllPersons().forEach(person => {
+    const share = shareForOwner(owner, person);
+    if(share <= 0) return;
+    const g = gain * share;
+    const hyp = { short:0, long:0, loss:0 };
+    if(g >= 0){ if(long) hyp.long = g; else hyp.short = g; } else hyp.loss = -g;
+    const h = cgtHypotheticalTax(person, hyp, ctx);
+    rows.push({ person, share, gain: g, tax: h.tax, added: h.added, base: h.base });
+    totalTax += h.tax;
+  });
+  return { status: 'ok', value, costBase, sellCosts, sellCostPct: +p.estSellCostPct || 0, gain, long, heldDays, owner, rows, totalTax: +totalTax.toFixed(2) };
+}
+
 // Auto-snapshot current prices for portfolio symbols on the cutoff date.
 // Runs once (sets a saved flag) to avoid duplicate captures.
 function cgtAutoSnapshotCutoffPrice(){

@@ -412,7 +412,8 @@ function nwTint(c){
 //    base the CGT tab uses) marked to the live price. Held > 12 months gets
 //    the 50% discount.
 //  • Investment properties: current value less cost base (purchase price +
-//    costs + improvements) and any selling costs entered. PPOR is treated as
+//    costs + improvements) less selling costs (the property's Est. Selling
+//    Costs % if set). PPOR is treated as
 //    exempt. Properties with no purchase price/date are left out and flagged.
 //  • Losses offset short-term gains first, then long-term, then the discount
 //    — the same ordering the CGT tab uses. Capital gains/losses already
@@ -427,9 +428,8 @@ function nwEstimateCGTIfSold(){
   const today = new Date(todayStr);
   const curFY = +dateToFY(todayStr);
   const persons = getAllPersons();
-  const summary = computeCGTSummary();
-  const result = summary.result || {};
-  const openParcels = summary.openParcels || {};
+  const ctx = cgtSaleContext();
+  const openParcels = ctx.openParcels;
 
   const bucket = () => persons.reduce((o,p)=>{ o[p] = {short:0, long:0, loss:0}; return o; }, {});
   const stock = bucket(), prop = bucket();
@@ -464,23 +464,13 @@ function nwEstimateCGTIfSold(){
       if(!(+p.purchasePrice > 0) || !p.purchaseDate){ propSkipped.push(p.name); return; }
       const value = propMetrics(p).cval;
       const costBase = (+p.purchasePrice||0) + (+p.purchaseCosts||0) + (+p.capitalImprovements||0);
-      const sellCosts = +p.sellingCosts || 0;
+      const sellCosts = cgtPropertySellingCosts(p, value); // Est. Selling Costs % on the property, if set
       const gain = value - sellCosts - costBase;
       const long = (today - new Date(p.purchaseDate)) / 86400000 > 365;
       const owner = p.owner || 'lumia';
       add(prop, owner, gain, long);
       propDetail.push({ name: p.name, owner, value, costBase, sellCosts, gain, long });
     });
-
-  const applyLosses = (a, carryIn) => {
-    const pool = a.loss + carryIn;
-    const offShort = Math.min(a.short, pool);
-    let rem = pool - offShort;
-    const netShort = a.short - offShort;
-    const offLong = Math.min(a.long, rem);
-    const netLong = a.long - offLong;
-    return { ncg: netShort + netLong * 0.5 };
-  };
 
   const scenario = includeProp => {
     let totalTax = 0;
@@ -492,30 +482,9 @@ function nwEstimateCGTIfSold(){
         loss:  stock[person].loss  + (includeProp ? prop[person].loss  : 0),
       };
       if(!(hyp.short > 0 || hyp.long > 0 || hyp.loss > 0)) return;
-
-      const res = result[person] || {};
-      const cur = res[curFY] || null;
-      const realised = cur ? { short: cur.shortGain, long: cur.longGain, loss: cur.losses } : { short:0, long:0, loss:0 };
-      let carry = 0;
-      if(cur) carry = cur.lossCarryIn || 0;
-      else {
-        const prior = Object.keys(res).map(Number).filter(f => f < curFY).sort((a,b)=>b-a)[0];
-        if(prior != null) carry = res[prior].lossCarryOut || 0;
-        else {
-          const o = typeof getCGTLossCarryIn === 'function' ? (getCGTLossCarryIn()[person] || null) : null;
-          if(o && +o.amount > 0 && +o.fy <= curFY) carry = +o.amount;
-        }
-      }
-
-      const before = applyLosses(realised, carry);
-      const after  = applyLosses({ short: realised.short + hyp.short, long: realised.long + hyp.long, loss: realised.loss + hyp.loss }, carry);
-      const base = +(typeof cgtEstimateBaseIncome === 'function' ? cgtEstimateBaseIncome(person) : 0) || 0;
-      // calcTax() already includes the Medicare levy (it's baked into its
-      // return value), so the incremental tax is just the difference — adding
-      // calcMedicareLevy() on top would count the levy twice.
-      const tax = +(calcTax(base + after.ncg, curFY) - calcTax(base + before.ncg, curFY)).toFixed(2);
-      rows.push({ person, short: hyp.short, long: hyp.long, loss: hyp.loss, added: after.ncg - before.ncg, base, tax });
-      totalTax += tax;
+      const h = cgtHypotheticalTax(person, hyp, ctx); // shared with the Property dashboard
+      rows.push({ person, short: hyp.short, long: hyp.long, loss: hyp.loss, added: h.added, base: h.base, tax: h.tax });
+      totalTax += h.tax;
     });
     return { rows, totalTax: +totalTax.toFixed(2) };
   };
@@ -588,7 +557,7 @@ function nwShowAfterTax(){
     ${propTable}
     ${flags.length ? `<div style="margin-top:12px;color:var(--amber);font-size:11px">${flags.map(f => '⚠ ' + f).join('<br>')}</div>` : ''}
     <div style="margin-top:14px;color:var(--text3);font-size:10px;line-height:1.5">
-      Estimate of the capital gains tax if every holding were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage/selling costs (unless entered on the property), or other tax circumstances. Estimate only — not tax advice.
+      Estimate of the capital gains tax if every holding were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage on shares, or property selling costs unless you've set Est. Selling Costs % on the property, or other tax circumstances. Estimate only — not tax advice.
     </div>`;
   openHudPopup('nw-after-tax', html, { minWidth: '560px', maxWidth: '860px', fontSize: '12px' });
 }

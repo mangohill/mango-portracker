@@ -1,1956 +1,2469 @@
-// ── portfolio.js ─────────────────────────────────────────────
+// ── properties.js ─────────────────────────────────────────────
 
-function priceSymbol(sym){
-  return sym ? sym.replace(/:.*$/,'').toUpperCase() : sym;
+function saveProps(){ localStorage.setItem('pt_props', JSON.stringify(properties)); }
+
+// ── CALC HELPERS ──────────────────────────────────────────────────────
+function calcMonthlyPI(principal, annualRate, years){
+  if(!principal||!annualRate||!years) return 0;
+  const r = (annualRate/100)/12;
+  const n = years*12;
+  if(r===0) return principal/n;
+  return +(principal * r * Math.pow(1+r,n) / (Math.pow(1+r,n)-1)).toFixed(2);
 }
 
-// Maps broker suffix codes to readable names
-const BROKER_SUFFIX = {
-    'AU':'Betashares',
-    'BS':'Betashares',
-    'CMC':'CMC',
-    'SW':'Selfwealth',
-    'SWF':'Selfwealth',
-    'CHESS':'CHESS',
-    'NAB':'NAB',
-    'ANZ':'ANZ',
-    'COMM':'CommSec',
-    'CS':'CommSec'
+// ── SUPER ────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ── SUPER ────────────────────────────────────────────────────────
+let suChart = null;
+let suChartShowAll = false;
+let syncKey = localStorage.getItem('pt_sync_key')||'';
+let syncDevice = localStorage.getItem('pt_sync_device')||('Device-'+Math.random().toString(36).slice(2,6));
+let syncStatus = 'idle'; // idle | syncing | ok | error | conflict
+let suCombinedColor = localStorage.getItem('su_combined_color') || '#ffffff';
+let suCardView = 0; // 0=combined, 1..n = account index
+
+function toggleSuperAccount(headerEl){
+  const id   = headerEl.dataset.id;
+  const body = document.getElementById('su-body-'+id);
+  const icon = document.getElementById('su-toggle-'+id);
+  if(!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  if(icon){
+    icon.textContent  = isOpen ? '›' : '⌄';
+    icon.style.color  = isOpen ? 'var(--text3)' : 'var(--blue)';
+    icon.style.transform = isOpen ? '' : 'rotate(0deg)';
+    icon.style.fontSize  = isOpen ? '18px' : '16px';
+  }
+  headerEl.style.borderColor = isOpen ? '' : 'var(--blue)';
+}
+
+function toggleSuperSection(headerEl){
+  // Individual section toggle (CONTRIBUTIONS / CARRY-FORWARD / INVESTMENT RETURN)
+  const body   = headerEl.nextElementSibling;
+  const icon   = headerEl.querySelector('span');
+  if(!body || !icon) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display  = isOpen ? 'none' : '';
+  body.style.marginTop = isOpen ? '' : '10px';
+  icon.textContent    = isOpen ? '+' : '−';
+  icon.style.color    = isOpen ? 'var(--text3)' : 'var(--blue)';
+}
+
+
+function saveSuperAccounts(){ localStorage.setItem('pt_super', JSON.stringify(superAccounts)); }
+
+function toggleSuperForm(forceOpen){
+  const body   = $('su-form-body');
+  const toggle = $('su-form-toggle');
+  if(!body) return;
+  const isOpen = body.style.display !== 'none';
+  const open   = forceOpen !== undefined ? forceOpen : !isOpen;
+  body.style.display = open ? '' : 'none';
+  toggle.textContent = open ? '\u2212' : '+';
+  toggle.style.color = open ? 'var(--blue)' : 'var(--text3)';
+}
+
+function readSuperForm(){
+  const fyData = {};
+  document.querySelectorAll('.su-fy-input').forEach(inp => {
+    const yr = +inp.dataset.fy;
+    const val = parseFloat(inp.value);
+    if(!isNaN(val) && val > 0) fyData[yr] = val;
+  });
+  const contrib = {};
+  document.querySelectorAll('.su-contrib').forEach(inp => {
+    const key = inp.dataset.contrib;
+    const val = parseFloat(inp.value);
+    if(!isNaN(val) && val > 0) contrib[key] = val;
+  });
+  const colorEl = $('su-color');
+  return {
+    id:      $('su-edit-id').dataset.id || null,
+    name:    $('su-name').value.trim(),
+    balance: parseFloat($('su-balance').value) || 0,
+    color:   colorEl ? colorEl.value : '#3b82f6',
+    fyData,
+    contrib,
   };
-
-// Betashares suffixes get a compact "SYMBOL:SUFFIX" label instead of the
-// verbose "SYMBOL (Betashares)" — it eats far less table width. Other
-// brokers keep the full "(Broker Name)" format.
-const COMPACT_SUFFIXES = new Set(['AU','BS']);
-
-// Returns display label e.g. "DHHF:AU" -> "DHHF:AU", "DHHF:CMC" -> "DHHF (CMC)", "DHHF" -> "DHHF"
-function plainSymbol(sym){
-  // Plain text version of displaySymbol — no HTML spans
-  sym = (sym||'').trim();
-  if(!sym) return sym;
-  const m = sym.match(/^([^:]+):(.+)$/);
-  if(!m) return sym.toUpperCase();
-  const base   = m[1].toUpperCase();
-  const suffix = m[2].toUpperCase();
-  if(COMPACT_SUFFIXES.has(suffix)) return base + ':' + suffix;
-  const broker = BROKER_SUFFIX[suffix] || suffix;
-  return base + ' (' + broker + ')';
 }
 
-function displaySymbol(sym){ sym = escHtml(sym||'');
-  if(!sym) return sym;
-  const m = sym.match(/^([^:]+):(.+)$/);
-  if(!m) return sym.toUpperCase();
-  const base   = m[1].toUpperCase();
-  const suffix = m[2].toUpperCase();
-  if(COMPACT_SUFFIXES.has(suffix)) return base + ':' + suffix;
-  const broker = BROKER_SUFFIX[suffix] || suffix;
-  return base + ' <span style="font-size:10px;color:var(--text3);font-weight:normal">(' + broker + ')</span>';
+// ATO general concessional contributions cap by financial year.
+// FY18–FY21: $25,000 · FY22–FY24: $27,500 · FY25–FY26: $30,000 · FY27 onward: $32,500
+// (indexed to AWOTE in $2,500 steps — update the last line again once the ATO announces the next rise)
+function getConcessionalCap(fy){
+  if(fy <= 2021) return 25000;
+  if(fy <= 2024) return 27500;
+  if(fy <= 2026) return 30000;
+  return 32500;
 }
 
-// Plain text version (no HTML) for exports/search
+// ATO general transfer balance cap (TBC) by financial year — this is also the
+// total-super-balance threshold at/above which the non-concessional cap is nil.
+// FY18–FY21: $1.6m · FY22–FY23: $1.7m · FY24–FY25: $1.9m · FY26: $2.0m · FY27 onward: $2.1m
+function getTransferBalanceCap(fy){
+  if(fy <= 2021) return 1600000;
+  if(fy <= 2023) return 1700000;
+  if(fy <= 2025) return 1900000;
+  if(fy <= 2026) return 2000000;
+  return 2100000;
+}
 
-// Shared by calcH() and computeTradeROIData() — these two work off the same
-// simple {units, costBasis} aggregate-per-symbol model (unlike cgt.js's FIFO
-// engine, which tracks individual parcels with their own dates for accurate
-// long/short-term CGT — a different enough data model that it isn't a
-// candidate for this consolidation). calcH() and computeTradeROIData() used
-// to carry two byte-for-byte identical copies of this state machine; any fix
-// to one had no way of propagating to the other. `map` is mutated in place;
-// `s` is the current trade's own symbol key (map[s] must already exist).
-function applyCorporateAction(map, s, t){
-  const sub = t.subtype||'';
-  if(sub==='merger_from'||sub==='split_from'||sub==='rename_from'||sub==='spinoff_from'){
-    // From-side: remove all units, cost basis transfers to to-side record
-    map[s]._caTransfer = map[s].costBasis; // stash for to-side
-    map[s].units = 0;
-    map[s].costBasis = 0;
-  } else if(sub==='merger_to'||sub==='split_to'||sub==='rename_to'||sub==='spinoff_to'){
-    // To-side: receive transferred cost basis from the from-symbol
-    const fromSym = t.fromSymbol||'';
-    // Look up from-entry — also check if it already had _caTransfer stashed
-    const fromEntry = fromSym ? (map[fromSym] || null) : null;
-    const allocPct = t.allocPct!=null ? +t.allocPct/100 : 1;
-    let costToAdd;
-    if(t.overrideCostBasis){
-      costToAdd = +t.overrideCostBasis;
-    } else if(sub==='spinoff_to'){
-      costToAdd = fromEntry ? (fromEntry._caTransfer||0)*allocPct : +t.units * +t.price;
-    } else if(fromEntry && fromEntry._caTransfer != null){
-      // Normal path: from-side was processed first, cost was stashed
-      costToAdd = fromEntry._caTransfer||0;
-    } else if(fromEntry){
-      // From-entry exists but no stash — use its current cost basis
-      costToAdd = fromEntry.costBasis||0;
-      fromEntry.costBasis = 0;
-      fromEntry.units = 0;
-    } else if(sub==='split_to' || sub==='rename_to' || sub==='merger_to'){
-      // fromSymbol missing — try same symbol (handles stock splits)
-      const selfEntry = map[s];
-      if(selfEntry && selfEntry._caTransfer != null){
-        costToAdd = selfEntry._caTransfer;
-      } else {
-        costToAdd = +t.units * +t.price;
-      }
-    } else {
-      costToAdd = +t.units * +t.price;
-    }
-    map[s].units += +t.units;
-    map[s].costBasis += costToAdd;
-    // If spinoff, reduce from-side cost by the portion allocated away
-    if(sub==='spinoff_to' && fromEntry){
-      const fromFull = map[fromSym];
-      fromFull.costBasis = (fromFull._caTransfer||0) * (1-allocPct);
-      fromFull.units = +t.fromUnits||fromFull.units; // restore from-units if provided
-      delete fromFull._caTransfer;
-    }
+// Non-concessional (after-tax) contributions cap = 4x the concessional cap.
+function getNonConcessionalCap(fy){ return getConcessionalCap(fy) * 4; }
+
+// Bring-forward eligibility: how many years of NCC cap can be brought forward
+// based on total super balance (TSB) at the end of the previous financial year.
+//   TSB >= TBC                    → not eligible, cap = $0
+//   TSB <  TBC - 2×annual cap     → 3-year bring-forward
+//   TSB <  TBC - 1×annual cap     → 2-year bring-forward
+//   otherwise                     → 1 year only (no bring-forward)
+function calcNonConcessional(priorTSB, fy){
+  fy = fy || (()=>{ const _n=new Date(); return _n.getMonth()>=6 ? _n.getFullYear()+1 : _n.getFullYear(); })();
+  const tbc = getTransferBalanceCap(fy);
+  const annualCap = getNonConcessionalCap(fy);
+  const tsb = +priorTSB || 0;
+  let bringForwardYears, cap, eligible;
+  if(!priorTSB && priorTSB !== 0){
+    // No balance entered — assume eligible at the standard annual cap (can't
+    // determine bring-forward tier without a TSB figure).
+    eligible = true; bringForwardYears = 1; cap = annualCap;
+  } else if(tsb >= tbc){
+    eligible = false; bringForwardYears = 0; cap = 0;
+  } else if(tsb < tbc - 2*annualCap){
+    eligible = true; bringForwardYears = 3; cap = 3*annualCap;
+  } else if(tsb < tbc - annualCap){
+    eligible = true; bringForwardYears = 2; cap = 2*annualCap;
+  } else {
+    eligible = true; bringForwardYears = 1; cap = annualCap;
   }
+  return { fy, tbc, annualCap, tsb, eligible, bringForwardYears, cap };
 }
 
-function calcH(asOfDate){
-  const map={};
-  // Sort trades by date so corporate actions apply in correct order
-  const sorted = [...trades]
-    .filter(t=> !asOfDate || t.date<=asOfDate)
-    .sort((a,b)=>{
-    const dateD = a.date.localeCompare(b.date);
-    if(dateD!==0) return dateD;
-    // Same date: ensure _from subtypes always process before _to
-    const aIsFrom = (a.subtype||'').endsWith('_from') ? -1 : 0;
-    const bIsFrom = (b.subtype||'').endsWith('_from') ? -1 : 0;
-    return aIsFrom - bIsFrom;
+// Tracks an already-triggered bring-forward period across its full length.
+// The tier (1/2/3 years) and total cap are locked in at the FY it was
+// triggered, using that FY's rules and the balance just before it — they
+// don't change even if the cap or your balance change in later years.
+// Returns null if no bf_start_fy has been entered (nothing to track).
+function calcBringForwardPeriod(contrib, curFY){
+  const startFY = +contrib.bf_start_fy || 0;
+  if(!startFY) return null;
+  const triggerTSB = (contrib.bf_trigger_tsb != null && contrib.bf_trigger_tsb !== '') ? +contrib.bf_trigger_tsb : null;
+  const lock  = calcNonConcessional(triggerTSB, startFY);
+  const years = Math.max(1, lock.bringForwardYears || 1);
+  const endFY = startFY + years - 1;
+  const usedByYear = [+contrib.bf_used_y1||0, +contrib.bf_used_y2||0, +contrib.bf_used_y3||0].slice(0, years);
+  const usedTotal  = usedByYear.reduce((s,v)=>s+v, 0);
+  return {
+    startFY, endFY, years,
+    totalCap: lock.cap, annualCapAtTrigger: lock.annualCap,
+    triggerTSB: lock.tsb, triggerEligible: lock.eligible, triggerTBC: lock.tbc,
+    usedByYear, usedTotal, remaining: Math.max(0, lock.cap - usedTotal),
+    isActive:  curFY >= startFY && curFY <= endFY,
+    isExpired: curFY > endFY,
+    isFuture:  curFY < startFY,
+  };
+}
+
+function calcCarryForward(contrib, currentBalance){
+  const _n = new Date();
+  const CUR_FY = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
+  const BALANCE_THRESHOLD = 500000;
+  const eligible = !currentBalance || currentBalance < BALANCE_THRESHOLD;
+  const curCap = getConcessionalCap(CUR_FY);
+  const windowYears = [CUR_FY-5,CUR_FY-4,CUR_FY-3,CUR_FY-2,CUR_FY-1].filter(y=>y>=2019);
+  const breakdown = windowYears.map(yr => {
+    const cap     = getConcessionalCap(yr);
+    const entered = contrib['cf_unused_fy'+yr];
+    const unused  = entered != null ? Math.max(0, Math.min(+entered, cap)) : 0;
+    return { yr, cap, unused };
   });
-  for(const t of sorted){
-    const s=t.symbol;
-    if(!map[s]) map[s]={symbol:s,assetType:t.assetType,units:0,costBasis:0,source:t.source};
-
-    if(t.type==='corporate_action'){
-      applyCorporateAction(map, s, t);
-    } else if(t.type==='buy' || t.type==='drp'){
-      map[s].units+=+t.units;
-      map[s].costBasis+=(+t.units * +t.price)+(+t.fees||0);
-    } else {
-      const ratio=map[s].units>0?(+t.units/map[s].units):0;
-      map[s].costBasis-=map[s].costBasis*ratio;
-      map[s].units-=+t.units;
-    }
-    map[s].source=t.source; map[s].assetType=t.assetType;
-  }
-  return Object.values(map).filter(h=>h.units>0.000001);
+  const totalUnused = breakdown.reduce((s, r) => s + r.unused, 0);
+  const curEmp = +(contrib.empCC_cur || 0);
+  const curPer = +(contrib.perCC_cur || 0);
+  const curCC  = curEmp + curPer;
+  const cfUsedThisYear      = Math.max(0, curCC - curCap);
+  const cfRemainingThisYear = eligible ? Math.max(0, totalUnused - cfUsedThisYear) : 0;
+  const totalCapThisYear    = eligible ? curCap + totalUnused : curCap;
+  return { eligible, currentBalance:currentBalance||0, breakdown, totalUnused, curCC, curFY:CUR_FY, curCap, cfUsedThisYear, cfRemainingThisYear, totalCapThisYear };
 }
 
-// ── TRADE ROI (per-trade, shown in the Trades table) ─────────────────
-// Buy/DRP trades: ROI vs current market price, using net cost per unit
-// (trade price + this trade's own fees, i.e. what that specific parcel
-// actually cost you).
-// Sell trades: REALIZED ROI vs the running weighted-average cost per unit
-// at the moment of sale (same average-cost method calcH() uses to track
-// holdings), using net sale proceeds per unit (after fees). This mirrors
-// calcH()'s corporate-action handling so average cost stays correct across
-// mergers/splits/spinoffs feeding into a sell.
-// Corporate action rows are skipped entirely (not a buy/sell).
-// ── HOLDINGS ROW EXPAND — last 10 trades for a symbol ────────────────
-// Keyed by symbol (not table index) so it survives sorts/filters/re-renders
-// of the Holdings table without losing track of which row was open.
-let hbExpanded = {};
-function toggleHoldingExpand(sym){
-  hbExpanded[sym] = !hbExpanded[sym];
-  renderH();
-}
 
-// Builds the expanded detail rows for one holding: its last 10 trades,
-// reusing the exact same per-trade P&L/ROI% math as the Trades tab
-// (computeTradeROIData/tradeROIPct) so the numbers always agree with what
-// you'd see there. These are real <tr>s in the SAME table as the Holdings
-// rows (not a nested table) — an 11-<td> row per trade, matching the outer
-// table's own column slots (Symbol→Date, Units→Units, Avg Cost→Price,
-// Cur Price→Cur Price, Mkt Value→Mkt Value, Cost Basis→Net, P&L $, P&L %;
-// Owner/Type/Source stay blank). Sharing one table's column-width algorithm
-// is what keeps every value lined up under the outer header it corresponds
-// to — a separate inner table can't guarantee that alignment.
-function renderHoldingTradeRows(sym, cur, roiMap){
-  const symTrades = trades
-    .filter(t=>t.symbol===sym && t.type!=='corporate_action')
-    .sort((a,b)=> b.date.localeCompare(a.date) || (+b.id||0)-(+a.id||0))
-    .slice(0,10);
 
-  const titleRow = `<tr class="hb-detail"><td colspan="11" style="padding:10px 16px 4px;background:var(--surface2);font-size:10px;letter-spacing:.06em;color:var(--text3)">
-    ${symTrades.length ? `LAST ${symTrades.length} TRADE${symTrades.length===1?'':'S'} — ${escHtml(plainSymbol(sym)).toUpperCase()}` : `NO TRADES ON RECORD — ${escHtml(plainSymbol(sym)).toUpperCase()}`}
-  </td></tr>`;
-  if(!symTrades.length) return titleRow;
+function calcSuperPreview(){
+  // Reads current form state and shows a live ROI preview
+  // Uses the same logic as renderSuperAccounts
+  const preview = $('su-preview');
+  if(!preview) return;
 
-  const headerRow = `<tr class="hb-detail" style="background:var(--surface2);color:var(--text3);font-size:10px">
-    <td style="padding:2px 8px 6px">DATE</td>
-    <td></td><td></td>
-    <td style="text-align:right;padding:2px 8px 6px">UNITS</td>
-    <td style="text-align:right;padding:2px 8px 6px">PRICE</td>
-    <td style="text-align:right;padding:2px 8px 6px">CUR PRICE</td>
-    <td style="text-align:right;padding:2px 8px 6px">MKT VALUE</td>
-    <td style="text-align:right;padding:2px 8px 6px">NET</td>
-    <td style="text-align:right;padding:2px 8px 6px">P&L $</td>
-    <td style="text-align:right;padding:2px 8px 6px">P&L %</td>
-    <td></td>
-  </tr>`;
+  const _np = new Date();
+  const CUR_FY   = _np.getMonth() >= 6 ? _np.getFullYear()+1 : _np.getFullYear();
+  const PREV_FY  = CUR_FY - 1;
+  const PREV2_FY = CUR_FY - 2;
 
-  const dataRows = symTrades.map((t,i)=>{
-    const price = +t.price;
-    const mv = cur!=null ? cur*(+t.units) : null;
-    const net = (t.type==='buy'||t.type==='drp') ? (+t.units*price)+(+t.fees||0) : (+t.units*price)-(+t.fees||0);
-    const r = roiMap[t.id];
-    let plDollar = null;
-    if(r){
-      if(r.kind==='buy' && r.costPerUnit!=null && cur!=null) plDollar = (cur - r.costPerUnit) * (+t.units);
-      else if(r.kind==='sell' && r.avgCostPerUnit!=null && r.netPerUnit!=null) plDollar = (r.netPerUnit - r.avgCostPerUnit) * (+t.units);
-    }
-    const roiPct = tradeROIPct(t, roiMap);
-    const plC = plDollar==null ? '' : (plDollar>=0?'pos':'neg');
-    const sideLabel = t.type==='drp' ? 'DRP' : (t.type==='buy' ? 'Buy' : 'Sell');
-    const lastRow = i===symTrades.length-1;
-    const pad = `padding:4px 8px${lastRow?' 10px':''}`;
-    return `<tr class="hb-detail" style="background:var(--surface2)">
-      <td style="${pad}">${t.date} <span style="color:var(--text3);font-size:9px">${sideLabel}</span></td>
-      <td></td><td></td>
-      <td style="text-align:right;${pad}">${nN(t.units,8)}</td>
-      <td style="text-align:right;${pad}">${n2(price,dec(price))}</td>
-      <td style="text-align:right;${pad}">${cur!=null?n2(cur,dec(cur)):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right;${pad}">${mv!=null?n2(mv):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right;${pad}">${n2(net)}</td>
-      <td style="text-align:right;${pad}" class="${plC}">${plDollar!=null?(plDollar>=0?'+':'')+n2(plDollar):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right;${pad}" class="${plC}">${roiPct!=null?(roiPct>=0?'+':'')+roiPct.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
-      <td></td>
-    </tr>`;
-  }).join('');
+  const curBal  = parseFloat($('su-balance')?.value) || 0;
+  if(!curBal){ preview.style.display='none'; return; }
 
-  return titleRow + headerRow + dataRows;
-}
-
-function computeTradeROIData(){
-  const map = {};
-  const out = {};
-  const sorted = [...trades].sort((a,b)=>{
-    const dateD = a.date.localeCompare(b.date);
-    if(dateD!==0) return dateD;
-    const aIsFrom = (a.subtype||'').endsWith('_from') ? -1 : 0;
-    const bIsFrom = (b.subtype||'').endsWith('_from') ? -1 : 0;
-    return aIsFrom - bIsFrom;
+  // Read FY balances from inputs
+  const fyData = {};
+  document.querySelectorAll('.su-fy-input').forEach(inp => {
+    const yr  = +inp.dataset.fy;
+    const val = parseFloat(inp.value);
+    if(!isNaN(val) && val > 0) fyData[yr] = val;
   });
-  for(const t of sorted){
-    const s = t.symbol;
-    if(!map[s]) map[s] = {units:0, costBasis:0};
+  const prevBal  = fyData[PREV_FY]  || null;
+  const prev2Bal = fyData[PREV2_FY] || null;
 
-    if(t.type==='corporate_action'){
-      applyCorporateAction(map, s, t);
-    } else if(t.type==='buy' || t.type==='drp'){
-      const netCost = (+t.units * +t.price) + (+t.fees||0);
-      map[s].units += +t.units;
-      map[s].costBasis += netCost;
-      out[t.id] = { kind:'buy', costPerUnit: (+t.units>0) ? netCost/(+t.units) : null };
-    } else {
-      const avgCostPerUnit = map[s].units>0 ? map[s].costBasis/map[s].units : null;
-      const netProceeds = (+t.units * +t.price) - (+t.fees||0);
-      const netPerUnit = (+t.units>0) ? netProceeds/(+t.units) : null;
-      out[t.id] = { kind:'sell', avgCostPerUnit, netPerUnit };
-      const ratio = map[s].units>0 ? (+t.units/map[s].units) : 0;
-      map[s].costBasis -= map[s].costBasis*ratio;
-      map[s].units -= +t.units;
-    }
+  // Read contributions
+  const getC = key => {
+    const el = document.querySelector(`.su-contrib[data-contrib="${key}"]`);
+    return el ? (parseFloat(el.value) || 0) : 0;
+  };
+  const empCC_cur  = getC('empCC_cur'),  perCC_cur  = getC('perCC_cur');
+  const empCC_prev = getC('empCC_prev'), perCC_prev = getC('perCC_prev');
+
+  function calcROI(startBal, endBal, empCC, perCC){
+    if(!startBal || !endBal) return null;
+    const afterTaxCC = ((empCC||0) + (perCC||0)) * 0.85;
+    const gain       = endBal - startBal - afterTaxCC;
+    const avgBal     = (startBal + endBal) / 2;
+    const roi        = avgBal > 0 ? (gain / avgBal) * 100 : null;
+    return { gain, roi, afterTaxCC };
   }
-  return out;
+
+  const roi_cur  = prevBal  ? calcROI(prevBal,  curBal,  empCC_cur,  perCC_cur)  : null;
+  const roi_prev = prev2Bal ? calcROI(prev2Bal, prevBal, empCC_prev, perCC_prev) : null;
+
+  const clr = v => v === null ? 'neu' : v >= 0 ? 'pos' : 'neg';
+  const fmt = (v, prefix='$') => v === null ? '—' : (v>=0?'+':'')+prefix+n2(v);
+  const fmtPct = v => v === null ? '—' : (v>=0?'+':'')+v.toFixed(2)+'%';
+
+  const items = [
+    {l:'Current Balance',          v:n2(curBal),           c:'neu'},
+    prevBal  ? {l:'FY'+PREV_FY+' Balance', v:n2(prevBal), c:'neu'} : null,
+    roi_cur  ? {l:'FY'+CUR_FY+' Inv. Gain',  v:fmt(roi_cur.gain),       c:clr(roi_cur.gain)}  : null,
+    roi_cur  ? {l:'FY'+CUR_FY+' ROI',        v:fmtPct(roi_cur.roi),     c:clr(roi_cur.roi)}   : null,
+    prev2Bal ? {l:'FY'+PREV2_FY+' Balance',  v:n2(prev2Bal),        c:'neu'}               : null,
+    roi_prev ? {l:'FY'+PREV_FY+' Inv. Gain', v:fmt(roi_prev.gain),      c:clr(roi_prev.gain)} : null,
+    roi_prev ? {l:'FY'+PREV_FY+' ROI',       v:fmtPct(roi_prev.roi),    c:clr(roi_prev.roi)}  : null,
+  ].filter(Boolean);
+
+  $('su-preview-grid').innerHTML = items.map(i=>
+    `<div><div style="color:var(--text3);font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px">${i.l}</div>
+     <div class="${i.c}" style="font-size:13px;font-weight:600">${i.v}</div></div>`
+  ).join('');
+  preview.style.display = '';
 }
 
-// ROI % for a single trade row, or null if not computable (missing price,
-// no prior holdings for a sell, corporate action, etc).
-function tradeROIPct(t, roiMap){
-  const r = roiMap[t.id];
-  if(!r) return null;
-  if(r.kind==='buy'){
-    if(!r.costPerUnit) return null;
-    const cur = prices[priceSymbol(t.symbol)];
-    if(cur==null) return null;
-    return (cur - r.costPerUnit) / r.costPerUnit * 100;
+function saveSuperAccount(){
+  const a = readSuperForm();
+  if(!a.name){ notify('Enter an account name.','err'); return; }
+  if(a.id){
+    const idx = superAccounts.findIndex(x => x.id === a.id);
+    if(idx >= 0) superAccounts[idx] = { ...superAccounts[idx], ...a };
+  } else {
+    a.id = 'su_' + uid();
+    superAccounts.push(a);
   }
-  if(r.kind==='sell'){
-    if(!r.avgCostPerUnit || r.netPerUnit==null) return null;
-    return (r.netPerUnit - r.avgCostPerUnit) / r.avgCostPerUnit * 100;
-  }
-  return null;
+  saveSuperAccounts();
+  clearSuperForm();
+  renderSuperAccounts();
+  renderSuperCards();
+  renderSuperChart();
+  notify('Super account saved \u2713');
 }
 
-// ── RENDER HOLDINGS ──────────────────────────────────────────────────
-// ── SORTABLE TABLES ──────────────────────────────────────────────────
-const SORT_STATE = {};
-
-function getSort(tableId){
-  return SORT_STATE[tableId] || {col:null, dir:1};
+function clearSuperForm(){
+  if($('su-name'))    $('su-name').value    = '';
+  if($('su-balance')) $('su-balance').value = '';
+  if($('su-color'))   { $('su-color').value = '#3b82f6'; $('su-color-label').textContent='#3b82f6'; }
+  document.querySelectorAll('.su-fy-input').forEach(inp => inp.value = '');
+  document.querySelectorAll('.su-contrib').forEach(inp => inp.value = '');
+  $('su-edit-id').textContent = ''; $('su-edit-id').dataset.id = '';
+  $('su-form-title-text').textContent = 'Add Super Account';
+  toggleSuperForm(false);
+  $('su-preview').style.display = 'none';
+  updateBfYearLabels();
 }
 
-function toggleSort(tableId, col, renderFnName){
-  const s = getSort(tableId);
-  SORT_STATE[tableId] = {col, dir: s.col===col ? s.dir*-1 : 1};
-  if(window[renderFnName]) window[renderFnName]();
-}
-
-function sortArrow(tableId, col){
-  const s = getSort(tableId);
-  if(s.col !== col) return '<span style="opacity:0.25;font-size:10px;margin-left:3px">⇅</span>';
-  return s.dir===1
-    ? '<span style="color:var(--gold);font-size:10px;margin-left:3px">▲</span>'
-    : '<span style="color:var(--gold);font-size:10px;margin-left:3px">▼</span>';
-}
-
-function sortTh(tableId, col, label, renderFnName, extraStyle, pri){
-  const sty = 'cursor:pointer;user-select:none' + (extraStyle ? ';'+extraStyle : '');
-  const priAttr = pri!=null ? ' data-pri="'+pri+'"' : '';
-  return '<th style="' + sty + '"' + priAttr + ' onclick="toggleSort(\'' + tableId + '\',\'' + col + '\',\'' + renderFnName + '\')">'
-    + label + sortArrow(tableId, col) + '</th>';
-}
-
-// Sorts an array of objects by col/dir.
-// Special case: col===typeCol groups by type alpha, then by symbolCol A-Z within group.
-function sortRows(rows, col, dir, typeCol, symbolCol){
-  return rows.slice().sort((a,b)=>{
-    let av=a[col], bv=b[col];
-    if(col===typeCol){
-      const td = (av||'').localeCompare(bv||'') * dir;
-      return td !== 0 ? td : (a[symbolCol]||'').localeCompare(b[symbolCol]||'');
-    }
-    const an = av===null||av===''||av==null;
-    const bn = bv===null||bv===''||bv==null;
-    if(an && bn) return 0;
-    if(an) return 1;
-    if(bn) return -1;
-    if(typeof av==='number'||(!isNaN(+av))){
-      return (+av - +bv) * dir;
-    }
-    return av.toString().localeCompare(bv.toString()) * dir;
+// Relabel the three bring-forward "NCC used" fields with the actual FY numbers
+// once a start year is entered (FY2027, FY2028, FY2029 instead of Year 1/2/3).
+function updateBfYearLabels(){
+  const startEl = document.querySelector('.su-contrib[data-contrib="bf_start_fy"]');
+  const start = startEl ? parseInt(startEl.value) : NaN;
+  [1,2,3].forEach(n=>{
+    const el = $('bf-y'+n+'-label');
+    if(!el) return;
+    el.textContent = (!isNaN(start) && start>0) ? ('NCC used — FY'+(start+n-1)) : ('NCC used — Year '+n);
   });
 }
 
-
-// ── PRICE DROP / RISE ALERTS (dashboard banner) ───────────────────────
-// See settings.js for the config UI (load/save/renderPriceAlertSettings).
-// This is the actual check: for each monitored symbol, compare its live
-// price against the highest/lowest price you've ever deliberately bought
-// it at (buy trades only, not DRP/corporate actions — see settings.js
-// comment), using THAT symbol's own drop/rise thresholds from the
-// {symbol: {drop, rise}} map. A symbol can fire in both directions on
-// different days (unlikely same day, but not impossible with a wide gap
-// between your lowest and highest buy).
-function computePriceDropAlerts(){
-  const cfg = loadPriceAlertSettings();
-  const monitored = Object.entries(cfg.symbols||{});
-  if(!cfg.enabled || !monitored.length) return [];
-  const held = new Set(calcH().filter(h=>Math.abs(h.units)>1e-9).map(h=>h.symbol));
-  const alerts = [];
-  monitored.forEach(([sym, cfgForSym])=>{
-    if(!held.has(sym)) return; // fully exited since being added to the watch list
-    const priceSym = priceSymbol(sym);
-    const curPrice = prices[priceSym];
-    if(curPrice==null) return;
-    const buyPrices = trades.filter(t=>t.symbol===sym && t.type==='buy').map(t=>+t.price).filter(p=>p>0);
-    if(!buyPrices.length) return;
-    const { drop, rise } = cfgForSym || {};
-    if(drop!=null){
-      const highestBuy = Math.max(...buyPrices);
-      const dropPct = (highestBuy - curPrice) / highestBuy * 100;
-      if(dropPct > drop) alerts.push({ symbol: sym, direction:'drop', curPrice, refPrice: highestBuy, movePct: dropPct, threshold: drop });
-    }
-    if(rise!=null){
-      const lowestBuy = Math.min(...buyPrices);
-      const risePct = (curPrice - lowestBuy) / lowestBuy * 100;
-      if(risePct > rise) alerts.push({ symbol: sym, direction:'rise', curPrice, refPrice: lowestBuy, movePct: risePct, threshold: rise });
-    }
-  });
-  return alerts.sort((a,b)=>b.movePct-a.movePct);
-}
-function renderPriceDropAlerts(){
-  const wrap = $('price-alerts-wrap');
-  if(!wrap) return;
-  const alerts = computePriceDropAlerts();
-  if(!alerts.length){ wrap.style.display='none'; wrap.innerHTML=''; return; }
-  wrap.style.display='';
-  wrap.innerHTML = `
-    <div class="fst" style="color:var(--gold)">🔔 PRICE ALERTS</div>
-    <div style="display:flex;flex-direction:column;gap:2px">
-      ${alerts.map(a=>{
-        const isDrop = a.direction==='drop';
-        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-          <span style="font-weight:600">${escHtml(displaySymbol(a.symbol))} <span style="font-size:10px;color:var(--text3);font-weight:400">${isDrop?'▼ drop':'▲ rise'}</span></span>
-          <span style="font-size:12px;color:var(--text3);text-align:right">
-            <span class="${isDrop?'neg':'pos'}" style="font-weight:700">${isDrop?'-':'+'}${a.movePct.toFixed(2)}%</span>
-            <span style="color:var(--text3);font-size:10px">(threshold ${a.threshold}%)</span>
-            from ${isDrop?'highest':'lowest'} buy ${n2(a.refPrice,dec(a.refPrice))} → now ${n2(a.curPrice,dec(a.curPrice))}
-          </span>
-        </div>`;
-      }).join('')}
-    </div>
-    <div style="font-size:10px;color:var(--text3);margin-top:8px">Based on your own buy price history — a prompt to review, not investment advice.</div>
-  `;
-}
-
-// ── CONCENTRATION ALERTS (dashboard banner) ───────────────────────────
-// See settings.js for the config UI. Checks each monitored symbol's live
-// market value as a % of total current portfolio value — independent of
-// the price alerts above, this is about position SIZE, not price moves.
-function computeConcentrationAlerts(){
-  const cfg = loadConcentrationAlertSettings();
-  const monitored = Object.entries(cfg.symbols||{});
-  if(!cfg.enabled || !monitored.length) return [];
-  const holdings = calcH().filter(h=>Math.abs(h.units)>1e-9);
-  const mvBySymbol = {};
-  let totalMv = 0;
-  holdings.forEach(h=>{
-    const cur = prices[priceSymbol(h.symbol)];
-    if(cur==null) return;
-    const mv = cur * h.units;
-    mvBySymbol[h.symbol] = mv;
-    totalMv += mv;
-  });
-  if(!(totalMv > 0)) return [];
-  const alerts = [];
-  monitored.forEach(([sym, thresholdPct])=>{
-    const mv = mvBySymbol[sym];
-    if(mv==null) return;
-    const pctOfPortfolio = mv / totalMv * 100;
-    const threshold = +thresholdPct || CA_DEFAULT_THRESHOLD;
-    if(pctOfPortfolio > threshold) alerts.push({ symbol: sym, pctOfPortfolio, threshold, mv });
-  });
-  return alerts.sort((a,b)=>b.pctOfPortfolio-a.pctOfPortfolio);
-}
-function renderConcentrationAlerts(){
-  const wrap = $('concentration-alerts-wrap');
-  if(!wrap) return;
-  const alerts = computeConcentrationAlerts();
-  if(!alerts.length){ wrap.style.display='none'; wrap.innerHTML=''; return; }
-  wrap.style.display='';
-  wrap.innerHTML = `
-    <div class="fst" style="color:var(--gold)">⚖ CONCENTRATION ALERTS</div>
-    <div style="display:flex;flex-direction:column;gap:2px">
-      ${alerts.map(a=>`
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-          <span style="font-weight:600">${escHtml(displaySymbol(a.symbol))}</span>
-          <span style="font-size:12px;color:var(--text3);text-align:right">
-            <span class="neg" style="font-weight:700">${a.pctOfPortfolio.toFixed(1)}%</span>
-            <span style="color:var(--text3);font-size:10px">(threshold ${a.threshold}%)</span>
-            of portfolio — ${n2(a.mv)}
-          </span>
-        </div>`).join('')}
-    </div>
-    <div style="font-size:10px;color:var(--text3);margin-top:8px">A single position this large means its own moves meaningfully swing your whole portfolio — a prompt to review, not investment advice.</div>
-  `;
-}
-
-function renderH(){
-  if(typeof renderPriceDropAlerts==='function') renderPriceDropAlerts();
-  if(typeof renderConcentrationAlerts==='function') renderConcentrationAlerts();
-  const CRYPTO_TYPES = ['crypto'];
-  const isCrypto = h => CRYPTO_TYPES.includes(h.assetType);
-  const isStock  = h => !CRYPTO_TYPES.includes(h.assetType);
-
-  const holdings = calcH();
-  // Rebuild asset-type filter from actual holdings (auto-includes new types)
-  const _allTypes = [...new Set(holdings.map(h=>h.assetType).filter(Boolean))].sort();
-  const AT_NAMES = {asx_stock:'ASX Stock',etf:'ETF',lic:'LIC',reit:'REIT',
-    managed:'Managed Fund',crypto:'Crypto',bond:'Bond',cash:'Cash',other:'Other'};
-  for(const _fid of ['ht','hd-type']){
-    const _fsel = $(_fid);
-    if(!_fsel) continue;
-    const _cur = _fsel.value;
-    _fsel.innerHTML = '<option value="">All Types</option>' +
-      _allTypes.map(t=>`<option value="${t}" ${t===_cur?'selected':''}>${AT_NAMES[t]||t}</option>`).join('');
-  }
-  // Rebuild ht-own owner filter
-  const _htOwn = $('ht-own');
-  const _htOwnCur = _htOwn ? _htOwn.value : '';
-  if(_htOwn) _htOwn.innerHTML = '<option value="">All Owners</option>' +
-    getAllPersons().concat(['joint']).map(p=>
-      `<option value="${p}" ${p===_htOwnCur?'selected':''}>${getPersonLabel(p)}</option>`
+function updateSuperFormFYLabels(){
+  const _n = new Date();
+  const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
+  const PREV_FY = CUR_FY - 1;
+  const el = id => document.getElementById(id);
+  if(el('su-contrib-cur-label'))  el('su-contrib-cur-label').textContent  = 'CONTRIBUTIONS THIS YEAR (FY'+CUR_FY+')';
+  if(el('su-contrib-prev-label')) el('su-contrib-prev-label').textContent = 'CONTRIBUTIONS PREVIOUS YEAR (FY'+PREV_FY+')';
+  if(el('su-bal-prev-label'))     el('su-bal-prev-label').textContent     = 'Super Balance at 30 Jun FY'+PREV_FY;
+  const cfWrap = el('su-cf-fields');
+  if(cfWrap){
+    const windowYears = [CUR_FY-5,CUR_FY-4,CUR_FY-3,CUR_FY-2,CUR_FY-1].filter(y=>y>=2019);
+    cfWrap.innerHTML = windowYears.map(yr =>
+      '<div><label class="fl" style="font-size:10px">FY'+yr+' — Unused cap (from ATO)</label>'+
+      '<input class="fi su-contrib" data-contrib="cf_unused_fy'+yr+'" type="number" placeholder="e.g. 5000" step="any" min="0" style="padding:4px 8px" oninput="calcSuperPreview()"></div>'
     ).join('');
-  const ownerF_h = _htOwnCur;
-
-  // Rebuild ht-broker source/broker filter — built from brokers actually present in holdings
-  const _htBroker = $('ht-broker');
-  const _htBrokerCur = _htBroker ? _htBroker.value : '';
-  if(_htBroker){
-    const _brokersInUse = [...new Set(holdings.map(h=>h.source).filter(Boolean))].sort();
-    const _brokerLabels = getAllBrokers();
-    _htBroker.innerHTML = '<option value="">All Sources</option>' +
-      _brokersInUse.map(b=>{
-        const label = (_brokerLabels.find(x=>x.value===b)||{}).label || b;
-        return `<option value="${b}" ${b===_htBrokerCur?'selected':''}>${label}</option>`;
-      }).join('');
   }
-  const brokerF_h = _htBrokerCur;
-
-  const s = ($('hs').value||'').toLowerCase(), tf = $('ht').value;
-  let f = holdings.filter(h=>{
-    if(s && !h.symbol.toLowerCase().includes(s)) return false;
-    if(tf && h.assetType !== tf) return false;
-    if(ownerF_h && getSymbolOwner(h.symbol) !== ownerF_h) return false;
-    if(brokerF_h && h.source !== brokerF_h) return false;
-    if(portfolioView===1 && isCrypto(h)) return false;
-    if(portfolioView===2 && !isCrypto(h)) return false;
-    return true;
-  });
-  $('he').style.display = f.length ? 'none' : '';
-
-  if($('hb-title')) $('hb-title').textContent =
-    portfolioView===1 ? 'HOLDINGS — STOCKS ONLY' : portfolioView===2 ? 'HOLDINGS — CRYPTO ONLY' : 'HOLDINGS';
-
-  // Apply sort — default to A→Z by symbol whenever nothing's been explicitly chosen
-  // (fresh load, or after switchTab's per-tab sort reset)
-  if(!getSort('hb').col) SORT_STATE['hb'] = {col:'symbol', dir:1};
-  const {col, dir} = getSort('hb');
-  // _owner is the display label ("Lumia", "Jake", "Joint"...), not the raw
-  // key — sorting/display should both go off what's actually on screen.
-  if(col){
-    f = sortRows(f.map(h=>{
-      const cur=prices[priceSymbol(h.symbol)]??null;
-      const mv=cur!=null?cur*h.units:null;
-      const pl=mv!=null?mv-h.costBasis:null;
-      const pp=pl!=null&&h.costBasis>0?(pl/h.costBasis)*100:null;
-      return {...h,_cur:cur,_mv:mv,_pl:pl,_pp:pp,_avg:h.units>0?h.costBasis/h.units:0,
-              _owner:getPersonLabel(getSymbolOwner(h.symbol))};
-    }),col,dir,'assetType','symbol');
-  } else {
-    f = f.map(h=>{
-      const cur=prices[priceSymbol(h.symbol)]??null;
-      const mv=cur!=null?cur*h.units:null;
-      const pl=mv!=null?mv-h.costBasis:null;
-      return {...h,_cur:cur,_mv:mv,_pl:pl,
-              _pp:pl!=null&&h.costBasis>0?(pl/h.costBasis)*100:null,
-              _avg:h.units>0?h.costBasis/h.units:0,
-              _owner:getPersonLabel(getSymbolOwner(h.symbol))};
-    });
-  }
-
-  const TID='hb';
-  const th=(col,label,sty,pri)=>sortTh(TID,col,label,'renderH',sty,pri);
-  // data-pri controls which columns survive on narrow screens (lower = kept
-  // longer). Symbol (index 0) and Source (last index) are always shown by
-  // the responsive-table logic regardless of pri, so the numbers below just
-  // rank the 9 columns in between: Units/Mkt Value/Cost Basis/P&L% stay
-  // visible longest; Owner/Type/Avg Cost/Cur Price/P&L $ drop into the
-  // tap-to-reveal detail row first.
-  $('hb').closest('table').querySelector('thead tr').innerHTML =
-    th('symbol','Symbol',null,0) +
-    th('_owner','Owner',null,9) +
-    th('assetType','Type',null,8) +
-    th('units','Units','text-align:right',1) +
-    th('_avg','Avg Cost','text-align:right',10) +
-    th('_cur','Cur Price','text-align:right',7) +
-    th('_mv','Mkt Value','text-align:right',2) +
-    th('costBasis','Cost Basis','text-align:right',3) +
-    th('_pl','P&L $','text-align:right',6) +
-    th('_pp','P&L %','text-align:right',4) +
-    th('source','Source',null,5);
-
-  const _hbTradeROI = computeTradeROIData();
-  $('hb').innerHTML = f.map(h=>{
-    const cur=h._cur,mv=h._mv,pl=h._pl,pp=h._pp,avg=h._avg;
-    const plC=pl==null?'':(pl>=0?'pos':'neg');
-    const expanded = !!hbExpanded[h.symbol];
-    return `<tr>
-      <td>
-        <span style="cursor:pointer;display:inline-flex;align-items:center;gap:5px" onclick="event.stopPropagation();toggleHoldingExpand('${escHtml(h.symbol)}')">
-          <span style="color:var(--text3);font-size:9px;width:8px;display:inline-block">${expanded?'▼':'▶'}</span>
-          <b>${displaySymbol(h.symbol)}</b>
-        </span>
-      </td><td><span style="font-size:10px;padding:1px 6px;border-radius:10px;background:${getPersonColourAlpha(getSymbolOwner(h.symbol),'22')};color:${getPersonColour(getSymbolOwner(h.symbol))}">${getPersonLabel(getSymbolOwner(h.symbol))}</span></td><td>${bT(h.assetType)}</td>
-      <td style="text-align:right">${nN(h.units,8)}</td>
-      <td style="text-align:right">${n2(avg,dec(avg))}</td>
-      <td style="text-align:right">${cur!=null?n2(cur,dec(cur)):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right">${mv!=null?n2(mv):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right">${n2(h.costBasis)}</td>
-      <td style="text-align:right" class="${plC}">${pl!=null?(pl>=0?'+':'')+n2(pl):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right" class="${plC}">${pp!=null?(pp>=0?'+':'')+pp.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="color:var(--text3);font-size:11px">${h.source||''}</td>
-    </tr>${expanded ? renderHoldingTradeRows(h.symbol, cur, _hbTradeROI) : ''}`;
-  }).join('');
-
-  // ── Table totals footer — only when Holdings filters are active ──────
-  // Summary cards already cover the unfiltered view; this row mirrors the
-  // table columns 1:1 (no colspan) so portrait responsive column-hiding
-  // keeps totals under the matching headers. P&L $ hides with its column.
-  const hasTableFilter = !!(s || tf || ownerF_h || brokerF_h);
-  const hbFoot = $('hb-foot');
-  if(hbFoot){
-    if(hasTableFilter && f.length){
-      let totMv=0, totCost=0, anyMv=false;
-      f.forEach(h=>{ if(h._mv!=null){ totMv+=h._mv; anyMv=true; } totCost+=h.costBasis; });
-      const totPl = anyMv ? totMv-totCost : null;
-      const totPp = totPl!=null && totCost>0 ? (totPl/totCost)*100 : null;
-      const plC = totPl==null?'':(totPl>=0?'pos':'neg');
-      // One <td> per column — same order as thead/body (Symbol…Source)
-      hbFoot.innerHTML = `<tr style="font-weight:700;border-top:2px solid var(--bo)">
-        <td>TOTAL (${f.length})</td>
-        <td></td>
-        <td></td>
-        <td></td>
-        <td></td>
-        <td></td>
-        <td style="text-align:right">${anyMv?n2(totMv):'—'}</td>
-        <td style="text-align:right">${n2(totCost)}</td>
-        <td style="text-align:right" class="${plC}">${totPl!=null?(totPl>=0?'+':'')+n2(totPl):'—'}</td>
-        <td style="text-align:right" class="${plC}">${totPp!=null?(totPp>=0?'+':'')+totPp.toFixed(2)+'%':'—'}</td>
-        <td></td>
-      </tr>`;
-    } else {
-      hbFoot.innerHTML = '';
+  const fyWrap = el('su-fy-fields');
+  if(fyWrap){
+    let html='';
+    for(let y=2016;y<=PREV_FY;y++){
+      html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+
+        '<label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY'+y+'</label>'+
+        '<input class="fi su-fy-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px" oninput="renderSuperChart()"></div>';
     }
+    fyWrap.innerHTML = html;
   }
-
-  // ── Summary cards — filtered by portfolioView ──────────────────
-  const allH = holdings; // unfiltered by search/type, for card totals
-  const filterFn = portfolioView===1 ? isStock : portfolioView===2 ? isCrypto : ()=>true;
-  const viewH = allH.filter(filterFn).map(h=>{
-    const cur = prices[priceSymbol(h.symbol)]??null;
-    const mv  = cur!=null ? cur*h.units : null;
-    const pl  = mv!=null  ? mv-h.costBasis : null;
-    return {...h, _mv:mv, _pl:pl};
-  });
-
-  // Trades filtered for card count
-  const viewTrades = portfolioView===0 ? trades
-    : portfolioView===1 ? trades.filter(t=>!CRYPTO_TYPES.includes(t.assetType))
-    : trades.filter(t=>CRYPTO_TYPES.includes(t.assetType));
-
-  let tv=0, tc=0;
-  viewH.forEach(h=>{ if(h._mv!=null) tv+=h._mv; tc+=h.costBasis; });
-  const tpl = tv ? tv-tc : null;
-  const tpp = tpl&&tc ? (tpl/tc*100) : null;
-
-  // Labels — keep both card labels short and constant so they never wrap
-  // onto a 2nd line at narrow widths (that's what was pushing the dollar
-  // figures out of alignment with the other cards in the row). The
-  // Stocks/Crypto view indicator lives in each card's sub-line instead.
-  const viewLabel = portfolioView===1 ? 'Stocks' : portfolioView===2 ? 'Crypto' : '';
-  const mvLabel   = 'Market Value';
-  const cbLabel   = 'Cost Basis';
-  const mvSub     = portfolioView===0 ? 'AUD · all assets ↻'
-                  : portfolioView===1 ? 'Stocks only ↻'
-                  : 'Crypto only ↻';
-  const cbSub     = portfolioView===0 ? 'Total invested' : viewLabel+' only';
-
-  if($('cl-mv')) $('cl-mv').textContent = mvLabel;
-  if($('cl-cb')) $('cl-cb').textContent = cbLabel;
-  if($('cs-mv')) $('cs-mv').textContent = mvSub;
-  if($('cs-cb')) $('cs-cb').textContent = cbSub;
-  if($('cs-pos')) $('cs-pos').textContent = viewLabel ? viewLabel+' positions' : 'Open';
-
-  // Filter-active highlight removed per user preference (was: blue outline on cardsEl).
-  const cardsEl = $('portfolio-cards');
-
-  if($('cv')) animateValue($('cv'), tv || null, {format:v=>n2(v)});
-  if($('cc')) animateValue($('cc'), tc, {format:v=>n2(v)});
-  if($('cp')){
-    $('cp').className = 'card-value '+(tpl==null?'neu':tpl>=0?'pos':'neg');
-    animateValue($('cp'), tpl, {format:v=>(v>=0?'+':'')+n2(v)});
-  }
-  if($('cpp')) animateValue($('cpp'), tpp, {flash:false, format:v=>(v>=0?'+':'')+v.toFixed(2)+'%'});
-  if($('cpos')) animateValue($('cpos'), viewH.length, {flash:false, format:v=>Math.round(v).toString()});
-  if($('ctrd')) animateValue($('ctrd'), viewTrades.length, {flash:false, format:v=>Math.round(v).toString()});
-  if(typeof renderMvSparkline==='function') renderMvSparkline(portfolioView);
-  if(typeof checkAthMilestone==='function') checkAthMilestone(tv||null, portfolioView);
-
-  // cpt sub — price loaded count (always all)
-  const priceCount = allH.filter(h=>prices[priceSymbol(h.symbol)]!=null).length;
-  const noPriceCount = allH.filter(h=>prices[priceSymbol(h.symbol)]==null).length;
-  if($('cpt')) $('cpt').textContent = noPriceCount>0
-    ? noPriceCount+' price'+(noPriceCount>1?'s':'')+' missing'
-    : 'All prices loaded';
-
-  snapshotPortfolioValue(allH);
-  // Single scope for Portfolio Change: portfolio view + optional table filters.
-  // Same mark-to-market engine is used for holistic and filtered views.
-  const changeScopeFn = h=>{
-    if(portfolioView===1 && isCrypto(h)) return false;
-    if(portfolioView===2 && isStock(h)) return false;
-    if(s && !h.symbol.toLowerCase().includes(s)) return false;
-    if(tf && h.assetType !== tf) return false;
-    if(ownerF_h && getSymbolOwner(h.symbol) !== ownerF_h) return false;
-    if(brokerF_h && h.source !== brokerF_h) return false;
-    return true;
-  };
-  renderPortfolioChange(changeScopeFn, hasTableFilter);
-  if(typeof refreshResponsiveTables === 'function') refreshResponsiveTables();
 }
 
-// ── PORTFOLIO CHANGE (1D/5D/1M/6M/1Y/5Y/ALL) ───────────────────────────
-// Records today's total market value (split by All/Stocks/Crypto) once per
-// render. Overwriting the same day's entry repeatedly is fine — we only
-// ever care about the latest value recorded for "today". Skipped entirely
-// if no prices are loaded yet, so we never pollute history with a $0 day.
-function snapshotPortfolioValue(allH){
-  const today = localDateStr();
-  const valFor = filterFn => {
-    let tv = 0, any = false;
-    allH.filter(filterFn).forEach(h=>{
-      const cur = prices[priceSymbol(h.symbol)];
-      if(cur!=null){ tv += cur*h.units; any = true; }
-    });
-    return any ? +tv.toFixed(2) : null;
-  };
-  const all    = valFor(()=>true);
-  const stocks = valFor(h=>h.assetType!=='crypto');
-  const crypto = valFor(h=>h.assetType==='crypto');
-  if(all==null && stocks==null && crypto==null) return; // no prices yet — don't record
-  // Per-symbol prices for mark-to-market Portfolio Change (stocks + crypto)
-  const pricesMap = {};
-  const heldSyms = new Set();
-  allH.forEach(h=>{
-    const sym = priceSymbol(h.symbol);
-    if(!sym) return;
-    heldSyms.add(sym);
-    if(prices[sym]!=null) pricesMap[sym] = prices[sym];
+function editSuperAccount(btn){
+  const id = btn.dataset.id;
+  const a  = superAccounts.find(x => x.id === id);
+  if(!a) return;
+  updateSuperFormFYLabels();
+  $('su-name').value    = a.name    || '';
+  $('su-balance').value = a.balance || '';
+  const ec = a.color || '#3b82f6';
+  if($('su-color')){ $('su-color').value = ec; $('su-color-label').textContent = ec; }
+  document.querySelectorAll('.su-fy-input').forEach(inp => {
+    const yr = +inp.dataset.fy;
+    inp.value = (a.fyData && a.fyData[yr]) ? a.fyData[yr] : '';
   });
-  const prev = pfSnapshots[today] || {};
-  // Keep prior prices for held symbols still missing today (e.g. crypto fetch
-  // failed once, or monthly NAV). Avoids wiping crypto out of the day map.
-  if(prev.prices){
-    for(const [sym,p] of Object.entries(prev.prices)){
-      if(heldSyms.has(sym) && pricesMap[sym]==null && p!=null) pricesMap[sym] = p;
-    }
+  document.querySelectorAll('.su-contrib').forEach(inp => {
+    const key = inp.dataset.contrib;
+    if(key) inp.value = (a.contrib && a.contrib[key] != null) ? a.contrib[key] : '';
+  });
+  document.querySelectorAll('.su-contrib').forEach(inp => {
+    const key = inp.dataset.contrib;
+    inp.value = (a.contrib && a.contrib[key]) ? a.contrib[key] : '';
+  });
+  $('su-edit-id').dataset.id = a.id;
+  $('su-form-title-text').textContent = 'Edit \u2014 ' + a.name;
+  toggleSuperForm(true);
+  updateBfYearLabels();
+  $('su-form-wrap').scrollIntoView({ behavior:'smooth' });
+}
+
+function deleteSuperAccount(btn){
+  if(!confirm('Delete this super account?')) return;
+  superAccounts = superAccounts.filter(a => a.id !== btn.dataset.id);
+  saveSuperAccounts();
+  renderSuperAccounts();
+  renderSuperCards();
+  renderSuperChart();
+  notify('Account deleted.','ok');
+}
+
+function renderSuperCards(){
+  const el = $('su-cards');
+  if(!el) return;
+
+  // Clamp view index in case accounts were deleted
+  if(suCardView > superAccounts.length) suCardView = 0;
+
+  const _now    = new Date();
+  const CUR_FY  = _now.getMonth() >= 6 ? _now.getFullYear()+1 : _now.getFullYear();
+  const PREV_FY = CUR_FY - 1;  // most recently completed FY
+  const COLORS  = ['#3b82f6','#10b981','#f59e0b','#ef4444','#a855f7','#ec4899','#14b8a6'];
+
+  // Helper: get balance for an account at end of a given FY (or null)
+  const fyBal = (a, fy) => (a.fyData && a.fyData[fy]) ? +a.fyData[fy] : null;
+
+  let balLabel, balVal, balSub, prevLabel, prevVal, growthVal, growthPct, accentColor;
+
+  if(suCardView === 0){
+    // ── Combined view ──
+    const totalBal  = superAccounts.reduce((s,a) => s + (+a.balance||0), 0);
+    const totalPrev = superAccounts.reduce((s,a) => s + (fyBal(a, PREV_FY)||0), 0);
+    const growth    = totalPrev > 0 ? totalBal - totalPrev : null;
+    const gPct      = growth !== null && totalPrev > 0 ? (growth/totalPrev)*100 : null;
+    const n         = superAccounts.length;
+    balLabel  = 'Total Balance';
+    balVal    = n2(totalBal);
+    balSub    = n + ' account' + (n===1?'':'s') + (n>0?' · click to cycle ↻':'');
+    prevLabel = 'FY' + PREV_FY + ' Balance';
+    prevVal   = totalPrev > 0 ? n2(totalPrev) : '—';
+    growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth) : '—';
+    growthPct = gPct   !== null ? (gPct>=0?'+':'')   + gPct.toFixed(1)+'%' : '';
+    accentColor = null;
+    el.style.outline = '';
+  } else {
+    // ── Single account view ──
+    const a    = superAccounts[suCardView - 1];
+    const bal  = +a.balance||0;
+    const prev = fyBal(a, PREV_FY);
+    const growth = prev !== null ? bal - prev : null;
+    const gPct   = growth !== null && prev > 0 ? (growth/prev)*100 : null;
+    const _a = superAccounts[suCardView-1];
+    accentColor  = (_a && _a.color) ? _a.color : COLORS[(suCardView-1) % COLORS.length];
+    balLabel  = a.name;
+    balVal    = n2(bal);
+    balSub    = 'click to cycle ↻';
+    prevLabel = 'FY' + PREV_FY + ' Balance';
+    prevVal   = prev !== null ? n2(prev) : '—';
+    growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth) : '—';
+    growthPct = gPct   !== null ? (gPct>=0?'+':'')   + gPct.toFixed(1)+'%' : '';
+    el.style.outline = '2px solid ' + accentColor;
+    el.style.borderRadius = '7px';
   }
-  // Also inherit from the previous calendar day when today is sparse
-  if(Object.keys(pricesMap).length < heldSyms.size){
-    const yesterday = new Date(today+'T00:00:00');
-    yesterday.setDate(yesterday.getDate()-1);
-    const prevDay = findPricedSnapshotOnOrBefore(localDateStr(yesterday));
-    const prevDayPrices = prevDay && pfSnapshots[prevDay] && pfSnapshots[prevDay].prices;
-    if(prevDayPrices){
-      for(const [sym,p] of Object.entries(prevDayPrices)){
-        if(heldSyms.has(sym) && pricesMap[sym]==null && p!=null) pricesMap[sym] = p;
+
+  const growthClass = growthVal.startsWith('+') ? 'pos' : growthVal.startsWith('-') ? 'neg' : 'neu';
+
+  el.innerHTML = [
+    { l: balLabel,              v: balVal,   s: 'neu',        sub: balSub,
+      onclick: 'cycleSuperCardView()' },
+    { l: prevLabel,             v: prevVal,  s: 'neu',        sub: 'End of FY' + PREV_FY,
+      onclick: 'cycleSuperCardView()' },
+    { l: 'Growth since FY' + PREV_FY, v: growthVal, s: growthClass, sub: growthPct,
+      onclick: 'cycleSuperCardView()' },
+  ].map(c =>
+    `<div class="card" onclick="${c.onclick}" style="cursor:pointer">
+      <div class="card-label">${c.l}</div>
+      <div class="card-value ${c.s}">${c.v}</div>
+      <div class="card-sub">${c.sub}</div>
+    </div>`
+  ).join('');
+
+  if(suCardView === 0){ el.style.outline = ''; el.style.borderRadius = ''; }
+}
+
+function cycleSuperCardView(){
+  if(!superAccounts.length) return;
+  suCardView = (suCardView + 1) % (superAccounts.length + 1);
+  renderSuperCards();
+}
+
+// Snapshot each account's balance into fyData when a new financial year starts,
+// so growth/ROI figures have a same-day-yesterday baseline instead of needing
+// manual entry. Wrapped defensively so it can never break the render chain.
+function checkSuperFYRollover(){
+  try{
+    const _d = new Date();
+    const CUR_FY  = _d.getMonth() >= 6 ? _d.getFullYear()+1 : _d.getFullYear();
+    const PREV_FY = CUR_FY - 1;
+    const lastFY  = +(localStorage.getItem('pt_super_last_fy')||0);
+
+    if(lastFY && lastFY < CUR_FY && Array.isArray(superAccounts)){
+      let changed = false;
+      superAccounts.forEach(a=>{
+        if(!a.fyData) a.fyData = {};
+        if(a.fyData[PREV_FY] == null && a.balance != null){
+          a.fyData[PREV_FY] = +a.balance;
+          changed = true;
+        }
+        // Roll "this year" contributions into "previous year" so they stay
+        // attached to the correct FY once the labels advance, instead of
+        // being silently mislabelled as the new (empty) current year.
+        if(!a.contrib) a.contrib = {};
+        const c = a.contrib;
+        const hadCur = c.empCC_cur != null || c.perCC_cur != null || c.ncc_cur != null;
+        if(hadCur){
+          c.empCC_prev = c.empCC_cur || 0;
+          c.perCC_prev = c.perCC_cur || 0;
+          c.ncc_prev   = c.ncc_cur   || 0;
+          delete c.empCC_cur; delete c.perCC_cur; delete c.ncc_cur;
+          changed = true;
+        }
+      });
+      if(changed){
+        saveSuperAccounts();
+        if(typeof notify === 'function') notify('Super balances & contributions rolled over to FY'+CUR_FY+' ✓','ok');
       }
     }
-  }
-  pfSnapshots[today] = {
-    all, stocks, crypto,
-    prices: Object.keys(pricesMap).length ? pricesMap : (prev.prices||undefined)
-  };
-  savePfSnapshots();
+    localStorage.setItem('pt_super_last_fy', CUR_FY);
+  }catch(e){ console.warn('checkSuperFYRollover error:', e); }
 }
 
-// Merge a remote device's pfSnapshots into ours, day by day — used by Cloud
-// Sync pull. Deliberately NOT a wholesale overwrite: each device only ever
-// records prices for the days it was actually open, so overwriting would
-// wipe out this device's own history for any day the remote copy lacks.
-// Per date: keep both devices' per-symbol prices (union), preferring this
-// device's own reading if both recorded the same symbol that day; keep
-// whichever side has non-null aggregate totals.
-function mergePfSnapshots(remoteSnaps){
-  if(!remoteSnaps || typeof remoteSnaps!=='object') return false;
-  let changed = false;
-  for(const [date, remote] of Object.entries(remoteSnaps)){
-    if(!remote || typeof remote!=='object') continue;
-    const local = pfSnapshots[date];
-    if(!local){
-      pfSnapshots[date] = remote;
-      changed = true;
-      continue;
-    }
-    const mergedPrices = { ...(remote.prices||{}), ...(local.prices||{}) };
-    const merged = {
-      all:    local.all    != null ? local.all    : remote.all,
-      stocks: local.stocks != null ? local.stocks : remote.stocks,
-      crypto: local.crypto != null ? local.crypto : remote.crypto,
-      prices: Object.keys(mergedPrices).length ? mergedPrices : undefined,
-    };
-    // Only mark changed if the merge actually added something new
-    if(JSON.stringify(merged) !== JSON.stringify(local)){
-      pfSnapshots[date] = merged;
-      changed = true;
-    }
-  }
-  if(changed) savePfSnapshots();
-  return changed;
-}
-
-const PF_CHANGE_RANGES = [
-  // tol = how many days away from the true target date a "complete" snapshot
-  // is still allowed to count as this window's start. Without this bound,
-  // a scope with any data gap near the target silently falls back to
-  // whatever complete date happens to exist — possibly months or years
-  // earlier — making e.g. "1M" quietly compare against a value from a
-  // totally different era instead of just admitting it has no usable data.
-  {key:'1d',  label:'1D',  days:1,   tol:2},
-  {key:'5d',  label:'5D',  days:5,   tol:4},
-  {key:'1m',  label:'1M',  months:1, tol:10},
-  {key:'6m',  label:'6M',  months:6, tol:20},
-  {key:'1y',  label:'1Y',  years:1,  tol:30},
-  {key:'5y',  label:'5Y',  years:5,  tol:60},
-  {key:'all', label:'ALL'},
-];
-
-// ── Portfolio Change display modes ─────────────────────────────────────
-// Click the "PORTFOLIO CHANGE" header to cycle through these. All three
-// answer "how has this scope done over each window", but define "return"
-// differently:
-//  · Value Δ        — value now vs. value you HAD on that date. Distorted
-//                      by contribution timing: a big DCA burst makes % look
-//                      huge even when prices barely moved.
-//  · Time-Weighted   — chains sub-period returns between every available
-//                      snapshot, netting out contributions/withdrawals each
-//                      leg. "How did the strategy/asset perform" — immune
-//                      to when or how much cash you added.
-//  · Money-Weighted  — solves the single discount rate that reconciles
-//                      every buy/sell in the window plus the ending value
-//                      (period IRR, actual day-count weighted — NOT
-//                      annualised, so it stays comparable to the other two
-//                      modes). "How did my money perform" — rewards good
-//                      timing of contributions.
-const PF_CHANGE_MODES = [
-  { key:'value', label:'Value Change', hint:"Value now vs. value you held on that date — can look extreme after a big contribution, even if the price barely moved" },
-  { key:'twr',   label:'Time-Weighted', hint:'% ignores when/how much you added, so it answers "how did the asset/strategy perform". $ below is your actual profit (value change minus your net contributions)' },
-  { key:'mwr',   label:'Money-Weighted', hint:'% rewards good timing of contributions, so it answers "how did my money perform". $ below is your actual profit (value change minus your net contributions)' },
-];
-let pfChangeMode = 0;
-function cyclePfChangeMode(){
-  pfChangeMode = (pfChangeMode + 1) % PF_CHANGE_MODES.length;
-  if(typeof renderH === 'function') renderH();
-}
-
-// ── Unified mark-to-market engine ─────────────────────────────────────
-// Both holistic and filtered Portfolio Change use the same definition:
-//   value on date D = Σ (units as of D × price on D) for holdings in scope
-// Strict completeness applies only to daily-priced symbols. Unlisted /
-// monthly-priced holdings (MAIF, MAAT, …) are included in value when a
-// price is known, but never force the whole portfolio to "Incomplete".
-
-// Symbols without daily market quotes (manual / monthly NAV etc.)
-// DW8/KDY: DW8 renamed to KDY via corporate action, then delisted
-// 2025-03-03 — Yahoo has zero historical data under either ticker, so
-// requiring it as "daily priced" permanently blocks mark-to-market
-// completeness for every date it was held (breaking 5Y/ALL-scope Portfolio
-// Change). Excluding it here means it's still valued when a price happens
-// to be known, but never forces the whole scope to "incomplete".
-// VIRTUAL: bought in 2021 as PathDAO, rebranded to Virtuals Protocol later.
-// The worker merges PATH1-USD (old ticker) under VIRTUAL-USD (current) for
-// backfill, but PATH1-USD itself only has ~43 real trading days on Yahoo —
-// thin/discontinuous exchange liquidity in the run-up to the rebrand, not a
-// mapping bug — leaving real multi-month gaps no ticker fix can close.
-// Same treatment as DW8/KDY: valued whenever a price is known, never blocks
-// completeness.
-const NON_DAILY_PRICE_SYMS = new Set(['MAIF','MAAT','DW8','KDY','VIRTUAL']);
-function isDailyPricedSym(sym){
-  return !NON_DAILY_PRICE_SYMS.has(priceSymbol(sym));
-}
-
-// A wide, multi-symbol scope (e.g. no filter at all — every ETF, stock,
-// LIC and crypto you hold at once) essentially NEVER has every single
-// symbol priced on the exact same calendar day — one symbol's price fetch
-// having a one-off gap on one day is normal and expected, but requiring
-// an exact match blocks the ENTIRE scope's completeness for that day. So
-// each symbol's price is looked up within a small tolerance window (on or
-// before the target date) instead of requiring an exact hit — the same
-// "carry the last known price forward" convention markets already use for
-// non-trading days. Rebuilt lazily; call resetMtmCache() after anything
-// that can change pfSnapshots (backfill, prune, a fresh price refresh).
-let _mtmSymDatesCache = null;
-function resetMtmCache(){ _mtmSymDatesCache = null; }
-function _buildMtmSymDatesCache(){
-  const cache = {};
-  for(const d of Object.keys(pfSnapshots)){
-    const pr = pfSnapshots[d] && pfSnapshots[d].prices;
-    if(!pr) continue;
-    for(const sym of Object.keys(pr)) (cache[sym] ||= []).push(d);
-  }
-  for(const sym in cache) cache[sym].sort();
-  return cache;
-}
-// Older holdings were historically backfilled at monthly resolution (one
-// snapshot per month, typically month-end) — so the real gap between a
-// month-end snapshot and a mid-month target date is routinely ~22-25 days.
-// 35 comfortably covers any month (max 31 days) plus a few days' buffer.
-// Recently-added holdings get dense daily snapshots regardless, so their
-// actual gap stays small (1-3 days) and this ceiling never matters for them
-// — raising it only helps sparse/older data, it can't make a genuinely
-// fresh price look more stale than it is.
-const MTM_TOLERANCE_DAYS = 35;
-function priceNearOrBefore(sym, dateStr){
-  if(!_mtmSymDatesCache) _mtmSymDatesCache = _buildMtmSymDatesCache();
-  const dates = _mtmSymDatesCache[sym];
-  if(!dates || !dates.length) return null;
-  let best = null;
-  for(let i=dates.length-1;i>=0;i--){ if(dates[i] <= dateStr){ best = dates[i]; break; } }
-  if(!best) return null;
-  const gapDays = (new Date(dateStr) - new Date(best)) / 86400000;
-  if(gapDays > MTM_TOLERANCE_DAYS) return null; // too stale to trust — leave incomplete
-  return pfSnapshots[best].prices[sym];
-}
-
-// Latest snapshot date ≤ targetStr that has a non-empty per-symbol prices map
-function findPricedSnapshotOnOrBefore(targetStr){
-  let found = null;
-  for(const d of Object.keys(pfSnapshots)){
-    const pr = pfSnapshots[d] && pfSnapshots[d].prices;
-    if(!pr || !Object.keys(pr).length) continue;
-    if(d<=targetStr && (!found || d>found)) found = d;
-  }
-  return found;
-}
-
-// Latest date ≤ targetStr where mark-to-market is complete for this scope.
-// Skips e.g. ASX-only worker days when the scope is crypto-only.
-// maxLookbackDays (optional) bounds how far before targetStr this is allowed
-// to search — beyond that, a "complete" date is too stale to honestly stand
-// in for this target and the function gives up (returns null) rather than
-// silently returning something from a completely different era.
-function findCompleteSnapshotOnOrBefore(targetStr, scopeFn, maxLookbackDays){
-  const dates = Object.keys(pfSnapshots).filter(d=>{
-    const pr = pfSnapshots[d] && pfSnapshots[d].prices;
-    return pr && Object.keys(pr).length && d <= targetStr;
-  }).sort().reverse();
-  const targetMs = maxLookbackDays!=null ? new Date(targetStr+'T00:00:00').getTime() : null;
-  for(const d of dates){
-    if(targetMs!=null){
-      const gapDays = (targetMs - new Date(d+'T00:00:00').getTime()) / 86400000;
-      if(gapDays > maxLookbackDays) break; // dates are descending — nothing closer remains
-    }
-    const m = markToMarketAt(d, scopeFn);
-    if(m.complete && m.value!=null && m.count>0) return d;
-  }
-  return null;
-}
-
-// Earliest date ≥ targetStr where mark-to-market is complete for this scope.
-// Used to anchor the "ALL" window start on a date this scope can actually
-// be valued on, rather than the first date ANY symbol happened to be priced.
-function findCompleteSnapshotOnOrAfter(targetStr, scopeFn){
-  const dates = Object.keys(pfSnapshots).filter(d=>{
-    const pr = pfSnapshots[d] && pfSnapshots[d].prices;
-    return pr && Object.keys(pr).length && d >= targetStr;
-  }).sort();
-  for(const d of dates){
-    const m = markToMarketAt(d, scopeFn);
-    if(m.complete && m.value!=null && m.count>0) return d;
-  }
-  return null;
-}
-
-// Live mark-to-market for current holdings in scope
-function markToMarketLive(scopeFn){
-  const holdings = calcH().filter(scopeFn);
-  if(!holdings.length) return { value:null, complete:true, count:0, priced:0 };
-  let tv = 0, priced = 0, dailyNeeded = 0, dailyPriced = 0;
-  holdings.forEach(h=>{
-    const sym = priceSymbol(h.symbol);
-    const p = prices[sym];
-    if(p!=null){ tv += p * h.units; priced++; }
-    if(isDailyPricedSym(sym)){
-      dailyNeeded++;
-      if(p!=null) dailyPriced++;
-    }
-  });
-  return {
-    value: priced ? +tv.toFixed(2) : null,
-    // Only daily-priced symbols block completeness
-    complete: dailyNeeded === 0 || dailyPriced === dailyNeeded,
-    count: holdings.length,
-    priced
-  };
-}
-
-// Historical mark-to-market: holdings as of dateStr × that day's stored prices.
-// Each daily-priced symbol accepts a price within MTM_TOLERANCE_DAYS on or
-// before dateStr (see priceNearOrBefore) rather than requiring an exact hit
-// for that specific date — otherwise a single symbol's one-off gap blocks
-// completeness for the WHOLE scope. Non-daily symbols (MAIF/MAAT) still
-// carry forward from today's live/manual price when missing entirely.
-function markToMarketAt(dateStr, scopeFn){
-  const snap = pfSnapshots[dateStr];
-  if(!snap || !snap.prices || !Object.keys(snap.prices).length){
-    return { value:null, complete:false, count:0, priced:0 };
-  }
-  const holdings = calcH(dateStr).filter(scopeFn);
-  if(!holdings.length) return { value:null, complete:true, count:0, priced:0 };
-  let tv = 0, priced = 0, dailyNeeded = 0, dailyPriced = 0;
-  holdings.forEach(h=>{
-    const sym = priceSymbol(h.symbol);
-    let p = isDailyPricedSym(sym) ? priceNearOrBefore(sym, dateStr) : snap.prices[sym];
-    if(p==null && !isDailyPricedSym(sym) && prices[sym]!=null){
-      p = prices[sym]; // carry forward manual / monthly NAV
-    }
-    if(p!=null){ tv += p * h.units; priced++; }
-    if(isDailyPricedSym(sym)){
-      dailyNeeded++;
-      if(p!=null) dailyPriced++; // within tolerance counts as priced
-    }
-  });
-  return {
-    value: priced ? +tv.toFixed(2) : null,
-    complete: dailyNeeded === 0 || dailyPriced === dailyNeeded,
-    count: holdings.length,
-    priced
-  };
-}
-
-// Period rows for any scope (full portfolio, stocks/crypto view, or table filters).
-function calcPortfolioChangeUnified(scopeFn){
-  const todayStr = localDateStr();
-  const scoped = calcH().filter(scopeFn);
-  let tv = 0, tc = 0, any = false;
-  scoped.forEach(h=>{
-    const p = prices[priceSymbol(h.symbol)];
-    if(p!=null){ tv += p * h.units; any = true; }
-    tc += h.costBasis;
-  });
-  const allTime = (any && tc>0) ? { amt: tv - tc, pct: (tv - tc) / tc * 100, cost: tc } : null;
-
-  const live = markToMarketLive(scopeFn);
-  const curVal = (live.complete && live.value!=null) ? live.value : null;
-
-  // Anchor on latest day that is complete for THIS scope (not merely any prices)
-  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
-  const anchor = new Date(anchorStr + 'T00:00:00');
-
-  const rows = PF_CHANGE_RANGES.map(r=>{
-    if(r.key==='all'){
-      if(!allTime || allTime.pct==null) return { label:r.label, pct:null, amt:null };
-      return { label:r.label, pct:allTime.pct, amt:allTime.amt, pastValue:allTime.cost };
-    }
-    if(curVal==null) return { label:r.label, pct:null, amt:null, reason:'incomplete' };
-
-    const target = new Date(anchor);
-    if(r.days)   target.setDate(target.getDate() - r.days);
-    if(r.months) target.setMonth(target.getMonth() - r.months);
-    if(r.years)  target.setFullYear(target.getFullYear() - r.years);
-    const snapDate = findCompleteSnapshotOnOrBefore(localDateStr(target), scopeFn, r.tol);
-    if(!snapDate) return { label:r.label, pct:null, amt:null, reason:'no-snapshot' };
-
-    const past = markToMarketAt(snapDate, scopeFn);
-    if(!past.complete || past.value==null) return { label:r.label, pct:null, amt:null, reason:'incomplete' };
-    if(past.count===0) return { label:r.label, pct:null, amt:null, reason:'empty' };
-
-    return {
-      label: r.label,
-      pct: past.value>0 ? ((curVal - past.value) / past.value * 100) : null,
-      amt: curVal - past.value,
-      pastValue: past.value,
-      from: snapDate
-    };
-  });
-  return { asOf:todayStr, rows, live };
-}
-
-// Buy/sell trades for exactly the symbols currently in scope — the same
-// symbol key calcH() aggregates by, so this always lines up with whatever
-// the value/TWR/MWR calcs are using (respects broker/owner/text filters).
-// DRP reinvestments (type:'drp') are deliberately excluded: they're not
-// external cash, they're already reflected in the higher unit count.
-function scopedCashFlowTrades(scopeFn){
-  const symbols = new Set(calcH().filter(scopeFn).map(h=>h.symbol));
-  return trades.filter(t => (t.type==='buy' || t.type==='sell') && symbols.has(t.symbol));
-}
-
-// ── Per-source decomposition ────────────────────────────────────────
-// A combined scope (e.g. "All Sources") requiring every symbol from every
-// broker to be simultaneously priced on the same historical date is nearly
-// impossible once the portfolio spans multiple sources — one recently-added
-// holding anywhere blocks completeness for the WHOLE combined scope, even
-// though filtering to any single source works fine back to 5Y. Instead:
-// run the given calc fn once per distinct source, letting each one resolve
-// its own best anchor date independently (its own tolerance, its own
-// history depth), then sum the resulting $ figures across sources.
-//
-// pct is recomputed from the summed $ figures rather than averaged, so it
-// stays a true (combinedNow − combinedPast) / combinedPast for Value
-// Change — pct_i for that mode is itself defined as amt_i/pastValue_i, so
-// a value-weighted average of the per-source pct is mathematically
-// identical to sumAmt/sumPast, just computed the other way round.
-// For TWR/MWR this MUST go through the per-source pct too (not be
-// re-derived from amt/pastValue): amt is deliberately mode-invariant — see
-// investmentGainDollars() — it's the same $ accounting identity for every
-// mode, only pct differs (chained legs for TWR, solved IRR for MWR).
-// Re-deriving pct from sumAmt/sumPast here silently discarded that and
-// made TWR and MWR always render identical whenever a scope spans more
-// than one source (i.e. almost always) — this weighted-average-of-pct
-// approach fixes that while staying numerically exact for Value Change.
-//
-// If a source has no valid data for a given window (e.g. a stock bought
-// last month has no 5Y history), it's simply left out of that window's sum
-// and the row is flagged `partial` with a coverage count.
-function calcPortfolioChangeBySource(scopeFn, calcFn){
-  const sources = [...new Set(calcH().filter(scopeFn).map(h=>h.source||'(none)'))];
-  if(sources.length<=1) return calcFn(scopeFn);
-
-  const brokerLabels = (typeof getAllBrokers==='function') ? getAllBrokers() : [];
-  const labelFor = src => (brokerLabels.find(x=>x.value===src)||{}).label || src;
-
-  const perSource = sources.map(src=>({
-    src,
-    result: calcFn(h=>scopeFn(h) && (h.source||'(none)')===src)
-  }));
-  const rows = PF_CHANGE_RANGES.map((r,idx)=>{
-    let sumAmt=0, sumPast=0, sumPctWeighted=0, included=0;
-    const breakdown = []; // per-source outcome for this window, for diagnostics
-    perSource.forEach(({src, result})=>{
-      const row = result.rows[idx];
-      const ok = row && row.pct!=null && row.amt!=null && row.pastValue!=null;
-      if(ok){ sumAmt += row.amt; sumPast += row.pastValue; sumPctWeighted += row.pct * row.pastValue; included++; }
-      breakdown.push({ src: labelFor(src), ok, reason: ok ? null : (row && row.reason || 'no-snapshot') });
-    });
-    const detail = breakdown.map(b => `${b.src}: ${b.ok ? 'ok' : b.reason}`).join(' · ');
-    if(included===0) return { label:r.label, pct:null, amt:null, reason:'no-snapshot', detail };
-    return {
-      label: r.label,
-      pct: sumPast>0 ? (sumPctWeighted/sumPast) : null,
-      amt: sumAmt,
-      pastValue: sumPast,
-      partial: included<sources.length,
-      coverage: `${included}/${sources.length} sources`,
-      detail,
-    };
-  });
-  return { asOf: localDateStr(), rows };
-}
-
-// ── DIAGNOSTICS (console) ────────────────────────────────────────────
-// Run from the browser console: pfChangeDebug('commsec') for one source
-// (use the exact value from the Source/Broker filter's dropdown — right-
-// click it and Inspect to see the <option value="..."> if unsure), or
-// pfChangeDebug() with no argument for the whole unfiltered portfolio.
-// For every Portfolio Change window it reports the exact target date and,
-// per symbol held under that scope as of that date, whether a price was
-// found within tolerance — the same check markToMarketAt() does
-// internally, but with per-symbol detail instead of one complete/
-// incomplete flag, so a real data gap can be pinned to a specific symbol
-// and date instead of just "no-snapshot" on the whole source.
-function pfChangeDebug(sourceValue){
-  const scopeFn = sourceValue!=null ? (h=>(h.source||'(none)')===sourceValue) : (()=>true);
-  const todayStr = localDateStr();
-  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
-  const anchor = new Date(anchorStr+'T00:00:00');
-  if(!_mtmSymDatesCache) _mtmSymDatesCache = _buildMtmSymDatesCache();
-  const nearest = (sym, dateStr) => {
-    const dates = _mtmSymDatesCache[sym];
-    if(!dates || !dates.length) return { nearestDate:null, gapDays:null, price:null };
-    let best = null;
-    for(let i=dates.length-1;i>=0;i--){ if(dates[i] <= dateStr){ best = dates[i]; break; } }
-    if(!best) return { nearestDate:null, gapDays:null, price:null };
-    const gapDays = Math.round((new Date(dateStr+'T00:00:00') - new Date(best+'T00:00:00')) / 86400000);
-    return { nearestDate:best, gapDays, price: pfSnapshots[best].prices[sym] };
-  };
-  console.log(`── Portfolio Change diagnostics ${sourceValue!=null?'· source="'+sourceValue+'"':'· ALL (unfiltered)'} · anchor=${anchorStr} · MTM_TOLERANCE_DAYS=${MTM_TOLERANCE_DAYS} ──`);
-  PF_CHANGE_RANGES.forEach(r=>{
-    if(r.key==='all') return;
-    const target = new Date(anchor);
-    if(r.days)   target.setDate(target.getDate() - r.days);
-    if(r.months) target.setMonth(target.getMonth() - r.months);
-    if(r.years)  target.setFullYear(target.getFullYear() - r.years);
-    const targetStr = localDateStr(target);
-    const holdings = calcH(targetStr).filter(scopeFn);
-    if(!holdings.length){
-      console.log(`${r.label} (target ${targetStr}, tol ${r.tol}d): NO HOLDINGS existed under this scope as of that date`);
-      return;
-    }
-    const rows = holdings.map(h=>{
-      const sym = priceSymbol(h.symbol);
-      const daily = isDailyPricedSym(sym);
-      const n = daily ? nearest(sym, targetStr) : { nearestDate:targetStr, gapDays:0, price: pfSnapshots[targetStr] && pfSnapshots[targetStr].prices && pfSnapshots[targetStr].prices[sym] };
-      const withinTol = n.gapDays!=null && n.gapDays <= MTM_TOLERANCE_DAYS;
-      return {
-        symbol: h.symbol, priceSymbol: sym, dailyPriced: daily,
-        nearestDate: n.nearestDate, gapDays: n.gapDays, price: n.price,
-        priced: n.price!=null && withinTol
-      };
-    });
-    const missing = rows.filter(x=>x.dailyPriced && !x.priced);
-    console.log(`${r.label} (target ${targetStr}, tol ${r.tol}d): ${missing.length ? 'MISSING → '+missing.map(m=>m.symbol).join(', ') : 'all priced ✓'}`);
-    console.table(rows);
-  });
-}
-
-function windowStartTarget(rangeKey, anchorStr){
-  if(rangeKey==='all'){
-    const dates = Object.keys(pfSnapshots).filter(d=>{
-      const pr = pfSnapshots[d] && pfSnapshots[d].prices;
-      return pr && Object.keys(pr).length;
-    }).sort();
-    return dates.length ? dates[0] : null;
-  }
-  const r = PF_CHANGE_RANGES.find(x=>x.key===rangeKey);
-  const target = new Date(anchorStr + 'T00:00:00');
-  if(r.days)   target.setDate(target.getDate() - r.days);
-  if(r.months) target.setMonth(target.getMonth() - r.months);
-  if(r.years)  target.setFullYear(target.getFullYear() - r.years);
-  return localDateStr(target);
-}
-
-// $ profit attributable to performance alone, for a given window — the
-// same underlying accounting identity for both TWR and MWR, since it's
-// just arithmetic (End = Start + NetContributions + Gain), not a modeled
-// rate: Gain = End − Start − NetContributions. Buys count as a positive
-// contribution, sells as a negative one (a withdrawal), matching the sign
-// convention the % calcs already use.
-function investmentGainDollars(scopeFn, startDate, todayStr, startVal, endVal){
-  if(startVal==null || endVal==null) return null;
-  let netContrib = 0;
-  scopedCashFlowTrades(scopeFn).forEach(t=>{
-    if(t.date<=startDate || t.date>todayStr) return;
-    const gross = (+t.units||0) * (+t.price||0);
-    netContrib += t.type==='buy' ? (gross + (+t.fees||0)) : -(gross - (+t.fees||0));
-  });
-  return endVal - startVal - netContrib;
-}
-
-// ── Time-weighted return ────────────────────────────────────────────
-// Chains a sub-period return between every complete snapshot in the
-// window — each leg's ending value has that leg's net contributions/
-// withdrawals stripped out before computing the leg's return — then
-// geometrically links the legs. Accuracy scales with snapshot density:
-// daily for the last ~13 months, sparser further back (worker backfill
-// tiers), so recent windows (1D–6M) are exact and 1Y/5Y/ALL are a close
-// approximation built from real historical prices.
-// Modified-Dietz sub-period return: weights each cash flow by how much of
-// the leg it was actually invested for (days remaining ÷ leg length),
-// instead of assuming — as a flat "(vB - cf - vA) / vA" does — that every
-// contribution landed at the very end of the leg. With dense (~daily) legs
-// this barely matters, a cash flow can only be a day or two off from "at
-// the end" anyway. But sparse pre-backfill legs can span months, and a
-// large contribution landing mid-leg was being treated as if it earned
-// zero return for the WHOLE leg while still being subtracted in full from
-// the end value — on a real portfolio this produced a single leg reporting
-// -268%, which then compounds the entire chain into nonsense (-300% TWR
-// against a sane -54% MWR for the same window). Weighting by time-in-leg
-// keeps one sparse, cash-flow-heavy leg from dominating the chain.
-// Returns null for a leg with no valid starting base to divide by.
-function legReturnFactor(vAval, vBval, dAstr, dBstr, cfEntries){
-  const cd = (new Date(dBstr) - new Date(dAstr)) / 86400000;
-  let cfTotal = 0, weightedBase = vAval;
-  for(const [d, amt] of cfEntries){
-    cfTotal += amt;
-    if(cd > 0){
-      const daysRemaining = (new Date(dBstr) - new Date(d)) / 86400000;
-      weightedBase += amt * (daysRemaining / cd);
-    }
-  }
-  if(weightedBase <= 0) return null; // degenerate — cash flow swamped the base, leg unusable
-  return 1 + (vBval - cfTotal - vAval) / weightedBase;
-}
-
-function calcPortfolioChangeTWR(scopeFn){
-  const todayStr = localDateStr();
-  const holdings = calcH().filter(scopeFn);
-  if(!holdings.length) return { asOf: todayStr, rows: [] };
-
-  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
-  const cfByDate = {};
-  scopedCashFlowTrades(scopeFn).forEach(t=>{
-    const gross = (+t.units||0) * (+t.price||0);
-    const cf = t.type==='buy' ? (gross + (+t.fees||0)) : -(gross - (+t.fees||0));
-    cfByDate[t.date] = (cfByDate[t.date]||0) + cf;
-  });
-
-  // Legs must be built from dates where THIS SCOPE specifically has a
-  // complete price, not "any symbol priced that day" — pfSnapshots dates
-  // are dominated by whichever symbols happen to be priced on a given day,
-  // so comparing scope-value across two arbitrary consecutive dates from
-  // that global list almost always lands on a day this scope ISN'T priced
-  // on, marking nearly every leg incomplete and silently skipping it. Using
-  // only this scope's own complete dates guarantees every adjacent pair
-  // in `legs` is a real, valid leg.
-  const allDates = Object.keys(pfSnapshots).filter(d=>{
-    const pr = pfSnapshots[d] && pfSnapshots[d].prices;
-    return pr && Object.keys(pr).length;
-  }).sort();
-  const scopeDates = allDates.filter(d => {
-    const m = markToMarketAt(d, scopeFn);
-    return m.complete && m.value!=null;
-  });
-
-  const rows = PF_CHANGE_RANGES.map(r=>{
-    const targetStart = windowStartTarget(r.key, anchorStr);
-    if(!targetStart) return { label:r.label, pct:null, reason:'no-snapshot' };
-    const startDate = r.key==='all'
-      ? findCompleteSnapshotOnOrAfter(targetStart, scopeFn)
-      : findCompleteSnapshotOnOrBefore(targetStart, scopeFn, r.tol);
-    if(!startDate) return { label:r.label, pct:null, reason:'no-snapshot' };
-
-    const legs = scopeDates.filter(d => d>=startDate && d<=anchorStr);
-    if(!legs.length || legs[0]!==startDate) legs.unshift(startDate);
-
-    let chain = 1, skippedLegs = 0;
-    for(let i=0;i<legs.length-1;i++){
-      const dA=legs[i], dB=legs[i+1];
-      const vA = markToMarketAt(dA, scopeFn), vB = markToMarketAt(dB, scopeFn);
-      if(!vA.complete || !vB.complete || vA.value==null || vB.value==null || vA.value<=0) continue;
-      const cfEntries = Object.entries(cfByDate).filter(([d])=> d>dA && d<=dB);
-      const factor = legReturnFactor(vA.value, vB.value, dA, dB, cfEntries);
-      // A non-positive factor here isn't a real >100% loss inside one leg —
-      // that's not possible for unleveraged holdings — it's the leg's cash
-      // flow overwhelming a sparse/stale valuation. Skip it (contribute
-      // nothing to the chain) rather than let it corrupt the whole window.
-      if(factor==null || factor<=0){ skippedLegs++; continue; }
-      chain *= factor;
-    }
-    if(skippedLegs) console.warn(`[TWR] ${r.label}: skipped ${skippedLegs} degenerate leg(s) — sparse history + a large cash flow inside one leg produced a >100% single-leg swing; excluded from the chain rather than compounded.`);
-    // Final leg from the last available snapshot to today's live value
-    const lastLeg = legs[legs.length-1];
-    const vLast = markToMarketAt(lastLeg, scopeFn), vNow = markToMarketLive(scopeFn);
-    if(vLast.complete && vNow.complete && vLast.value>0 && vNow.value!=null){
-      const cfEntries = Object.entries(cfByDate).filter(([d])=> d>lastLeg && d<=todayStr);
-      const factor = legReturnFactor(vLast.value, vNow.value, lastLeg, todayStr, cfEntries);
-      if(factor!=null && factor>0) chain *= factor;
-    } else if(lastLeg!==anchorStr){
-      return { label:r.label, pct:null, reason:'incomplete' };
-    }
-    const startM = markToMarketAt(startDate, scopeFn);
-    const amt = investmentGainDollars(scopeFn, startDate, todayStr, startM.value, vNow.value);
-    return { label:r.label, pct:(chain-1)*100, amt, pastValue:startM.value, from:startDate };
-  });
-  return { asOf: todayStr, rows };
-}
-
-// ── Money-weighted return (period IRR) ──────────────────────────────
-// Solves, for the window, the single rate p that reconciles: −(value you
-// had at window start) + every buy(−)/sell(+) in the window + (value now)
-// = 0, using actual calendar day-count weighting. This is the window's
-// holding-period IRR — deliberately NOT annualised, so it stays directly
-// comparable to Value Δ and TWR alongside it rather than exploding for
-// short windows the way an annualised rate would.
-function xirrPeriodic(cashflows, T){
-  if(T<=0) return null;
-  const npv = p => cashflows.reduce((s,cf)=> s + cf.amt/Math.pow(1+p, cf.t/T), 0);
-  let p = 0.1, converged = false;
-  for(let i=0;i<60;i++){
-    const f = npv(p), h = 1e-6;
-    const fp = (npv(p+h)-npv(p-h))/(2*h);
-    if(!isFinite(fp) || Math.abs(fp)<1e-12) break;
-    const next = p - f/fp;
-    if(!isFinite(next) || next<=-0.999999) break;
-    if(Math.abs(next-p) < 1e-9){ p = next; converged = true; break; }
-    p = next;
-  }
-  const total = cashflows.reduce((s,c)=>s+Math.abs(c.amt),0) || 1;
-  if(converged && Math.abs(npv(p)) < total*0.01) return p;
-  // Newton didn't settle cleanly — bisect over a wide, bounded range
-  let lo=-0.999, hi=50, flo=npv(lo), fhi=npv(hi);
-  if(flo*fhi>0) return null; // no sign change within range — can't solve
-  let mid = lo;
-  for(let i=0;i<200;i++){
-    mid = (lo+hi)/2; const fm = npv(mid);
-    if(Math.abs(fm) < total*0.0001) return mid;
-    if(flo*fm<0){ hi=mid; fhi=fm; } else { lo=mid; flo=fm; }
-  }
-  return mid;
-}
-
-function calcPortfolioChangeMWR(scopeFn){
-  const todayStr = localDateStr();
-  const holdings = calcH().filter(scopeFn);
-  if(!holdings.length) return { asOf: todayStr, rows: [] };
-
-  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
-  const vNow = markToMarketLive(scopeFn);
-  const cfTrades = scopedCashFlowTrades(scopeFn);
-
-  const rows = PF_CHANGE_RANGES.map(r=>{
-    const targetStart = windowStartTarget(r.key, anchorStr);
-    if(!targetStart || !vNow.complete || vNow.value==null) return { label:r.label, pct:null, reason:'no-snapshot' };
-    const startDate = r.key==='all'
-      ? findCompleteSnapshotOnOrAfter(targetStart, scopeFn)
-      : findCompleteSnapshotOnOrBefore(targetStart, scopeFn, r.tol);
-    if(!startDate) return { label:r.label, pct:null, reason:'no-snapshot' };
-
-    const startM = markToMarketAt(startDate, scopeFn);
-    if(!startM.complete || startM.value==null) return { label:r.label, pct:null, reason:'incomplete' };
-
-    const T = Math.max(1, (new Date(todayStr) - new Date(startDate)) / 86400000);
-    const cashflows = [{ t:0, amt:-startM.value }];
-    cfTrades.forEach(t=>{
-      if(t.date<=startDate || t.date>todayStr) return;
-      const gross = (+t.units||0) * (+t.price||0);
-      const amt = t.type==='buy' ? -(gross+(+t.fees||0)) : (gross-(+t.fees||0));
-      const days = Math.max(0, (new Date(t.date) - new Date(startDate)) / 86400000);
-      cashflows.push({ t:days, amt });
-    });
-    cashflows.push({ t:T, amt:vNow.value });
-
-    const p = xirrPeriodic(cashflows, T);
-    if(p==null) return { label:r.label, pct:null, reason:'no-converge' };
-    const amt = investmentGainDollars(scopeFn, startDate, todayStr, startM.value, vNow.value);
-    return { label:r.label, pct:p*100, amt, pastValue:startM.value, from:startDate };
-  });
-  return { asOf: todayStr, rows };
-}
-
-// Scope function most recently rendered into #pf-change-row — a chip click
-// (showMoversPopup, below) reuses this instead of re-deriving filter state,
-// so the popup always matches exactly what's on screen.
-let _lastChangeScopeFn = null;
-
-function renderPortfolioChange(scopeFn, isFiltered){
-  const wrap = $('pf-change-wrap');
+function renderSuperAccounts(){
+  const wrap = $('su-accounts-wrap');
+  checkSuperFYRollover();
+  updateSuperFormFYLabels();
   if(!wrap) return;
-  resetMtmCache(); // pfSnapshots may have changed (backfill/prune/price refresh) since last render
-  _lastChangeScopeFn = scopeFn; // so a later chip click (showMoversPopup) reuses the exact scope shown
-
-  const scoped = calcH().filter(scopeFn);
-  if(!scoped.length){ wrap.style.display = 'none'; return; }
-  wrap.style.display = '';
-
-  const mode = PF_CHANGE_MODES[pfChangeMode];
-  const badge = $('pf-change-mode-badge');
-  if(badge){ badge.textContent = '· ' + mode.label; badge.title = mode.hint; }
-  const th = $('pf-change-th');
-  if(th) th.title = mode.hint + '  (tap to switch: ' + PF_CHANGE_MODES.map(m=>m.label).join(' → ') + ')';
-
-  const sub = $('pf-change-sub');
-  if(sub){
-    const pricedDays = Object.keys(pfSnapshots).filter(d=>{
-      const pr = pfSnapshots[d] && pfSnapshots[d].prices;
-      return pr && Object.keys(pr).length;
-    }).sort();
-    const base = pricedDays.length
-      ? `${pricedDays.length} day${pricedDays.length>1?'s':''} with per-symbol prices · since ${pricedDays[0]}`
-      : 'recording per-symbol daily prices — history builds over time';
-    const modeHint = mode.key==='value' ? 'Mark-to-market · ' + base + ' · ALL = cost vs market'
-      : mode.key==='twr' ? 'Time-weighted (strategy return) · ' + base
-      : "Money-weighted (your money's return, period IRR) · " + base;
-    sub.textContent = (isFiltered ? 'Filtered · ' : '') + modeHint + ' · click header to switch';
-  }
-
-  let result;
-  if(mode.key==='value'){
-    result = calcPortfolioChangeBySource(scopeFn, calcPortfolioChangeUnified);
-  } else if(mode.key==='twr'){
-    result = calcPortfolioChangeBySource(scopeFn, calcPortfolioChangeTWR);
-  } else {
-    result = calcPortfolioChangeBySource(scopeFn, calcPortfolioChangeMWR);
-  }
-
-  // Highlight the strongest and weakest period so the row has a takeaway,
-  // not just a wall of equally-weighted numbers. Only marked when there's
-  // real variation to point at.
-  const priced = result.rows.filter(r => r.pct != null);
-  let bestLabel = null, worstLabel = null;
-  if(priced.length > 1){
-    const sorted = [...priced].sort((a,b) => b.pct - a.pct);
-    if(sorted[0].pct !== sorted[sorted.length-1].pct){
-      bestLabel = sorted[0].label;
-      worstLabel = sorted[sorted.length-1].label;
-    }
-  }
-  const maxAbsPct = Math.max(0.01, ...priced.map(r => Math.abs(r.pct)));
-
-  $('pf-change-row').innerHTML = result.rows.map((r, idx)=>{
-    const rangeKey = PF_CHANGE_RANGES[idx].key;
-    const moversAttr = `onclick="showMoversPopup('${rangeKey}')" title="Click for biggest movers"`;
-    if(r.pct==null){
-      const hint = r.reason==='incomplete' ? 'Incomplete prices'
-        : r.reason==='no-snapshot' ? 'No history yet'
-        : r.reason==='no-converge' ? "Couldn't solve"
-        : '';
-      return `<div class="pfc-chip" style="cursor:pointer" ${moversAttr}>
-        <div style="font-size:10px;color:var(--text3);letter-spacing:.06em;margin-bottom:4px">${r.label}</div>
-        <div style="font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text3)">—</div>
-        ${hint ? `<div style="font-size:9px;color:var(--text3);margin-top:3px" ${r.detail?`title="${escHtml(r.detail)}"`:''}>${hint}${r.detail?' ⓘ':''}</div>` : ''}
-      </div>`;
-    }
-    const isPos = r.pct >= 0;
-    const cls = isPos ? 'pos' : 'neg';
-    const chipMark = r.label===bestLabel ? ' pfc-best' : r.label===worstLabel ? ' pfc-worst' : '';
-    const subLine = (r.amt!=null || r.pastValue!=null)
-      ? `<div style="font-size:9px;margin-top:5px;color:var(--text3)">${r.amt!=null?`<span class="${cls}">${r.amt>=0?'+':''}${n2(r.amt)}</span>`:''}${r.amt!=null&&r.pastValue!=null?' · ':''}${r.pastValue!=null?`was ${n2(r.pastValue)}`:''}</div>`
-      : '';
-    const partialLine = r.partial
-      ? `<div style="font-size:8px;margin-top:2px;color:var(--gold)" title="${escHtml(r.detail||'Some sources have no data this far back — sum excludes them for this window')}">partial · ${r.coverage} ⓘ</div>`
-      : '';
-    const barPct = Math.min(100, Math.abs(r.pct) / maxAbsPct * 100);
-    return `<div class="pfc-chip pfc-${cls}${chipMark}" style="cursor:pointer" ${moversAttr}>
-      ${chipMark ? `<div style="position:absolute;top:6px;right:8px;font-size:8px;font-weight:700;letter-spacing:.04em;color:var(--${isPos?'green':'red'})">${r.label===bestLabel?'BEST':'WORST'}</div>` : ''}
-      <div style="font-size:10px;color:var(--text3);letter-spacing:.06em;margin-bottom:4px">${r.label}</div>
-      <div class="${cls}" style="font-family:var(--mono);font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:3px">
-        <span style="font-size:10px">${isPos?'▲':'▼'}</span>${Math.abs(r.pct).toFixed(2)}%
-      </div>
-      <div class="pfc-bar-track"><div class="pfc-bar-fill pfc-bar-${cls}" style="width:${barPct}%"></div></div>
-      ${subLine}
-      ${partialLine}
-    </div>`;
-  }).join('');
-}
-
-// ── Biggest movers popup (per Portfolio Change period) ─────────────────
-// Click a 1D/5D/1M/… chip above to see which currently-held symbols moved
-// the most over that exact window — same start/end dates the chip's own
-// % is built from (windowStartTarget + the anchor-resolution logic
-// calcPortfolioChangeUnified already uses), so the two always agree.
-// Two independent rankings, since a small position can swing 40% while
-// barely moving your total, and a 2% move in your biggest holding can be
-// the real dollar story — showing only one metric hides the other. Both
-// numbers are shown on every row regardless of which list it's ranked in.
-// $ Impact is shown first (the more actionable "what actually moved your
-// balance" number), % Move below it (useful colour, but less relevant to
-// your total than the dollar figure sitting above it).
-const MOVERS_TOP_N = 3;
-
-function computeBiggestMovers(scopeFn, rangeKey){
-  resetMtmCache(); // pfSnapshots may have changed since the chip was last rendered
-  const todayStr = localDateStr();
-  const anchorStr = findCompleteSnapshotOnOrBefore(todayStr, scopeFn, 14) || todayStr;
-  const isAll = rangeKey==='all';
-  // "ALL" has no single meaningful shared start date — your oldest holding
-  // and your newest holding can be years apart, so pinning everything to
-  // one fixed date (the earliest data point anywhere in the portfolio)
-  // would exclude almost everything except your very first few positions.
-  // Every other window (1D..5Y) genuinely means "same calendar window for
-  // everyone" and keeps the shared fromStr; only "ALL" goes per-holding.
-  const fromStr = isAll ? null : windowStartTarget(rangeKey, anchorStr);
-  if(!isAll && !fromStr) return { from:null, to:anchorStr, movers:[], excluded:0 };
-
-  // Currently-held only (nonzero units today) — matches how the rest of
-  // Portfolio Change already treats scope; a fully-exited position has no
-  // "current" $ impact to rank, and belongs to Trades/CGT, not this view.
-  const holdings = calcH().filter(scopeFn).filter(h => Math.abs(h.units) > 1e-9);
-  const movers = [];
-  let excluded = 0;
-  holdings.forEach(h=>{
-    const sym = priceSymbol(h.symbol);
-    const nowPrice = prices[sym];
-
-    let sinceDate, startPrice, existedAtStart;
-    if(isAll){
-      // Each holding compared since ITS OWN first trade — a since-inception
-      // return per position, not one shared portfolio-wide start date.
-      sinceDate = trades.filter(t=>t.symbol===h.symbol).map(t=>t.date).sort()[0] || null;
-      startPrice = sinceDate!=null ? priceNearOrBefore(sym, sinceDate) : null;
-      existedAtStart = sinceDate!=null;
-    } else {
-      sinceDate = fromStr;
-      startPrice = isDailyPricedSym(sym)
-        ? priceNearOrBefore(sym, fromStr)
-        : (pfSnapshots[fromStr] && pfSnapshots[fromStr].prices && pfSnapshots[fromStr].prices[sym]);
-      // A shared underlying ticker (e.g. DHHF) can have market price history
-      // going back further than when THIS holding was actually bought —
-      // especially for a broker/account-suffixed symbol like DHHF:AU that
-      // prices off the same base ticker as an older DHHF position. Checking
-      // startPrice alone only proves the market existed back then, not that
-      // you held it — so also require an actual trade for this exact symbol
-      // on or before fromStr before crediting it with a window return.
-      existedAtStart = trades.some(t => t.symbol===h.symbol && t.date<=fromStr);
-    }
-
-    // No valid start price usually means bought during this window — can't
-    // compute a window return for it, so it's excluded rather than shown
-    // as a fabricated 0% (see the excluded-count note in the popup).
-    if(nowPrice==null || startPrice==null || !(startPrice>0) || !existedAtStart){ excluded++; return; }
-    movers.push({
-      symbol: h.symbol,
-      pct: (nowPrice-startPrice)/startPrice*100,
-      dollar: (nowPrice-startPrice)*h.units,
-      since: isAll ? sinceDate : undefined,
-    });
-  });
-  return { from: isAll ? 'inception' : fromStr, to:anchorStr, movers, excluded };
-}
-
-function moverRow(m, primary){
-  const val = primary==='pct' ? m.pct : m.dollar;
-  const cls = val >= 0 ? 'pos' : 'neg';
-  const main = primary==='pct' ? nP(m.pct) : (m.dollar>=0?'+':'')+n2(m.dollar);
-  const sub  = primary==='pct' ? (m.dollar>=0?'+':'')+n2(m.dollar) : nP(m.pct);
-  return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:14px;padding:6px 0;border-bottom:1px solid var(--border)">
-    <span style="color:var(--text);font-weight:600;font-size:15px">${escHtml(m.symbol)}${m.since?` <span style="color:var(--text3);font-size:10px;font-weight:400">since ${m.since}</span>`:''}</span>
-    <span style="text-align:right;white-space:nowrap">
-      <span class="${cls}" style="font-weight:700;font-size:15px">${main}</span>
-      <span style="color:var(--text3);font-size:12px;margin-left:8px">${sub}</span>
-    </span>
-  </div>`;
-}
-function moversSection(title, gainers, losers, primary){
-  const col = (label, color, list) => `<div style="flex:1;min-width:0">
-      <div style="font-size:12px;color:var(${color});margin-bottom:5px">${label}</div>
-      ${list.length ? list.map(m=>moverRow(m,primary)).join('') : `<div style="color:var(--text3);font-size:13px">—</div>`}
-    </div>`;
-  return `<div style="margin-top:18px">
-    <div style="font-size:13px;letter-spacing:.06em;color:var(--text3);margin-bottom:8px">${title}</div>
-    <div style="display:flex;gap:44px">
-      ${col('▲ GAINERS','--green',gainers)}
-      ${col('▼ LOSERS','--red',losers)}
-    </div>
-  </div>`;
-}
-
-function showMoversPopup(rangeKey){
-  const id = 'pfc-movers-'+rangeKey;
-  if(document.getElementById(id)){ closeHudPopup(id); return; } // toggle: same chip clicked again closes it
-  const label = (PF_CHANGE_RANGES.find(x=>x.key===rangeKey) || {}).label || rangeKey;
-  const scopeFn = typeof _lastChangeScopeFn === 'function' ? _lastChangeScopeFn : (()=>true);
-
-  const closeBtn = `<button onclick="closeHudPopup('${id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:22px;line-height:1">✕</button>`;
-  const header = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <div style="font-size:18px;font-weight:700;color:var(--text)">Biggest Movers — ${escHtml(label)}</div>
-      ${closeBtn}
-    </div>`;
-
-  const { from, to, movers, excluded } = computeBiggestMovers(scopeFn, rangeKey);
-  if(!from || !movers.length){
-    openHudPopup(id, `${header}<div style="color:var(--text3);font-size:14px;margin-top:6px">No priced data available for this window yet.</div>`, {minWidth:'340px', fontSize:'14px'});
+  if(!superAccounts.length){
+    wrap.innerHTML = '<div class="empty"><div class="empty-icon">\uD83C\uDFE6</div>No super accounts yet. Add one above.</div>';
     return;
   }
 
-  const byDollar = [...movers].sort((a,b)=>b.dollar-a.dollar);
-  const dollarGainers = byDollar.filter(m=>m.dollar>0).slice(0, MOVERS_TOP_N);
-  const dollarLosers  = byDollar.filter(m=>m.dollar<0).slice(-MOVERS_TOP_N).reverse();
+  const _d = new Date();
+  const CUR_FY  = _d.getMonth() >= 6 ? _d.getFullYear()+1 : _d.getFullYear();
+  const PREV_FY = CUR_FY - 1;
+  const PREV2_FY= CUR_FY - 2;
+  const COLORS  = ['#3b82f6','#10b981','#f59e0b','#ef4444','#a855f7','#ec4899','#14b8a6'];
 
-  const byPct = [...movers].sort((a,b)=>b.pct-a.pct);
-  const pctGainers = byPct.filter(m=>m.pct>0).slice(0, MOVERS_TOP_N);
-  const pctLosers  = byPct.filter(m=>m.pct<0).slice(-MOVERS_TOP_N).reverse();
-
-  openHudPopup(id, `${header}
-    <div style="font-size:13px;color:var(--text3);margin-bottom:6px;font-family:var(--mono)">${from==='inception' ? `Since each holding's own purchase → ${to}` : `${from} → ${to}`}</div>
-    ${moversSection('BY $ IMPACT', dollarGainers, dollarLosers, 'dollar')}
-    ${moversSection('BY % MOVE', pctGainers, pctLosers, 'pct')}
-    ${excluded ? `<div style="margin-top:16px;font-size:13px;color:var(--text3)">${excluded} holding${excluded>1?'s':''} excluded — ${from==='inception' ? 'no price found near its own purchase date' : `no price on or before ${from} (likely bought during this window)`}.</div>` : ''}
-  `, {width:'640px', aspectRatio:'16/9', fontSize:'14px'});
-}
-
-
-function cyclePortfolioView(){
-  portfolioView = (portfolioView + 1) % 3;
-  renderH();
-}
-function renderT(){
-  const s=($('ts').value||'').toLowerCase(), si=$('tsi').value, so=$('tso').value;
-
-  // Rebuild to-own owner filter
-  const _toOwn = $('to-own');
-  const _toOwnCur = _toOwn ? _toOwn.value : '';
-  if(_toOwn) _toOwn.innerHTML = '<option value="">All Owners</option>' +
-    getAllPersons().concat(['joint']).map(p=>
-      `<option value="${p}" ${p===_toOwnCur?'selected':''}>${getPersonLabel(p)}</option>`
-    ).join('');
-  const ownerF_t = _toOwnCur;
-
-  let f=[...trades].filter(t=>
-    (!s||(t.symbol||'').toLowerCase().includes(s))&&(!si||t.type===si)&&(!so||(t.source||'')=== so)
-    &&(!ownerF_t || getSymbolOwner(t.symbol) === ownerF_t));
-
-  // Sort — default to most-recent-first by date whenever nothing's been explicitly chosen
-  if(!getSort('tb').col) SORT_STATE['tb'] = {col:'date', dir:-1};
-  const {col, dir} = getSort('tb');
-  const _roiMap = computeTradeROIData();
-  if(col){
-    f = sortRows(f.map(t=>{
-      const g=+t.units * +t.price;
-      return {...t, _gross:g, _net:(t.type==='buy'||t.type==='drp')?g+(+t.fees||0):g-(+t.fees||0), _roi:tradeROIPct(t,_roiMap)};
-    }), col, dir, 'assetType', 'symbol');
+  function calcROI(startBal, endBal, empCC, perCC){
+    if(!startBal || !endBal) return null;
+    const afterTaxCC = ((empCC||0) + (perCC||0)) * 0.85;
+    const gain       = endBal - startBal - afterTaxCC;
+    const avgBal     = (startBal + endBal) / 2;
+    const roi        = avgBal > 0 ? (gain / avgBal) * 100 : null;
+    return { gain, roi, afterTaxCC };
   }
 
-  $('tc').textContent=f.length;
-  $('te').style.display=f.length?'none':'';
-  const idxMap={}; trades.forEach((t,i)=>idxMap[t.id]=i);
-  window._editIds = {};
+  const stat = (label, val, cls='neu', sub='') =>
+    `<div><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px">${label}</div>
+     <div class="${cls}" style="font-family:var(--mono);font-size:13px;font-weight:600">${val}</div>
+     ${sub?`<div style="font-size:10px;color:var(--text3);margin-top:1px">${sub}</div>`:''}</div>`;
 
-  // Update headers
-  const TID='tb';
-  const th=(col,label,sty)=>sortTh(TID,col,label,'renderT',sty);
-  $('tb').closest('table').querySelector('thead tr').innerHTML =
-    th('date','Date') +
-    th('type','Side') +
-    th('symbol','Symbol') +
-    th('assetType','Type') +
-    th('units','Units','text-align:right') +
-    th('price','Price','text-align:right') +
-    th('_gross','Gross','text-align:right') +
-    th('fees','Fees','text-align:right') +
-    th('_net','Net','text-align:right') +
-    th('_roi','ROI %','text-align:right') +
-    th('source','Source') +
-    '<th></th>';
+  // Collapsible section helper
+  const collapsible = (title, body, startCollapsed=false) => `
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-top:12px">
+        <div onclick="toggleSuperSection(this)" style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:0;display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none">
+          ${title}<span style="font-size:16px;color:${startCollapsed?'var(--text3)':'var(--blue)'};line-height:1;font-weight:300">${startCollapsed?'+':'−'}</span>
+        </div>
+        <div class="su-section-body" style="margin-top:${startCollapsed?'0':'12px'};display:${startCollapsed?'none':''}">
+          ${body}
+        </div>
+      </div>`;
 
-  $('tb').innerHTML = f.map((t,ri)=>{
-    const g   = +t.units * +t.price;
-    const net = (t.type==='buy'||t.type==='drp') ? g+(+t.fees||0) : g-(+t.fees||0);
-    window._editIds[ri] = t.id;
+  wrap.innerHTML = superAccounts.map((a, i) => {
+    const color    = a.color || COLORS[i % COLORS.length];
+    const curBal   = +a.balance || 0;
+    const prevBal  = a.fyData && a.fyData[PREV_FY]  ? +a.fyData[PREV_FY]  : null;
+    const prev2Bal = a.fyData && a.fyData[PREV2_FY] ? +a.fyData[PREV2_FY] : null;
+    const contrib  = a.contrib || {};
 
-    if(editingTradeId === t.id){
-      const types = ['crypto','stock','etf','lic','reit','bond','commodity','managed','super'];
-      const tl = {crypto:'Crypto',stock:'Stock',etf:'ETF',lic:'LIC',reit:'REIT',bond:'Bond',commodity:'Commodity',managed:'Managed Fund',super:'Super/Pension'};
-      let html = '<tr style="background:var(--bg2);outline:2px solid var(--blue)">';
-      html += '<td><input class="fi" type="date" id="et-date" value="' + t.date + '" style="width:118px;padding:3px 5px"></td>';
-      html += '<td><select class="fi" id="et-side" style="padding:3px 5px">';
-      html += '<option value="buy"'  + (t.type==='buy'  ? ' selected' : '') + '>Buy</option>';
-      html += '<option value="sell"' + (t.type==='sell' ? ' selected' : '') + '>Sell</option>';
-      html += '<option value="drp"'  + (t.type==='drp'  ? ' selected' : '') + '>DRP</option>';
-      html += '</select></td>';
-      html += '<td><input class="fi" type="text" id="et-sym" value="' + t.symbol + '" style="width:65px;padding:3px 5px" oninput="this.value=this.value.toUpperCase()"></td>';
-      html += '<td><select class="fi" id="et-type" style="padding:3px 5px;font-size:11px">';
-      html += types.map(v => '<option value="' + v + '"' + (v===t.assetType ? ' selected' : '') + '>' + tl[v] + '</option>').join('');
-      html += '</select></td>';
-      html += '<td><input class="fi" type="number" id="et-units" value="' + t.units + '" step="any" style="width:85px;padding:3px 5px"></td>';
-      html += '<td><input class="fi" type="number" id="et-price" value="' + t.price + '" step="any" style="width:85px;padding:3px 5px"></td>';
-      html += '<td><input class="fi" type="number" id="et-fees" value="' + (+t.fees||0) + '" step="any" style="width:75px;padding:3px 5px"></td>';
+    const empCC_cur  = +contrib.empCC_cur  || 0;
+    const perCC_cur  = +contrib.perCC_cur  || 0;
+    const ncc_cur    = +contrib.ncc_cur    || 0;
+    const sgc_cur    = +contrib.sgc_cur    || 0;
+    const empCC_prev = +contrib.empCC_prev || 0;
+    const perCC_prev = +contrib.perCC_prev || 0;
+    const ncc_prev   = +contrib.ncc_prev   || 0;
+    const sgc_prev   = +contrib.sgc_prev   || 0;
 
-      html += '<td><select class="fi" id="et-source" style="padding:3px 5px;font-size:11px">';
-      getAllBrokers().forEach(b=>{ html += '<option value="' + b.value + '"' + (t.source===b.value?' selected':'') + '>' + b.label + '</option>'; });
-      html += '</select></td>';
-      html += '<td><input class="fi" type="text" id="et-notes" value="' + escHtml(t.notes||'') + '" placeholder="Notes…" style="width:120px;padding:3px 5px"></td>';
-      html += '<td colspan="3" style="white-space:nowrap;padding:6px 8px">';
-      html += '<button class="btn btn-g" style="padding:4px 12px;font-size:11px" onclick="saveEditTrade()">&#10003; SAVE</button> ';
-      html += '<button class="btn" style="padding:4px 8px;font-size:11px" onclick="cancelEditTrade()">&#10005;</button>';
-      html += '</td></tr>';
-      return html;
-    }
+    const roi_cur  = prevBal  !== null ? calcROI(prevBal,  curBal,  empCC_cur,  perCC_cur)  : null;
+    const roi_prev = prev2Bal !== null ? calcROI(prev2Bal, prevBal, empCC_prev, perCC_prev) : null;
 
-    const btnStyle = 'cursor:pointer;background:#1a2f4a;color:#38c6ff;border:1px solid #38c6ff;border-radius:4px;padding:3px 10px;font-size:11px;margin-right:4px';
+    const fmtROI  = r => r === null ? '—'
+      : `<span class="${r.roi>=0?'pos':'neg'}">${r.roi>=0?'+':''}${r.roi.toFixed(2)}%</span>`;
+    const fmtGain = r => r === null ? '—'
+      : `<span class="${r.gain>=0?'pos':'neg'}">${r.gain>=0?'+':''}${n2(r.gain)}</span>`;
 
-    // Corporate action row — special display
-    if(t.type==='corporate_action'){
-      const sub = t.subtype||'';
-      const isFrom = sub.endsWith('_from');
-      const arrow  = isFrom ? '→' : '←';
-      const peer   = isFrom ? (t.fromSymbol||'') : (t.fromSymbol||'');
-      const caTag  = `<span style="background:#2a1f6a;color:#a78bfa;border:1px solid #6d4fd4;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700">${escHtml(t.caLabel||'Corp Action')}</span>`;
-      const sideTag= isFrom
-        ? `<span style="color:var(--neg);font-weight:700">OUT</span>`
-        : `<span style="color:var(--pos);font-weight:700">IN</span>`;
-      return '<tr style="background:rgba(109,79,212,0.07)">'
-        + '<td>' + t.date + '</td>'
-        + '<td>' + sideTag + '</td>'
-        + '<td><b>' + t.symbol + '</b>'+(t.fromSymbol&&t.fromSymbol!==t.symbol?'<span style="color:var(--text3);font-size:10px"> ('+t.fromSymbol+')</span>':'')+' </td>'
-        + '<td>' + caTag + '</td>'
-        + '<td style="text-align:right">' + nN(t.units,8) + '</td>'
-        + '<td style="text-align:right;color:var(--text3)">' + (isFrom?'—':n2(t.price,dec(t.price))) + '</td>'
-        + '<td colspan="4" style="color:var(--text3);font-size:11px">'
-        +   (isFrom 
-            ? 'Cost basis out → ' + (t.fromSymbol||t.symbol)
-            : 'Cost basis in ← ' + (t.fromSymbol||'?')) + '</td>'
-        + '<td style="color:var(--text3);font-size:10px">' + (t.source||'') + '</td>'
-        + '<td style="white-space:nowrap;padding:4px 8px">'
-        + '<button class="del-btn" onclick="delT(' + idxMap[t.id] + ')">&#10005;</button>'
-        + '</td>'
-        + '</tr>';
-    }
-    const roi = t._roi!==undefined ? t._roi : tradeROIPct(t, _roiMap);
-    const roiC = roi==null ? '' : (roi>=0 ? 'pos' : 'neg');
-    const roiCell = roi!=null ? (roi>=0?'+':'')+roi.toFixed(2)+'%' : '<span style="color:var(--text3)">—</span>';
+    // SGC (super guarantee charge paid via the ATO after a late/missed employer
+    // payment) is NOT a concessional contribution for cap purposes — it's shown
+    // for reference only and deliberately excluded from contribCur/contribPrev
+    // and therefore from calcCarryForward()'s cap-usage calc.
+    const contribCur  = empCC_cur  + perCC_cur;
+    const contribPrev = empCC_prev + perCC_prev;
+    const hasContrib  = contribCur || contribPrev || ncc_cur || ncc_prev || sgc_cur || sgc_prev;
 
-    return '<tr>'
-      + '<td>' + t.date + '</td>'
-      + '<td>' + bS(t.type) + '</td>'
-      + '<td><b>' + displaySymbol(t.symbol) + '</b></td>'
-      + '<td>' + bT(t.assetType) + '</td>'
-      + '<td style="text-align:right">' + nN(t.units,8) + '</td>'
-      + '<td style="text-align:right">' + n2(t.price,dec(t.price)) + '</td>'
-      + '<td style="text-align:right">' + n2(g) + '</td>'
-      + '<td style="text-align:right;color:var(--text3)">' + n2(+t.fees||0) + '</td>'
-      + '<td style="text-align:right">' + n2(net) + '</td>'
-      + '<td style="text-align:right" class="' + roiC + '">' + roiCell + '</td>'
-      + '<td style="color:var(--text3);font-size:10px">' + (t.source||'') + '</td>'
-      + '<td style="white-space:nowrap;padding:4px 8px">'
-      + '<button style="' + btnStyle + '" onclick="doEditTrade(' + ri + ')">&#9998; EDIT</button>'
-      + '<button class="del-btn" onclick="delT(' + idxMap[t.id] + ')">&#10005;</button>'
-      + '</td>'
-      + '</tr>';
+    // ── CONTRIBUTIONS panel ─────────────────────────────────────
+    const contribBody = hasContrib ? `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div>
+              <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${CUR_FY} — in progress</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                ${stat('Employer CC',     empCC_cur  ? n2(empCC_cur)          : '—')}
+                ${stat('Personal CC',     perCC_cur  ? n2(perCC_cur)          : '—')}
+                ${stat('Total CC',        contribCur ? n2(contribCur)         : '—')}
+                ${stat('After-tax (85%)', contribCur ? n2(contribCur*0.85)    : '—', 'pos')}
+                ${ncc_cur  ? stat('Non-Concessional', n2(ncc_cur))            : ''}
+                ${sgc_cur  ? stat('SGC (excl. from cap)', n2(sgc_cur), 'neu', 'Not a concessional contribution') : ''}
+              </div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${PREV_FY} — completed</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                ${stat('Employer CC',     empCC_prev  ? n2(empCC_prev)         : '—')}
+                ${stat('Personal CC',     perCC_prev  ? n2(perCC_prev)         : '—')}
+                ${stat('Total CC',        contribPrev ? n2(contribPrev)        : '—')}
+                ${stat('After-tax (85%)', contribPrev ? n2(contribPrev*0.85)   : '—', 'pos')}
+                ${ncc_prev ? stat('Non-Concessional', n2(ncc_prev))            : ''}
+                ${sgc_prev ? stat('SGC (excl. from cap)', n2(sgc_prev), 'neu', 'Not a concessional contribution') : ''}
+              </div>
+            </div>
+          </div>` :
+      `<div style="color:var(--text3);font-size:11px">No contributions entered yet. Edit this account and fill in the contribution fields above.</div>`;
+
+    const contribPanel = collapsible('CONTRIBUTIONS', contribBody);
+
+    // ── CARRY-FORWARD panel ───────────────────────────────────────
+    const cf = calcCarryForward(a.contrib||{}, a.contrib?.bal_prevyr || a.balance);
+    const cfRows = cf.breakdown.map(r => {
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;
+          padding:4px 8px;border-radius:4px;background:${r.unused>0?'rgba(129,140,248,0.06)':'transparent'}">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--text3)">FY${r.yr}</span>
+          <span style="font-family:var(--mono);font-size:12px;font-weight:600;
+            color:${r.unused>0?'#818cf8':'var(--text3)'}">
+            ${r.unused > 0 ? n2(r.unused) : '—'}
+          </span>
+        </div>`;
+    }).join('');
+
+    const cfBody = `
+      <div style="padding:4px 0">
+        ${!cf.eligible ? `
+          <div style="padding:10px;background:rgba(239,68,68,0.1);border-radius:6px;
+            color:var(--neg);font-size:12px;margin-bottom:12px">
+            ⚠ Not eligible — super balance ≥ $500,000 at 30 Jun FY${PREV_FY}
+            (${n2(cf.currentBalance)})
+          </div>` : ''}
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+          ${stat('Available to Use',
+            cf.eligible ? n2(cf.cfRemainingThisYear) : '—',
+            cf.cfRemainingThisYear>0 ? 'pos' : 'neu',
+            'unused from last 5 FYs')}
+          ${stat('Total Cap FY'+CUR_FY,
+            n2(cf.totalCapThisYear),
+            'neu',
+            'base '+n2(cf.curCap)+' + carry-forward')}
+          ${stat('CC Used This Year',
+            n2(cf.curCC),
+            cf.curCC > cf.totalCapThisYear ? 'neg' : cf.curCC > cf.curCap ? 'pos' : 'neu',
+            cf.curCC > cf.curCap ? 'includes carry-forward' : 'of '+n2(cf.curCap)+' base cap')}
+        </div>
+
+        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);
+          letter-spacing:.05em;margin-bottom:8px">UNUSED CAP BY YEAR</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${cfRows}
+        </div>
+
+        ${cf.totalUnused > 0 && cf.eligible ? `
+          <div style="margin-top:14px;padding:12px;background:rgba(129,140,248,0.1);
+            border-radius:6px;border:1px solid rgba(129,140,248,0.3);font-size:12px;line-height:1.6">
+            <b style="color:#818cf8">${n2(cf.totalUnused)}</b> in unused concessional cap
+            available to carry forward into FY${CUR_FY}.
+            ${cf.curCC > cf.curCap
+              ? `Currently using <b style="color:#818cf8">${n2(cf.cfUsedThisYear)}</b>
+                 of carry-forward this year — <b>${n2(cf.cfRemainingThisYear)}</b> still available.`
+              : `You can contribute up to an extra <b style="color:#818cf8">${n2(cf.cfRemainingThisYear)}</b>
+                 before 30 Jun ${CUR_FY} to use the full carry-forward.`}
+          </div>` : ''}
+
+        <div style="font-size:10px;color:var(--text3);margin-top:10px;line-height:1.6">
+          Enter actual CC totals used each year in the Contributions section above.
+          Leave blank = assume full cap was used (no carry-forward for that year).
+          Carry-forward only available if balance &lt; $500,000 at 30 Jun FY${PREV_FY}.
+          ATO caps: FY2022–FY2024 = $27,500/yr · FY2025–FY2026 = $30,000/yr · FY2027+ = $32,500/yr
+        </div>
+      </div>`;
+    const cfPanel = collapsible('CARRY-FORWARD CC', cfBody, true);
+
+    // ── NON-CONCESSIONAL panel ──────────────────────────────────
+    const priorTSBRaw = contrib.bal_prevyr;
+    const nc = calcNonConcessional(priorTSBRaw != null && priorTSBRaw !== '' ? +priorTSBRaw : null, CUR_FY);
+    const bfLabel = nc.bringForwardYears === 3 ? '3-year bring-forward'
+                  : nc.bringForwardYears === 2 ? '2-year bring-forward'
+                  : nc.bringForwardYears === 1 ? 'standard (no bring-forward)' : '—';
+
+    const bf = calcBringForwardPeriod(contrib, CUR_FY);
+    const bfPeriodBlock = bf ? `
+        <div style="padding:12px;border-radius:6px;margin-bottom:14px;
+          background:${bf.isExpired?'rgba(74,85,104,0.15)':bf.isActive?'rgba(16,185,129,0.1)':'rgba(255,176,0,0.1)'};
+          border:1px solid ${bf.isExpired?'var(--border2)':bf.isActive?'var(--green)':'var(--gold)'}">
+          <div style="font-family:var(--mono);font-size:11px;letter-spacing:.05em;margin-bottom:8px;
+            color:${bf.isExpired?'var(--text3)':bf.isActive?'var(--green)':'var(--gold)'}">
+            ${bf.isExpired?'ENDED':bf.isActive?'ACTIVE':'STARTS'} — ${bf.years}-YEAR BRING-FORWARD, FY${bf.startFY}–FY${bf.endFY}
+          </div>
+          ${!bf.triggerEligible ? `<div style="color:var(--neg);font-size:11px;margin-bottom:8px">
+            ⚠ Balance entered for FY${bf.startFY} (${n2(bf.triggerTSB)}) was at/above that year's transfer balance cap
+            (${n2(bf.triggerTBC)}) — you may not actually have been eligible to trigger this period. Double-check.</div>` : ''}
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            ${stat('Total Cap Locked', n2(bf.totalCap), 'neu', 'as at FY'+bf.startFY+' rules')}
+            ${stat('Used So Far', n2(bf.usedTotal), bf.usedTotal>bf.totalCap?'neg':'neu', bf.usedTotal>bf.totalCap?'exceeds locked cap':'across the period')}
+            ${stat('Remaining', n2(bf.remaining), bf.remaining>0?'pos':'neu', bf.isExpired?'period ended':'still available')}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(${bf.years},1fr);gap:8px;margin-top:10px">
+            ${bf.usedByYear.map((v,i)=>stat('FY'+(bf.startFY+i), n2(v))).join('')}
+          </div>
+        </div>` : '';
+
+    const standaloneBlock = (bf && bf.isActive) ? `
+        <div style="font-size:11px;color:var(--text3);padding:10px;background:var(--surface2);border-radius:6px">
+          Currently within the tracked bring-forward period above — a new bring-forward can't be triggered again until FY${bf.endFY+1}.
+        </div>` : `
+        <div style="padding:4px 0">
+        ${!nc.eligible ? `
+          <div style="padding:10px;background:rgba(239,68,68,0.1);border-radius:6px;
+            color:var(--neg);font-size:12px;margin-bottom:12px">
+            ⚠ Not eligible — total super balance ≥ ${n2(nc.tbc)} at 30 Jun FY${PREV_FY}
+            (${n2(nc.tsb)})
+          </div>` : ''}
+        ${(priorTSBRaw==null||priorTSBRaw==='') ? `
+          <div style="padding:10px;background:rgba(255,176,0,0.1);border-radius:6px;
+            color:var(--gold);font-size:12px;margin-bottom:12px">
+            Enter "Super Balance at 30 Jun FY${PREV_FY}" above to determine bring-forward eligibility.
+            Showing the standard annual cap for now.
+          </div>` : ''}
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+          ${stat('NCC Cap FY'+CUR_FY, nc.eligible ? n2(nc.annualCap) : '$0.00', 'neu', 'standard annual cap')}
+          ${stat('Bring-Forward Cap', nc.eligible ? n2(nc.cap) : '$0.00',
+              nc.bringForwardYears>1 ? 'pos' : 'neu', bfLabel)}
+          ${stat('NCC Made This Year', ncc_cur ? n2(ncc_cur) : '—',
+              ncc_cur > nc.cap ? 'neg' : 'neu',
+              ncc_cur > nc.cap ? 'exceeds available cap' : 'of '+n2(nc.cap)+' available')}
+        </div>
+
+        <div style="font-size:10px;color:var(--text3);margin-top:6px;line-height:1.6">
+          Non-concessional cap = 4× the concessional cap (${n2(nc.annualCap)} for FY${CUR_FY}).
+          Nil if total super balance ≥ the general transfer balance cap (${n2(nc.tbc)} for FY${CUR_FY}) at 30 Jun FY${PREV_FY}.
+          ${bf ? `Once you trigger a new period, fill in "Bring-forward triggered in FY" above to lock it in and track it here.`
+               : `If you trigger a 2- or 3-year bring-forward this year, fill in the Bring-Forward section above to lock it in and track it across the whole period.`}
+        </div>
+      </div>`;
+
+    const ncBody = bfPeriodBlock + standaloneBlock;
+    const ncPanel = collapsible('NON-CONCESSIONAL CONTRIBUTIONS', ncBody, true);
+
+    // ── INVESTMENT RETURN panel ──────────────────────────────────
+    const needsFYData = prevBal === null;
+    const roiBody = needsFYData
+      ? `<div style="color:var(--text3);font-size:11px">Enter FY${PREV_FY} balance in the form above to calculate investment return.</div>`
+      : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${CUR_FY} — Current vs FY${PREV_FY} end</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              ${stat('Start (FY'+PREV_FY+')',  n2(prevBal))}
+              ${stat('End (Current)',           n2(curBal))}
+              ${stat('After-tax CC',            roi_cur ? n2(roi_cur.afterTaxCC)       : '$0.00')}
+              ${stat('Inv. Gain',               roi_cur ? fmtGain(roi_cur)                  : n2(curBal-prevBal))}
+              ${stat('Avg Balance',             n2((prevBal+curBal)/2))}
+              ${stat('ROI %',                   roi_cur ? fmtROI(roi_cur)                   : '—')}
+            </div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${PREV_FY} — FY${PREV_FY} vs FY${PREV2_FY} end</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              ${prev2Bal !== null ? stat('Start (FY'+PREV2_FY+')', n2(prev2Bal)) : stat('Start (FY'+PREV2_FY+')', '—')}
+              ${stat('End (FY'+PREV_FY+')',      n2(prevBal))}
+              ${stat('After-tax CC',            roi_prev ? n2(roi_prev.afterTaxCC)      : '$0.00')}
+              ${stat('Inv. Gain',               roi_prev ? fmtGain(roi_prev)                : '—')}
+              ${stat('Avg Balance',             prev2Bal !== null ? n2((prev2Bal+prevBal)/2) : '—')}
+              ${stat('ROI %',                   roi_prev ? fmtROI(roi_prev)                 : '—')}
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:10px;color:var(--text3);font-family:var(--mono)">
+          Investment gain = Ending − Starting − after-tax concessional contributions. Average balance used as denominator (Modified Dietz).
+        </div>`;
+
+    const roiPanel = collapsible('INVESTMENT RETURN (MODIFIED DIETZ)', roiBody);
+
+    return `<div class="fs" style="margin-bottom:10px">
+      <!-- Clickable header bar -->
+      <div onclick="toggleSuperAccount(this)" data-id="${a.id}" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;user-select:none;transition:border-color 0.15s">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:12px;height:12px;border-radius:50%;background:${color};flex-shrink:0"></div>
+          <div style="font-family:var(--mono);font-size:14px;font-weight:600">${escHtml(a.name)}</div>
+          <div style="font-family:var(--mono);font-size:12px;color:var(--text3)">${n2(curBal)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="btn" onclick="event.stopPropagation();editSuperAccount(this)" data-id="${a.id}">\u270F EDIT</button>
+          <button class="btn btn-r" onclick="event.stopPropagation();deleteSuperAccount(this)" data-id="${a.id}">\u2715 DELETE</button>
+          <span id="su-toggle-${a.id}" style="font-size:18px;color:var(--text3);line-height:1;margin-left:4px">›</span>
+        </div>
+      </div>
+      <!-- Collapsible body - starts minimised -->
+      <div id="su-body-${a.id}" style="display:none;padding:14px 0 4px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+        ${stat('Current Balance', n2(curBal))}
+        ${prevBal  !== null ? stat('FY'+PREV_FY+' Balance',  n2(prevBal))  : ''}
+        ${prev2Bal !== null ? stat('FY'+PREV2_FY+' Balance', n2(prev2Bal)) : ''}
+        ${roi_cur  ? stat('FY'+CUR_FY+' ROI',  fmtROI(roi_cur),  '') : ''}
+        ${roi_prev ? stat('FY'+PREV_FY+' ROI', fmtROI(roi_prev), '') : ''}
+      </div>
+      ${contribPanel}
+      ${cfPanel}
+      ${ncPanel}
+      ${roiPanel}
+    </div></div>`;
   }).join('');
+}
 
-  document.querySelectorAll('#tb .edit-trade-btn').forEach(btn => {
-    btn.addEventListener('click', () => doEditTrade(+btn.dataset.ri));
+
+function renderSuperChart(){
+  const canvas = $('su-chart');
+  if(!canvas) return;
+
+  const _d      = new Date();
+  const CUR_FY  = _d.getMonth() >= 6 ? _d.getFullYear()+1 : _d.getFullYear();
+  const WIN_FYS = Array.from({length:5}, (_,i) => CUR_FY-5+i);  // last 5 FYs, always current
+  const COLORS   = ['#3b82f6','#10b981','#f59e0b','#ef4444','#a855f7','#ec4899','#14b8a6'];
+
+  // Collect all FY years across all accounts that have data
+  const allFYsWithData = new Set();
+  superAccounts.forEach(a => {
+    if(a.fyData) Object.keys(a.fyData).forEach(yr => {
+      if(+a.fyData[yr] > 0) allFYsWithData.add(+yr);
+    });
+  });
+  WIN_FYS.forEach(y => allFYsWithData.add(y));  // always include window
+  const allFYsSorted = [...allFYsWithData].filter(y => y <= CUR_FY).sort((a,b)=>a-b);
+
+  // Pick which FYs to show based on toggle
+  const displayFYs   = suChartShowAll ? allFYsSorted : WIN_FYS;
+  const displayLabels = [...displayFYs.map(y => 'FY'+y), 'Current'];
+
+  // Update toggle button label
+  const btn = $('su-chart-toggle-btn');
+  if(btn) btn.textContent = suChartShowAll ? 'Show all history' : 'Show last 5 years';
+
+  const datasets = [];
+
+  // Per-account lines
+  superAccounts.forEach((a, i) => {
+    const color  = a.color || COLORS[i % COLORS.length];
+    const points = displayFYs.map(yr => (a.fyData && a.fyData[yr]) ? +a.fyData[yr] : null);
+    points.push(+a.balance || 0);
+    datasets.push({
+      label: a.name,
+      data:  points,
+      borderColor: color,
+      backgroundColor: color + '22',
+      pointBackgroundColor: color,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      tension: 0.3,
+      fill: false,
+      spanGaps: true,
+    });
   });
 
-  // ── Filtered footer ──────────────────────────────────────────────
-  const hasFilter = s || si || so;
-  const tFoot = $('t-foot');
-  if(tFoot){
-    const realTrades = f.filter(t => t.type !== 'corporate_action');
-    if(hasFilter && realTrades.length > 0){
-      const buys      = realTrades.filter(t=>t.type==='buy'||t.type==='drp');
-      const sells     = realTrades.filter(t=>t.type==='sell');
-      const buyTotal  = buys .reduce((sum,t)=>sum+(+t.units * +t.price)+(+t.fees||0),0);
-      const sellTotal = sells.reduce((sum,t)=>sum+(+t.units * +t.price)-(+t.fees||0),0);
-      const feesTotal = realTrades.reduce((sum,t)=>sum+(+t.fees||0),0);
-      const buyCnt    = buys.length;
-      const sellCnt   = sells.length;
-      const drpCnt    = realTrades.filter(t=>t.type==='drp').length;
+  // Combined total (only if 2+ accounts)
+  if(superAccounts.length > 1){
+    const combined = displayFYs.map(yr => {
+      const vals = superAccounts.map(a => a.fyData && a.fyData[yr] ? +a.fyData[yr] : null);
+      if(vals.every(v => v === null)) return null;
+      return vals.reduce((s,v) => s + (v||0), 0);
+    });
+    combined.push(superAccounts.reduce((s,a) => s + (+a.balance||0), 0));
+    datasets.unshift({
+      label: 'Combined Total',
+      data:  combined,
+      borderColor: suCombinedColor,
+      backgroundColor: suCombinedColor + '22',
+      pointBackgroundColor: suCombinedColor,
+      pointRadius: 5,
+      pointHoverRadius: 7,
+      borderWidth: 2.5,
+      tension: 0.3,
+      fill: false,
+      spanGaps: true,
+      order: 0,
+    });
+  }
 
-      // Units + avg price — shown when filtering by symbol only (no side/source filter)
-      const symbolOnly = s && !si && !so;
-      const buyUnits  = buys .reduce((sum,t)=>sum+(+t.units),0);
-      const sellUnits = sells.reduce((sum,t)=>sum+(+t.units),0);
-      const netUnits  = +(buyUnits - sellUnits).toFixed(6);
-      const avgPrice  = netUnits > 0.000001 ? (buyTotal - sellTotal) / netUnits : 0;
-      const netTotal  = si==='sell' ? sellTotal : si==='buy'||si==='drp' ? buyTotal : buyTotal - sellTotal;
+  const isDark   = document.documentElement.getAttribute('data-theme') !== 'light';
+  const gridClr  = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+  const textClr  = isDark ? '#9ca3af' : '#6b7280';
 
-      tFoot.innerHTML = `<tr style="border-top:2px solid var(--bo);font-weight:700">
-        <td colspan="4" style="color:var(--text2);font-size:12px;padding:8px 8px">
-          ${realTrades.length} trade${realTrades.length!==1?'s':''}
-          ${buyCnt?'<span style="color:var(--green);margin-left:8px">'+buyCnt+' buy</span>':''}
-          ${sellCnt?'<span style="color:var(--red);margin-left:6px">'+sellCnt+' sell</span>':''}
-          ${drpCnt?'<span style="color:#c4b5fd;margin-left:6px">'+drpCnt+' drp</span>':''}
-        </td>
-        ${symbolOnly ? `
-          <td style="text-align:right;padding:8px 8px">
-            <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:2px">NET UNITS</div>
-            <div style="font-size:13px">${nN(netUnits,4)}</div>
-            ${sellUnits>0?`<div style="font-size:10px;color:var(--text3)">${nN(buyUnits,4)} in / ${nN(sellUnits,4)} out</div>`:''}
-          </td>
-          <td style="text-align:right;padding:8px 8px">
-            <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:2px">AVG PRICE</div>
-            <div style="font-size:13px">${avgPrice>0?n2(avgPrice,dec(avgPrice)):'—'}</div>
-          </td>
-          <td></td>` :
-          `<td colspan="3"></td>`}
-        <td style="text-align:right;color:var(--text3);font-size:12px;padding:8px 8px">${n2(feesTotal)}</td>
-        <td style="text-align:right;padding:8px 8px">
-          <div style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-bottom:2px">NET VALUE</div>
-          <div style="color:var(--gold);font-size:13px">${n2(Math.abs(netTotal))}</div>
-        </td>
-        <td colspan="3"></td>
-      </tr>`;
+  if(suChart) suChart.destroy();
+  suChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels: displayLabels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      plugins: {
+        legend: { display:true, labels:{ color:textClr, font:{size:11}, boxWidth:12, padding:16 } },
+        tooltip: { callbacks: { label: ctx => ' '+ctx.dataset.label+': '+n2(ctx.parsed.y) } }
+      },
+      scales: {
+        x: { grid:{ color:gridClr }, ticks:{ color:textClr, font:{size:11} } },
+        y: {
+          grid:{ color:gridClr },
+          ticks:{
+            color:textClr, font:{size:11},
+            callback: v => '$'+(v>=1e6?(v/1e6).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'k':v)
+          }
+        }
+      }
+    }
+  });
+}
+
+function toggleSuperChartRange(){
+  suChartShowAll = !suChartShowAll;
+  renderSuperChart();
+}
+
+function setSuperCombinedColor(val){
+  suCombinedColor = val;
+  localStorage.setItem('su_combined_color', val);
+  renderSuperChart();
+}
+
+function syncSuperColorPickers(){
+  const cp = $('su-combined-color');
+  if(cp) cp.value = suCombinedColor;
+}
+
+// ── SYNC (GitHub Gist) ───────────────────────────────────────────
+// syncKey  = GitHub Personal Access Token (gist scope only)
+// syncDevice = friendly name for this device
+// pt_sync_gist_id = stored after first push (the Gist ID)
+const GIST_FILENAME = 'portfolio_tracker_data.json';
+
+async function syncAutoLoad(){
+  const gistId = localStorage.getItem('pt_sync_gist_id');
+  if(!syncKey || !gistId) return;
+  setSyncStatus('Syncing…','var(--blue)');
+  try {
+    const gist = await gistRequest('GET', '/gists/'+gistId);
+    const file = gist.files[GIST_FILENAME];
+    if(!file) return;
+    let raw = file.content;
+    if(file.truncated){
+      const r = await fetch(file.raw_url, {mode:'cors'});
+      raw = await r.text();
+    }
+    const remote = JSON.parse(raw);
+    const remoteSavedAt = remote.savedAt;
+    const localSavedAt  = localStorage.getItem('pt_last_sync');
+    const cloudIsNewer  = !localSavedAt || new Date(remoteSavedAt) > new Date(localSavedAt);
+    if(cloudIsNewer){
+      applyRemoteData(remote);
+      localStorage.setItem('pt_last_sync', remoteSavedAt);
+      localStorage.setItem('pt_sync_gist_id', gistId);
+      const ts = new Date(remoteSavedAt).toLocaleString();
+      setSyncStatus('✓ Auto-synced '+ts,'var(--green)');
+      setTimeout(()=>setSyncStatus('Last sync: '+ts,'var(--text3)'),4000);
     } else {
-      tFoot.innerHTML = '';
+      const ts = new Date(localSavedAt).toLocaleString();
+      setSyncStatus('✓ Up to date','var(--green)');
+      setTimeout(()=>setSyncStatus('Last sync: '+ts,'var(--text3)'),3000);
     }
+  } catch(e){
+    setSyncStatus('','var(--text3)');
+    console.warn('Auto-sync failed:', e.message);
   }
 }
 
-function doEditTrade(ri){
-  editingTradeId = window._editIds[ri];
-  renderT();
+
+
+function saveSyncKey(v){
+  syncKey = v.trim();
+  localStorage.setItem('pt_sync_key', syncKey);
+}
+function saveSyncDevice(v){
+  syncDevice = v.trim() || syncDevice;
+  localStorage.setItem('pt_sync_device', syncDevice);
+}
+function setSyncStatus(msg, color){
+  const el = $('sync-status');
+  if(el){ el.textContent = msg; el.style.color = color||'var(--text3)'; }
+  const hdr = $('hdr-sync-status');
+  if(hdr){ hdr.textContent = msg; hdr.style.color = color||'var(--text3)'; }
 }
 
-function cancelEditTrade(){
-  editingTradeId = null;
-  renderT();
-}
-
-function retypeAllTrades(symbol, newAssetType, doSave){
-  let count = 0;
-  trades.forEach(t => {
-    if(t.symbol === symbol && t.assetType !== newAssetType){
-      t.assetType = newAssetType;
-      count++;
+function buildSyncPayload(){
+  if(!spendingData.length) loadSpending();
+  return {
+    version:  BACKUP_VERSION,
+    savedAt:  new Date().toISOString(),
+    device:   syncDevice,
+    data: {
+      pt_trades:         trades,
+      pt_divs:           dividends,
+      pt_props:          properties,
+      pt_spending:       spendingData,
+      pt_prices:         prices,
+      pt_pf_snapshots:   pfSnapshots,
+      cf_worker_url:     localStorage.getItem('cf_worker_url')||'',
+      pt_drp_carry:      (()=>{try{return JSON.parse(localStorage.getItem('pt_drp_carry')||'{}');}catch(e){return {};}})() ,
+      pt_drp_skipped:    getDRPSkipped(),
+      pt_expdiv_skipped: getExpDivSkipped(),
+      pt_drp_settings:   getDRPSettings(),
+      pt_brokers:        getCustomBrokers(),
+      pt_super:          superAccounts,
+      su_combined_color: localStorage.getItem('su_combined_color')||'#ffffff',
+      pt_tax: taxData, pt_stock_owners: stockOwners, pt_extra_persons: extraPersons,
+      pt_amit: (()=>{try{return JSON.parse(localStorage.getItem('pt_amit')||'[]');}catch(e){return [];}})(),
+      pt_cgt_loss_carry_in: (()=>{try{return JSON.parse(localStorage.getItem('pt_cgt_loss_carry_in')||'{}');}catch(e){return {};}})(),
+      // Manual CoinGecko symbol→id overrides (Settings → Set CoinGecko ID)
+      pt_cg_overrides: (typeof CG_OVERRIDES !== 'undefined') ? CG_OVERRIDES : {},
+      // CGT simulator's saved/auto-snapshotted price at the CGT_CUTOFF_DATE cutoff (cgt.js)
+      pt_price_cgt_cutoff: (()=>{try{return JSON.parse(localStorage.getItem('pt_price_cgt_cutoff')||'{}');}catch(e){return {};}})(),
+      pt_price_cgt_cutoff_auto_saved: localStorage.getItem('pt_price_cgt_cutoff_auto_saved') || '',
+      // Minor cache/config flags — small, no reason to drop them
+      pt_pf_backfill_date: localStorage.getItem('pt_pf_backfill_date') || '',
+      pt_pf_pruned_date:   localStorage.getItem('pt_pf_pruned_date') || '',
+      pt_super_last_fy:    localStorage.getItem('pt_super_last_fy') || '',
+      pt_price_feed_url:   localStorage.getItem('pt_price_feed_url') || '',
+      // Small local-only stores that previously never left the device. pt_holdings_fy_snapshots
+      // is the important one: past-year Net Worth holdings can't be reconstructed (see
+      // networth.js), so a new device / restore used to lose them permanently.
+      // (pt_benchmarks is deliberately left out — the Worker backfill rebuilds it.)
+      pt_ls_extras: Object.fromEntries(SYNC_LS_EXTRAS.map(k=>[k, localStorage.getItem(k)]).filter(([,v])=>v!=null)),
     }
+  };
+}
+const SYNC_LS_EXTRAS = ['pt_holdings_fy_snapshots','pt_price_alerts','pt_concentration_alerts','pt_ath',
+  'pt_fire_current_age','pt_fire_re_age','pt_fire_fi_age','pt_fire_monthly_contrib','pt_fire_growth_pct','pt_fire_annual_spend'];
+
+async function gistRequest(method, path, body){
+  if(!syncKey) throw new Error('No GitHub token set');
+  const headers = {
+    'Authorization': 'token ' + syncKey,
+    'Accept':        'application/vnd.github+json',
+  };
+  // Only set Content-Type when sending a body (POST/PATCH)
+  // Sending Content-Type on GET triggers CORS preflight which Safari can block
+  if(body) headers['Content-Type'] = 'application/json';
+
+  const opts = { method, headers, mode: 'cors' };
+  if(body) opts.body = JSON.stringify(body);
+
+  const res  = await fetch('https://api.github.com' + path, opts);
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.message || ('GitHub API error ' + res.status));
+  return data;
+}
+
+
+async function syncPush(){
+  if(!syncKey){ notify('Enter your GitHub token in Settings → Cloud Sync first.','err'); return; }
+  setSyncStatus('Pushing…','var(--blue)');
+  try {
+    const payload     = buildSyncPayload();
+    const fileContent = JSON.stringify(payload, null, 2);
+    const gistId      = localStorage.getItem('pt_sync_gist_id');
+    let result;
+
+    if(gistId){
+      // Update existing gist
+      result = await gistRequest('PATCH', '/gists/'+gistId, {
+        description: 'Portfolio Tracker Sync — '+new Date().toLocaleDateString(),
+        files: { [GIST_FILENAME]: { content: fileContent } },
+      });
+    } else {
+      // Create new private gist
+      result = await gistRequest('POST', '/gists', {
+        description: 'Portfolio Tracker Sync',
+        public: false,
+        files: { [GIST_FILENAME]: { content: fileContent } },
+      });
+      localStorage.setItem('pt_sync_gist_id', result.id);
+      // Save gist ID to sync-gist-id input if shown
+      const gEl = $('sync-gist-id');
+      if(gEl) gEl.value = result.id;
+    }
+
+    const ts = new Date().toLocaleString();
+    localStorage.setItem('pt_last_sync', payload.savedAt);
+    setSyncStatus('✓ Pushed '+ts,'var(--green)');
+    notify('☁ Pushed to GitHub Gist ✓');
+  } catch(e){
+    setSyncStatus('✗ Push failed: '+e.message,'var(--red)');
+    notify('Push failed: '+e.message,'err');
+  }
+}
+
+let _remotePending = null;
+let taxFY = 0; // 0 = current FY, or specific year e.g. 2025
+let taxData = (() => { try { return JSON.parse(localStorage.getItem('pt_tax')||'{}'); } catch(e){ return {}; } })();
+// Stock ownership map: {SYMBOL: 'lumia'|'chilli'|'joint'|customName}
+let stockOwners = (()=>{try{return JSON.parse(localStorage.getItem('pt_stock_owners')||'{}');}catch(e){return {};}})();
+// Known persons list (lumia + chilli are built-in, others user-defined)
+let extraPersons = (()=>{try{return JSON.parse(localStorage.getItem('pt_extra_persons')||'[]');}catch(e){return [];}})(); // {FY: {lumia:{salary,withheld,payg,...}, chilli:{...}, props:{propId:{expenses,depr_bldg,depr_pe}}}}
+
+async function syncPull(){
+  // Always read token fresh from the input field first
+  const keyEl = $('sync-key');
+  if(keyEl && keyEl.value.trim()) saveSyncKey(keyEl.value.trim());
+
+  if(!syncKey){
+    notify('Enter your GitHub token in Settings → Cloud Sync first.','err');
+    return;
+  }
+
+  setSyncStatus('Pulling…','var(--blue)');
+  try {
+    // Read gist ID — prefer input field value over stored
+    let gistId = localStorage.getItem('pt_sync_gist_id')||'';
+    const gistEl = $('sync-gist-id');
+    if(gistEl && gistEl.value.trim()) gistId = gistEl.value.trim();
+    // Sanitize gistId: only allow alphanumeric and hyphens, no path traversal
+    gistId = gistId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+
+    if(!gistId){
+      setSyncStatus('No Gist ID — push first or paste Gist ID in Settings','var(--text3)');
+      notify('No Gist ID. Push from your main device first, then copy the Gist ID to this device.','err');
+      return;
+    }
+
+    setSyncStatus('Fetching from GitHub…','var(--blue)');
+    const gist   = await gistRequest('GET', '/gists/'+gistId);
+    const file   = gist.files[GIST_FILENAME];
+    if(!file) throw new Error('Portfolio file not found in Gist — check Gist ID is correct');
+
+    // Fetch raw content if truncated
+    let rawContent = file.content;
+    if(file.truncated){
+      setSyncStatus('Fetching full data…','var(--blue)');
+      // Fetch raw content without auth header to avoid CORS preflight on Safari
+      // raw_url is already a pre-signed URL that doesn't need auth
+      const rawRes = await fetch(file.raw_url, { mode: 'cors' });
+      if(!rawRes.ok) throw new Error('Could not fetch full content: '+rawRes.status);
+      rawContent = await rawRes.text();
+    }
+
+    let remote;
+    try { remote = JSON.parse(rawContent); }
+    catch(e){ throw new Error('Could not parse Gist data — file may be corrupted'); }
+
+    const remoteSavedAt  = remote.savedAt;
+    const localSavedAt   = localStorage.getItem('pt_last_sync');
+    const localHasData   = trades.length > 0 || dividends.length > 0;
+    const remoteIsNewer  = !localSavedAt || new Date(remoteSavedAt) > new Date(localSavedAt);
+    const differentDevice= remote.device && remote.device !== syncDevice;
+
+    // Only show conflict if: local has data, different device, AND local is strictly newer
+    // If remote is newer or same age — just apply it (user clearly wants the cloud version)
+    if(localHasData && differentDevice && !remoteIsNewer){
+      _remotePending = remote;
+      const remoteTs = remoteSavedAt ? new Date(remoteSavedAt).toLocaleString() : 'unknown';
+      const localTs  = localSavedAt  ? new Date(localSavedAt).toLocaleString()  : 'never synced';
+      const infoEl   = $('sync-conflict-info');
+      if(infoEl) infoEl.innerHTML =
+        '<b>This device ('+syncDevice+'):</b> '+trades.length+' trades, last sync: '+localTs+'<br>'+
+        '<b>Cloud ('+remote.device+'):</b> '+(remote.data?.pt_trades?.length||0)+' trades, saved: '+remoteTs;
+      const cfEl = $('sync-conflict');
+      if(cfEl) cfEl.style.display = '';
+      setSyncStatus('⚠ Local is newer — choose version','var(--gold)');
+      return;
+    }
+
+    // Apply remote data
+    applyRemoteData(remote);
+    localStorage.setItem('pt_sync_gist_id', gistId);
+    localStorage.setItem('pt_last_sync', remoteSavedAt||new Date().toISOString());
+    const ts = remoteSavedAt ? new Date(remoteSavedAt).toLocaleString() : 'now';
+    setSyncStatus('✓ Pulled '+ts,'var(--green)');
+    notify('☁ Pulled from GitHub Gist ✓');
+  } catch(e){
+    console.error('syncPull error:', e);
+    setSyncStatus('✗ Pull failed: '+e.message,'var(--red)');
+    notify('Pull failed: '+e.message+'\n\nCheck: token has gist scope, Gist ID is correct, network is online.','err');
+  }
+}
+
+
+function applyRemoteData(remote){
+  const d = remote.data;
+  trades       = d.pt_trades     || [];
+  dividends    = d.pt_divs       || [];
+  properties   = d.pt_props      || [];
+  spendingData = d.pt_spending   || [];
+  prices       = d.pt_prices     || {};
+  mergePfSnapshots(d.pt_pf_snapshots);
+  localStorage.setItem('pt_trades',   JSON.stringify(trades));
+  localStorage.setItem('pt_divs',     JSON.stringify(dividends));
+  localStorage.setItem('pt_props',    JSON.stringify(properties));
+  localStorage.setItem('pt_spending', JSON.stringify(spendingData));
+  localStorage.setItem('pt_prices',   JSON.stringify(prices));
+  if(d.cf_worker_url)    localStorage.setItem('cf_worker_url',    d.cf_worker_url);
+  if(d.pt_drp_carry)     localStorage.setItem('pt_drp_carry',     JSON.stringify(d.pt_drp_carry));
+  if(d.pt_drp_skipped)   localStorage.setItem('pt_drp_skipped',   JSON.stringify(d.pt_drp_skipped));
+  if(d.pt_expdiv_skipped) localStorage.setItem('pt_expdiv_skipped', JSON.stringify(d.pt_expdiv_skipped));
+  if(d.pt_brokers && d.pt_brokers.length) saveCustomBrokers(d.pt_brokers);
+  if(d.pt_super)         { superAccounts = d.pt_super; saveSuperAccounts(); }
+  if(d.pt_stock_owners){ stockOwners=d.pt_stock_owners; saveStockOwners(); }
+  if(d.pt_extra_persons){ extraPersons=d.pt_extra_persons; saveExtraPersons(); }
+  if(d.pt_tax){ taxData = d.pt_tax; saveTaxData(); }
+  if(d.pt_drp_settings) localStorage.setItem('pt_drp_settings', JSON.stringify(d.pt_drp_settings));
+  if(d.pt_amit){ amitAdjustments = d.pt_amit; saveAmitAdjustments(); }
+  if(d.pt_cgt_loss_carry_in) localStorage.setItem('pt_cgt_loss_carry_in', JSON.stringify(d.pt_cgt_loss_carry_in));
+  if(d.pt_cg_overrides){ CG_OVERRIDES = d.pt_cg_overrides; saveCGOverrides(); }
+  // pt_price_20270630 fallback: payloads synced before the CGT cutoff-key rename used that property name
+  { const cutoffPrices = d.pt_price_cgt_cutoff || d.pt_price_20270630;
+    if(cutoffPrices) localStorage.setItem('pt_price_cgt_cutoff', JSON.stringify(cutoffPrices)); }
+  { const cutoffAutoSaved = d.pt_price_cgt_cutoff_auto_saved || d.pt_price_20270630_auto_saved;
+    if(cutoffAutoSaved) localStorage.setItem('pt_price_cgt_cutoff_auto_saved', cutoffAutoSaved); }
+  if(d.pt_pf_backfill_date) localStorage.setItem('pt_pf_backfill_date', d.pt_pf_backfill_date);
+  if(d.pt_pf_pruned_date)   localStorage.setItem('pt_pf_pruned_date',   d.pt_pf_pruned_date);
+  if(d.pt_super_last_fy)    localStorage.setItem('pt_super_last_fy',    d.pt_super_last_fy);
+  if(d.pt_price_feed_url)   localStorage.setItem('pt_price_feed_url',   d.pt_price_feed_url);
+  if(d.pt_ls_extras && typeof d.pt_ls_extras === 'object'){
+    SYNC_LS_EXTRAS.forEach(k => { if(typeof d.pt_ls_extras[k] === 'string') localStorage.setItem(k, d.pt_ls_extras[k]); });
+  }
+  if(d.su_combined_color){ suCombinedColor = d.su_combined_color;
+                           localStorage.setItem('su_combined_color', d.su_combined_color); }
+  try { resetMtmCache(); } catch(e){} // pfSnapshots just changed — drop the stale mark-to-market date cache
+  refreshAllBrokerSelects();
+  renderH(); renderT(); renderR(); renderHD();
+  renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards();
+  renderProperties(); renderAnalytics();
+  try { renderSuperAccounts(); renderSuperCards(); renderSuperChart(); } catch(e){}
+  try { renderSpending(); } catch(e){}
+  try { renderTax(); } catch(e){}
+  try { renderCGT(); } catch(e){}
+  try { renderOwnershipGrid(); } catch(e){}
+  // Clear revert buttons after sync pull (user confirmed remote data is source of truth)
+  if(typeof mathInpClearAllReverts==='function') mathInpClearAllReverts();
+}
+
+function syncResolve(choice){
+  const cfEl = $('sync-conflict');
+  if(cfEl) cfEl.style.display = 'none';
+  if(choice === 'remote' && _remotePending){
+    applyRemoteData(_remotePending);
+    const ts = new Date(_remotePending.savedAt||Date.now()).toLocaleString();
+    if(_remotePending.savedAt) localStorage.setItem('pt_last_sync', _remotePending.savedAt);
+    setSyncStatus('✓ Cloud version applied '+ts,'var(--green)');
+    notify('☁ Cloud version applied ✓');
+  } else {
+    setSyncStatus('Local version kept — push to overwrite cloud','var(--text3)');
+    notify('Local version kept. Push when ready to overwrite cloud.');
+  }
+  _remotePending = null;
+}
+
+function syncCancelConflict(){
+  const cfEl = $('sync-conflict');
+  if(cfEl) cfEl.style.display = 'none';
+  _remotePending = null;
+  setSyncStatus('Sync cancelled','var(--text3)');
+}
+
+function syncInitUI(){
+  const keyEl   = $('sync-key');
+  const devEl   = $('sync-device');
+  const gistEl  = $('sync-gist-id');
+  if(keyEl)  keyEl.value  = syncKey;
+  if(devEl)  devEl.value  = syncDevice;
+  if(gistEl) gistEl.value = localStorage.getItem('pt_sync_gist_id')||'';
+  const lastSync = localStorage.getItem('pt_last_sync');
+  if(lastSync) setSyncStatus('Last sync: '+new Date(lastSync).toLocaleString(),'var(--text3)');
+}
+
+
+function normaliseSplits(p){
+  if(Array.isArray(p.splits)&&p.splits.length) return p.splits;
+  // Legacy single-loan migration
+  if(p.loanCurrent||p.loanInitial||p.interestRate){
+    return [{
+      id:'sp_legacy',
+      label:'Split 1',
+      initial:+p.loanInitial||0,
+      balance:+p.loanCurrent||0,
+      rate:   +p.interestRate||0,
+      ltype:  p.loanType||'pi',
+      term:   +p.loanTerm||0,
+      repay:  +p.monthlyRepayment||0,
+      offset: +p.offsetBalance||0,
+    }];
+  }
+  return [];
+}
+
+function renderSplitRows(splits){
+  const wrap = $('pf-splits-wrap');
+  if(!splits||!splits.length){
+    splits=[{id:'sp_'+uid(),label:'Split 1',initial:0,balance:0,rate:0,ltype:'pi',term:0,repay:0,offset:0}];
+  }
+  wrap.innerHTML = splits.map((sp,i)=>`
+    <div class="split-row" data-split-id="${sp.id}" style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px 12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <input class="fi sp-label" type="text" value="${sp.label||('Split '+(i+1))}" placeholder="Label" style="width:140px;padding:3px 7px;font-size:12px;font-weight:600">
+        <button type="button" class="btn btn-r" style="padding:2px 8px;font-size:11px" onclick="removeLoanSplit(this)">✕ Remove</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px">
+        <div><label class="fl" style="font-size:10px">Initial Amount</label>
+          <input class="fi sp-initial" type="number" value="${sp.initial||''}" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Current Balance</label>
+          <input class="fi sp-balance" type="number" value="${sp.balance||''}" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Rate (% p.a.)</label>
+          <input class="fi sp-rate" type="number" value="${sp.rate||''}" placeholder="e.g. 5.89" step="0.01" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Loan Type</label>
+          <select class="fi sp-ltype" style="padding:3px 7px" oninput="calcPropPreview()">
+            <option value="pi" ${(sp.ltype||'pi')==='pi'?'selected':''}>P&I</option>
+            <option value="io" ${sp.ltype==='io'?'selected':''}>IO</option>
+          </select></div>
+        <div><label class="fl" style="font-size:10px">Term (years)</label>
+          <input class="fi sp-term" type="number" value="${sp.term||''}" placeholder="e.g. 25" step="1" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Repayment Override</label>
+          <input class="fi sp-repay" type="number" value="${sp.repay||''}" placeholder="Auto" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Offset Balance</label>
+          <input class="fi sp-offset" type="number" value="${sp.offset||''}" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Loan Purpose <span style="font-size:9px;color:var(--text3)">(tax)</span></label>
+          <select class="fi sp-purpose" style="padding:3px 7px" oninput="calcPropPreview()">
+            <option value="rental"     ${(!sp.purpose||sp.purpose==='rental')    ?'selected':''}>🏠 Rental</option>
+            <option value="investment" ${sp.purpose==='investment'?'selected':''}>📈 Investment</option>
+            <option value="personal"   ${sp.purpose==='personal'  ?'selected':''}>👤 Personal</option>
+          </select></div>
+      </div>
+    </div>`).join('');
+}
+
+function addLoanSplit(){
+  const wrap = $('pf-splits-wrap');
+  const count = wrap.querySelectorAll('.split-row').length;
+  const spId = 'sp_'+uid();
+  const div = document.createElement('div');
+  div.innerHTML = `
+    <div class="split-row" data-split-id="${spId}" style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px 12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <input class="fi sp-label" type="text" value="Split ${count+1}" placeholder="Label" style="width:140px;padding:3px 7px;font-size:12px;font-weight:600">
+        <button type="button" class="btn btn-r" style="padding:2px 8px;font-size:11px" onclick="removeLoanSplit(this)">✕ Remove</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px">
+        <div><label class="fl" style="font-size:10px">Initial Amount</label>
+          <input class="fi sp-initial" type="number" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Current Balance</label>
+          <input class="fi sp-balance" type="number" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Rate (% p.a.)</label>
+          <input class="fi sp-rate" type="number" placeholder="e.g. 5.89" step="0.01" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Loan Type</label>
+          <select class="fi sp-ltype" style="padding:3px 7px" oninput="calcPropPreview()">
+            <option value="pi">P&I</option>
+            <option value="io">IO</option>
+          </select></div>
+        <div><label class="fl" style="font-size:10px">Term (years)</label>
+          <input class="fi sp-term" type="number" placeholder="e.g. 25" step="1" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Repayment Override</label>
+          <input class="fi sp-repay" type="number" placeholder="Auto" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Offset Balance</label>
+          <input class="fi sp-offset" type="number" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px">Loan Purpose <span style="font-size:9px;color:var(--text3)">(tax)</span></label>
+          <select class="fi sp-purpose" style="padding:3px 7px" oninput="calcPropPreview()">
+            <option value="rental">🏠 Rental</option>
+            <option value="investment">📈 Investment</option>
+            <option value="personal">👤 Personal</option>
+          </select></div>
+      </div>
+    </div>`;
+  wrap.appendChild(div.firstElementChild);
+  calcPropPreview();
+}
+
+function removeLoanSplit(btn){
+  const wrap = $('pf-splits-wrap');
+  if(wrap.querySelectorAll('.split-row').length<=1){
+    notify('At least one loan split is required.','err'); return;
+  }
+  btn.closest('.split-row').remove();
+  calcPropPreview();
+}
+
+function propMetrics(p){
+  const cval    = +p.currentValue||0;
+  const pprice  = +p.purchasePrice||0;
+  const pcosts  = +p.purchaseCosts||0;
+  const rent    = +p.weeklyRent||0;
+  const expenses= +p.annualExpenses||0;
+
+  const splits = normaliseSplits(p);
+  const loanCur  = splits.reduce((s,sp)=>s+(+sp.balance||0),0);
+  const loanInit = splits.reduce((s,sp)=>s+(+sp.initial||0),0);
+
+  let monthlyInterest=0, interestSaved=0, annualInterest=0, repay=0;
+  let investmentAnnualInterest = 0, personalAnnualInterest = 0;
+  let drBalance = 0, drOffset = 0;
+  splits.forEach(sp=>{
+    const bal  = +sp.balance||0;
+    const off  = +sp.offset||0;
+    const rate = +sp.rate||0;
+    const term = +sp.term||0;
+    const ltype= sp.ltype||'pi';
+    const purpose = sp.purpose||'rental';
+    const eff  = Math.max(0, bal - off);
+    const moInt= +(eff*(rate/100)/12).toFixed(2);
+    const saved= +(off*(rate/100)/12).toFixed(2);
+    const autoR= ltype==='io' ? moInt : calcMonthlyPI(eff, rate, term);
+    monthlyInterest += moInt;
+    interestSaved   += saved;
+    annualInterest  += moInt*12;
+    repay           += +(+sp.repay || autoR);
+    if(purpose==='investment'){
+      investmentAnnualInterest += moInt*12;
+      drBalance += bal;
+      drOffset  += off;
+    }
+    if(purpose==='personal')   personalAnnualInterest   += moInt*12;
   });
-  if(doSave !== false){ save(); renderT(); renderH(); renderR(); }
-  return count;
+  monthlyInterest = +monthlyInterest.toFixed(2);
+  interestSaved   = +interestSaved.toFixed(2);
+  annualInterest  = +annualInterest.toFixed(2);
+  repay           = +repay.toFixed(2);
+
+  const wtRate = loanCur>0
+    ? splits.reduce((s,sp)=>s+((+sp.balance||0)/loanCur)*(+sp.rate||0),0)
+    : 0;
+  const totalOffset   = splits.reduce((s,sp)=>s+(+sp.offset||0),0);
+  const effectiveLoan = Math.max(0, loanCur - totalOffset);
+  const equity        = cval - loanCur;
+  const gainRaw       = cval - pprice - pcosts;
+  const gainPct       = (pprice+pcosts)>0?(gainRaw/(pprice+pcosts))*100:0;
+  const lvr           = cval>0?(loanCur/cval)*100:0;
+  const annualRent    = rent*52;
+  const annualNetRent = annualRent - expenses - annualInterest;
+  const grossYield    = pprice>0?(annualRent/pprice)*100:0;
+  const netYield      = cval>0?(annualNetRent/cval)*100:0;
+  const principalRepaid = loanInit - loanCur;
+
+  const drEffectiveBalance = Math.max(0, drBalance - drOffset);
+
+  return { cval,pprice,pcosts,loanCur,loanInit,effectiveLoan,investmentAnnualInterest,personalAnnualInterest,
+    monthlyInterest,interestSaved,annualInterest,
+    equity,gainRaw,gainPct,lvr,annualRent,annualNetRent,
+    grossYield,netYield,repay,principalRepaid,wtRate,splits,
+    drBalance,drOffset,drEffectiveBalance,drAnnualInterest:investmentAnnualInterest };
 }
 
-function retypeSymbolPrompt(){
-  const existing = $('retype-panel');
-  if(existing){ existing.remove(); return; }
-  const symMap = {};
-  trades.forEach(t=>{ if(t.symbol) symMap[t.symbol] = t.assetType; });
-  const syms = Object.keys(symMap).sort();
-  if(!syms.length){ notify('No trades to retype.','err'); return; }
-  const TYPE_OPTS = [
-    ['asx_stock','ASX Stock'],['etf','ETF'],['lic','LIC'],['reit','REIT'],
-    ['managed','Managed Fund'],['crypto','Crypto'],['bond','Bond'],['cash','Cash'],['other','Other']
+// ── DEBT RECYCLING — linked-stock dividend income ─────────────────────
+// Sums dividends for a property's linked symbols, split into current FY
+// (AU, Jul–Jun) vs the prior FY, for side-by-side comparison in the panel.
+function calcDRDividendStats(p){
+  const syms = new Set((p.drSymbols||[]).map(s=>s.toUpperCase()));
+  const now = new Date();
+  const curFY  = now.getMonth() >= 6 ? now.getFullYear()+1 : now.getFullYear();
+  const prevFY = curFY - 1;
+  let cur = 0, prev = 0, lifetime = 0;
+  if(syms.size){
+    dividends.forEach(d=>{
+      if(!syms.has((d.symbol||'').toUpperCase())) return;
+      lifetime += +d.amount||0;
+      const fy = dateToFY(d.date);
+      if(fy===curFY)       cur  += +d.amount||0;
+      else if(fy===prevFY) prev += +d.amount||0;
+    });
+  }
+  return { curFY, prevFY, curFYIncome:+cur.toFixed(2), prevFYIncome:+prev.toFixed(2), lifetimeIncome:+lifetime.toFixed(2) };
+}
+
+// Capital gain on a property's linked DR stocks. Reuses the CGT engine
+// (FIFO parcels + realised disposals) so figures match the CGT tab exactly.
+// Unrealised is "as of today" only — the app doesn't store historical
+// prices, so a per-FY unrealised split isn't possible; only realised gain
+// (from actual sells) can be split by FY.
+function calcDRCapitalGains(p){
+  const syms = new Set((p.drSymbols||[]).map(s=>s.toUpperCase()));
+  const now = new Date();
+  const curFY  = now.getMonth() >= 6 ? now.getFullYear()+1 : now.getFullYear();
+  const prevFY = curFY - 1;
+  const empty = { lifetimeUnrealised:0, currentValue:0, costBasis:0, investedBuyOnly:0, lifetimeRealised:0, curFYRealised:0, prevFYRealised:0, curFY, prevFY };
+  if(!syms.size || typeof buildDisposals!=='function') return empty;
+
+  const { disposals, openParcels } = buildDisposals();
+
+  let lifetimeRealised=0, curFYRealised=0, prevFYRealised=0;
+  disposals.forEach(d=>{
+    if(!syms.has((d.symbol||'').toUpperCase())) return;
+    lifetimeRealised += d.gain;
+    const fy = dateToFY(d.saleDate);
+    if(fy===curFY)       curFYRealised  += d.gain;
+    else if(fy===prevFY) prevFYRealised += d.gain;
+  });
+
+  let lifetimeUnrealised = 0, currentValue = 0, costBasis = 0, investedBuyOnly = 0;
+  syms.forEach(sym=>{
+    const list  = (openParcels[sym]||[]).filter(pc=>pc.units>0.000001);
+    const units = list.reduce((s,pc)=>s+pc.units,0);
+    const cost  = list.reduce((s,pc)=>s+pc.cost,0);
+    // "Buy orders only" — excludes units acquired via DRP reinvestment, so
+    // Invested Amount reflects actual cash put in, not reinvested dividends.
+    const buyCost = list.filter(pc=>pc.source!=='drp').reduce((s,pc)=>s+pc.cost,0);
+    const price = prices[priceSymbol(sym)]||0;
+    const value = units*price;
+    currentValue       += value;
+    costBasis           += cost;
+    investedBuyOnly     += buyCost;
+    lifetimeUnrealised  += value - cost;
+  });
+
+  return {
+    lifetimeUnrealised: +lifetimeUnrealised.toFixed(2),
+    currentValue:        +currentValue.toFixed(2),
+    costBasis:            +costBasis.toFixed(2),
+    investedBuyOnly:      +investedBuyOnly.toFixed(2),
+    lifetimeRealised:   +lifetimeRealised.toFixed(2),
+    curFYRealised:       +curFYRealised.toFixed(2),
+    prevFYRealised:      +prevFYRealised.toFixed(2),
+    curFY, prevFY,
+  };
+}
+
+// ── LIVE PREVIEW ──────────────────────────────────────────────────────
+function calcPropPreview(){
+  const p = readPropForm();
+  const m = propMetrics(p);
+  if(!p.purchasePrice && !p.currentValue){ $('prop-preview').style.display='none'; return; }
+  $('prop-preview').style.display='';
+  const items = [
+    {l:'Equity',              v:n2(m.equity),              c:clr(m.equity)},
+    {l:'Unrealised Gain',     v:n2(m.gainRaw),             c:clr(m.gainRaw)},
+    {l:'Gain %',              v:m.gainPct.toFixed(2)+'%',  c:clr(m.gainPct)},
+    {l:'LVR',                 v:m.lvr.toFixed(1)+'%',      c:m.lvr>80?'neg':m.lvr>60?'':'pos'},
+    {l:'Total Loan Balance',  v:n2(m.loanCur),             c:'neu'},
+    {l:'Effective Loan',      v:n2(m.effectiveLoan),        c:'neu'},
+    {l:'Wtd Avg Rate',        v:m.wtRate.toFixed(2)+'%',   c:'neu'},
+    {l:'Monthly Interest',    v:n2(m.monthlyInterest),     c:'neg'},
+    {l:'Offset Savings/mo',   v:n2(m.interestSaved),       c:'pos'},
+    {l:'Est. Total Repayment',v:n2(m.repay),               c:'neu'},
+    {l:'Gross Yield',         v:m.grossYield.toFixed(2)+'%',c:m.grossYield>0?'pos':'neu'},
+    {l:'Net Yield',           v:m.netYield.toFixed(2)+'%', c:clr(m.netYield)},
   ];
-  const panel = document.createElement('div');
-  panel.id = 'retype-panel';
-  panel.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin:8px 0 4px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end';
-  panel.innerHTML = `
-    <div>
-      <label class="fl">Symbol</label>
-      <select class="fi" id="retype-sym" style="min-width:120px" onchange="retypeSyncType()">
-        ${syms.map(s=>`<option value="${escHtml(s)}">${escHtml(s)} (${symMap[s]||'?'})</option>`).join('')}
-      </select>
-    </div>
-    <div>
-      <label class="fl">Change All Trades To</label>
-      <select class="fi" id="retype-at" style="min-width:140px">
-        ${TYPE_OPTS.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}
-      </select>
-    </div>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-primary" onclick="applyRetype()">Apply to All Trades</button>
-      <button class="btn" onclick="document.getElementById('retype-panel').remove()">Cancel</button>
-    </div>
-    <div style="font-size:11px;color:var(--text3);width:100%">
-      Updates every trade for the selected symbol to the new asset type — including buys, sells, DRP and corporate actions.
-    </div>
-  `;
-  const th = document.querySelector('#panel-trades .th');
-  if(th) th.after(panel);
-  retypeSyncType();
+  $('prop-preview-grid').innerHTML = items.map(i=>
+    `<div><div style="color:var(--text3);font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px">${i.l}</div>
+     <div class="${i.c}" style="font-size:14px;font-weight:600">${i.v}</div></div>`
+  ).join('');
 }
 
-function retypeSyncType(){
-  const symMap = {};
-  trades.forEach(t=>{ if(t.symbol) symMap[t.symbol] = t.assetType; });
-  const sym = $('retype-sym')?.value;
-  const atSel = $('retype-at');
-  if(atSel && sym && symMap[sym]) atSel.value = symMap[sym];
+// Regenerates the "Historical Value, Loan Remaining & Offset Balance at 30
+// June" input rows in the property form based on the entered purchase date —
+// only years since purchase make sense to ask about, so this is
+// per-property, unlike Super's fixed 2016+ range (which isn't tied to any
+// one instrument's start date). Called on pf-pdate change and when opening
+// the edit form. Loan Remaining and Offset Balance are both optional per
+// year — manual fallbacks for whatever checkPropertyFYRollover() hasn't
+// auto-captured yet (or years before that feature existed), letting Net
+// Worth's annual snapshot show Property (gross), Loan Remaining, and Cash
+// (from offset balances) as separate figures for that year.
+function updatePropFormFYFields(){
+  const wrap = $('pf-fy-fields');
+  if(!wrap) return;
+  const dateVal = $('pf-pdate') ? $('pf-pdate').value : '';
+  const _n = new Date();
+  const CUR_FY  = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
+  const PREV_FY = CUR_FY - 1;
+  if(!dateVal){
+    wrap.innerHTML = '<div style="font-size:11px;color:var(--text3)">Enter a purchase date above to add historical 30-June values.</div>';
+    return;
+  }
+  const startYear = (typeof dateToFY === 'function') ? dateToFY(dateVal) : +dateVal.slice(0,4);
+  if(startYear > PREV_FY){
+    wrap.innerHTML = '<div style="font-size:11px;color:var(--text3)">No 30 June has passed since this purchase date yet.</div>';
+    return;
+  }
+  let html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+
+    '<span style="width:54px;flex-shrink:0"></span>'+
+    '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Value</span>'+
+    '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Loan Remaining</span>'+
+    '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Offset Balance</span></div>';
+  for(let y = startYear; y <= PREV_FY; y++){
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+
+      '<label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:54px;flex-shrink:0">FY'+y+'</label>'+
+      '<input class="fi pf-fy-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px">'+
+      '<input class="fi pf-fy-debt-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px">'+
+      '<input class="fi pf-fy-offset-input" data-fy="'+y+'" type="number" placeholder="0" step="any" min="0" style="flex:1;padding:4px 8px"></div>';
+  }
+  wrap.innerHTML = html;
 }
 
-function applyRetype(){
-  const sym = ($('retype-sym')?.value||'').trim().toUpperCase();
-  const newType = $('retype-at')?.value||'';
-  if(!sym||!newType){ notify('Select a symbol and type.','err'); return; }
-  const total = trades.filter(t=>t.symbol===sym).length;
-  const changed = retypeAllTrades(sym, newType, true);
-  document.getElementById('retype-panel')?.remove();
-  renderT(); renderH(); renderR(); if(typeof renderAnalytics==='function') renderAnalytics();
-  notify(`Updated ${total} trade${total!==1?'s':''} for ${sym} → ${newType} (${changed} type${changed!==1?'s':''} changed) ✓`);
+// Reads the currently-visible pf-fy-debt-input rows and merges them onto
+// existingFyDebtData — same "blank clears that year" semantics as
+// readPropFormFYData, and same "years outside the visible range are left
+// untouched" behaviour so an auto-captured checkPropertyFYRollover() entry
+// for a year not currently shown never gets wiped by an unrelated save.
+// Unlike the value field, an explicit 0 IS kept (a fully paid-off loan is
+// a real, meaningful balance) — only a genuinely blank box clears the year.
+function readPropFormFYDebtData(existingFyDebtData){
+  const result = Object.assign({}, existingFyDebtData||{});
+  document.querySelectorAll('#pf-fy-fields .pf-fy-debt-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    const v = parseFloat(inp.value);
+    if(!isNaN(v) && v>=0) result[yr] = v; else delete result[yr];
+  });
+  return result;
 }
 
-function saveEditTrade(){
-  const idx = trades.findIndex(t=>t.id===editingTradeId);
-  if(idx<0){ notify('Trade not found.','err'); return; }
-  const date  = $('et-date').value;
-  const sym   = ($('et-sym').value||'').trim().toUpperCase();
-  const type  = $('et-side').value;
-  const asset = $('et-type').value;
-  const units = parseFloat($('et-units').value);
-  const price = parseFloat($('et-price').value);
-  const fees  = parseFloat($('et-fees').value)||0;
-  const source = ($('et-source')?.value || trades[idx]?.source || '');
-  const notes  = ($('et-notes')?.value ?? trades[idx]?.notes ?? '').trim();
-  if(!date||!sym||isNaN(units)||isNaN(price)){ notify('Fill all required fields.','err'); return; }
-  if(units<=0){ notify('Units must be greater than zero.','err'); return; }
-  if(price<0){ notify('Price cannot be negative.','err'); return; }
-  const prevAsset = trades[idx].assetType;
-  trades[idx] = {...trades[idx], date, symbol:sym, type, assetType:asset, units, price, fees, source, notes};
-  // Offer bulk retype if assetType changed and other trades exist for this symbol
-  if(asset !== prevAsset){
-    const others = trades.filter((t,i)=> i!==idx && t.symbol===sym && t.assetType!==asset);
-    if(others.length > 0){
-      const doAll = confirm(
-        `${others.length} other trade${others.length>1?'s':''} for ${sym} still use type "${prevAsset}".\n\nUpdate ALL ${sym} trades to "${asset}"?`
-      );
-      if(doAll) retypeAllTrades(sym, asset, false);
+// Same merge/clear semantics as readPropFormFYDebtData (explicit 0 is a
+// real, kept value — an offset account can genuinely sit at $0). This is
+// the manual fallback for whatever checkPropertyFYRollover() hasn't
+// auto-captured from the splits' current offset balances yet.
+function readPropFormFYOffsetData(existingFyOffsetData){
+  const result = Object.assign({}, existingFyOffsetData||{});
+  document.querySelectorAll('#pf-fy-fields .pf-fy-offset-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    const v = parseFloat(inp.value);
+    if(!isNaN(v) && v>=0) result[yr] = v; else delete result[yr];
+  });
+  return result;
+}
+
+// Reads the currently-visible pf-fy-input rows and merges them onto
+// existingFyData — a blank field clears that year (deliberate, since the
+// form is always pre-filled from existing data when editing, so an empty
+// box means "remove this"), while any year NOT currently shown (outside
+// the purchase-date-to-PREV_FY range, e.g. one written by
+// checkPropertyFYRollover) is left untouched rather than wiped out.
+function readPropFormFYData(existingFyData){
+  const result = Object.assign({}, existingFyData||{});
+  document.querySelectorAll('#pf-fy-fields .pf-fy-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    const v = parseFloat(inp.value);
+    if(!isNaN(v) && v>0) result[yr] = v; else delete result[yr];
+  });
+  return result;
+}
+
+function readPropForm(){
+  const splits = [];
+  document.querySelectorAll('#pf-splits-wrap .split-row').forEach(row=>{
+    splits.push({
+      id:      row.dataset.splitId || ('sp_'+uid()),
+      label:   row.querySelector('.sp-label').value.trim()||'Split',
+      initial: parseFloat(row.querySelector('.sp-initial').value)||0,
+      balance: parseFloat(row.querySelector('.sp-balance').value)||0,
+      rate:    parseFloat(row.querySelector('.sp-rate').value)||0,
+      ltype:   row.querySelector('.sp-ltype').value,
+      term:    parseFloat(row.querySelector('.sp-term').value)||0,
+      repay:   parseFloat(row.querySelector('.sp-repay').value)||0,
+      offset:  parseFloat(row.querySelector('.sp-offset').value)||0,
+      purpose: (row.querySelector('.sp-purpose')||{value:'rental'}).value || 'rental',
+    });
+  });
+  return {
+    id:          $('pf-edit-id').dataset.id||null,
+    name:        $('pf-name').value.trim(),
+    propType:    $('pf-type').value,
+    purchaseDate:$('pf-pdate').value,
+    purchasePrice: parseFloat($('pf-pprice').value)||0,
+    purchaseCosts: parseFloat($('pf-pcosts').value)||0,
+    capitalImprovements: parseFloat($('pf-improvements').value)||0,
+    currentValue:  parseFloat($('pf-cval').value)||0,
+    splits,
+    weeklyRent:    parseFloat($('pf-rent').value)||0,
+    annualExpenses:parseFloat($('pf-expenses').value)||0,
+    hasManager:    $('pf-mgr').value,
+    owner:         $('pf-owner')?.value || 'lumia',
+    notes:         $('pf-notes').value.trim(),
+    sold:          $('pf-sold')?.checked || false,
+    soldDate:      $('pf-sdate')?.value || '',
+    salePrice:     parseFloat($('pf-sprice')?.value)||0,
+    sellingCosts:  parseFloat($('pf-scosts')?.value)||0,
+    estSellCostPct: parseFloat($('pf-estsell')?.value)||0,
+    mainResExempt: $('pf-mainres')?.checked || false,
+    debtRecycling: ($('pf-type').value==='ppor' && $('pf-dr')?.checked) || false,
+    drSymbols:     (()=>{ try{ return JSON.parse($('pf-dr-symbols')?.dataset.selected||'[]'); }catch(e){ return []; } })(),
+  };
+}
+
+function saveProperty(){
+  const p = readPropForm();
+  if(!p.name){ notify('Enter a property name/address.','err'); return; }
+  if(!p.purchasePrice){ notify('Enter purchase price.','err'); return; }
+
+  if(p.id){
+    const idx = properties.findIndex(x=>x.id===p.id);
+    if(idx>=0){
+      p.fyData = readPropFormFYData(properties[idx].fyData); // merge, don't clobber years outside the visible range
+      p.fyDebtData = readPropFormFYDebtData(properties[idx].fyDebtData);
+      p.fyOffsetData = readPropFormFYOffsetData(properties[idx].fyOffsetData);
+      p.id=properties[idx].id; properties[idx]=p;
     }
+  } else {
+    p.fyData = readPropFormFYData(null);
+    p.fyDebtData = readPropFormFYDebtData(null);
+    p.fyOffsetData = readPropFormFYOffsetData(null);
+    p.id = 'prop_'+uid();
+    properties.push(p);
   }
-  editingTradeId = null;
-  save(); renderT(); renderH(); renderR(); if(typeof renderAnalytics==='function') renderAnalytics();
-  notify('Trade updated ✓');
+  saveProps();
+  clearPropForm();
+  renderProperties();
+  renderPropCards();
+  if(typeof renderTax==='function') renderTax();
+  notify('Property saved ✓');
 }
 
 
-// ── ADD/DELETE ───────────────────────────────────────────────────────
-function setDate(){const d=$('fd');if(!d.value)d.value=localDateStr();}
-function prevw(){
-  const u=parseFloat($('fun').value)||0, p=parseFloat($('fpr').value)||0;
-  const f=parseFloat($('ffe').value)||0, s=$('fsi').value;
-  const g=u*p, net=s==='buy'?g+f:g-f;
-  $('fpv').textContent=g>0?`Gross: ${n2(g)}  |  Net: ${n2(net)}`:'';
+
+// ── DRP ───────────────────────────────────────────────────────────────
+
+// Carry-forward stored per symbol: { 'VAS': 8.00, 'AFI': 3.42 }
+function getDRPCarry(){
+  try { return JSON.parse(localStorage.getItem('pt_drp_carry')||'{}'); } catch(e){ return {}; }
 }
-function addTrade(){
-  const date=$('fd').value, side=$('fsi').value;
-  const sym=$('fsy').value.trim().toUpperCase();
-  const at=$('fat').value;
-  const units=parseFloat($('fun').value);
-  const price=parseFloat($('fpr').value);
-  const fees=parseFloat($('ffe').value)||0;
-  const source=$('fso').value;
-  const notes=$('fno').value.trim();
-  if(!date||!sym||isNaN(units)||isNaN(price)||units<=0||price<0){notify('Fill date, symbol, units and price.','err');return;}
-  if(units<=0){notify('Units must be greater than zero.','err');return;}
-  if((side==='buy'||side==='sell')&&price<0){notify('Price cannot be negative.','err');return;}
-  const newTrade = {date,type:side,symbol:sym,assetType:at,units,price,fees,source,notes,id:uid()};
-  if(isTradeDuplicate(newTrade)){
-    if(!confirm('A trade with the same date, symbol, type, units and price already exists. Add anyway?')) return;
+function saveDRPCarry(obj){
+  localStorage.setItem('pt_drp_carry', JSON.stringify(obj));
+}
+
+// ── DRP SKIPPED ──────────────────────────────────────────────────────────────
+// Dividend IDs excluded from DRP Processing re-scans, keyed by dividend id →
+// { symbol, date, skippedAt, reason }. reason is 'cash' (company paid this
+// particular dividend out instead of reinvesting it — a genuine data point,
+// not just "ignore for now") or 'manual' (plain Skip button).
+function getDRPSkipped(){
+  try { return JSON.parse(localStorage.getItem('pt_drp_skipped')||'{}'); } catch(e){ return {}; }
+}
+function saveDRPSkipped(obj){
+  localStorage.setItem('pt_drp_skipped', JSON.stringify(obj));
+}
+function markDRPSkipped(divId, sym, date, reason){
+  const skipped = getDRPSkipped();
+  skipped[divId] = { symbol:sym, date, skippedAt:localDateStr(), reason: reason||'manual' };
+  saveDRPSkipped(skipped);
+}
+function unskipDRPItem(divId){
+  const skipped = getDRPSkipped();
+  delete skipped[divId];
+  saveDRPSkipped(skipped);
+  notify('Restored to DRP Processing — click "Check & Process Dividends" again to see it.','ok');
+}
+
+// ── EXPECTED DIVIDEND CHECKER — dismissed entries ─────────────────────────────
+// The "Expected Dividends" checker synthesizes rows from Yahoo's dividend
+// history rather than reading real dividend records, so there's no id to key
+// off — use symbol+date+per-unit amount as a stable fingerprint instead.
+// Recorded rows are hidden by dvChkKey() lookup; separately, entries the user
+// has explicitly dismissed (false positives, N/A for them, etc.) are stored
+// here so they stay hidden across future checks too.
+function dvChkKey(r){ return r.symbol+'|'+r.date+'|'+(+r.perUnit).toFixed(6); }
+function getExpDivSkipped(){
+  try { return JSON.parse(localStorage.getItem('pt_expdiv_skipped')||'{}'); } catch(e){ return {}; }
+}
+function saveExpDivSkipped(obj){
+  localStorage.setItem('pt_expdiv_skipped', JSON.stringify(obj));
+}
+function markExpDivSkipped(r){
+  const skipped = getExpDivSkipped();
+  skipped[dvChkKey(r)] = { symbol:r.symbol, date:r.date, perUnit:r.perUnit, skippedAt:localDateStr() };
+  saveExpDivSkipped(skipped);
+}
+function unskipExpDivItem(key){
+  const skipped = getExpDivSkipped();
+  delete skipped[key];
+  saveExpDivSkipped(skipped);
+  notify('Restored — re-run "Check & Process Dividends" to see it.','ok');
+}
+
+// ── DRP SETTINGS ─────────────────────────────────────────────────────────────
+// Structure: { "DHHF:AU": { enabled: true, fractional: false }, ... }
+function getDRPSettings(){
+  try { return JSON.parse(localStorage.getItem('pt_drp_settings')||'{}'); } catch(e){ return {}; }
+}
+function saveDRPSettings(obj){
+  localStorage.setItem('pt_drp_settings', JSON.stringify(obj));
+}
+function setDRPFlag(sym, field, val){
+  const s = getDRPSettings();
+  if(!s[sym]) s[sym] = { enabled:false, fractional:false };
+  s[sym][field] = val;
+  saveDRPSettings(s);
+}
+
+function drpLoadCarry(){
+  const sym = ($('dv-sym')?.value||'').toUpperCase();
+  if(!sym) return;
+  const carry = getDRPCarry();
+  const el = $('dv-drp-carry-in');
+  if(el) el.value = carry[sym] ? carry[sym].toFixed(2) : '';
+  drpCalc();
+}
+
+function drpCalc(){
+  const units    = parseFloat($('dv-drp-units')?.value)    || 0;
+  const price    = parseFloat($('dv-drp-price')?.value)    || 0;
+  const amount   = parseFloat($('dv-amt')?.value)          || 0;
+  const carryIn  = parseFloat($('dv-drp-carry-in')?.value) || 0;
+  const sym      = ($('dv-sym')?.value || '').toUpperCase();
+  const date     = $('dv-date')?.value || '';
+
+  const available  = amount + carryIn;
+  const reinvested = units > 0 && price > 0 ? +(units * price).toFixed(2) : 0;
+  const carryOut   = available > 0 && reinvested > 0 ? +(available - reinvested).toFixed(2) : 0;
+
+  if(units > 0 && available > 0 && price === 0){
+    const calcPrice = +(available / units).toFixed(6);
+    const prEl = $('dv-drp-price');
+    if(prEl && !prEl.matches(':focus')) prEl.value = calcPrice;
   }
-  trades.push(newTrade);
-  save(); clearForm(); renderR(); renderH(); renderT(); if(typeof renderAnalytics==='function') renderAnalytics();
-  notify(`Added: ${side.toUpperCase()} ${nN(units,4)} ${sym} @ ${n2(price,dec(price))}`);
+
+  const prevT = $('dv-drp-prev-trade');
+  const prevD = $('dv-drp-prev-div');
+  const prevC = $('dv-drp-prev-carry');
+  if(!prevT || !prevD || !prevC) return;
+
+  if(!sym || !date || !amount){
+    prevT.innerHTML = '<span style="color:var(--text3)">Fill symbol, date and amount to see preview</span>';
+    prevD.innerHTML = ''; prevC.innerHTML = '';
+    return;
+  }
+
+  prevD.innerHTML = `<span style="color:var(--text3)">Dividend →</span> <b>${sym}</b> `
+    + `declared <b style="color:var(--green)">${n2(amount)}</b>`
+    + (carryIn > 0 ? ` + <span style="color:var(--gold)">${n2(carryIn)} carry-in</span> = <b style="color:var(--green)">${n2(available)}</b> available` : '');
+
+  if(units > 0 && price > 0){
+    prevT.innerHTML = `<span style="color:var(--text3)">Trade →</span> `
+      + `<span style="background:#3b1f6e;color:#c4b5fd;border:1px solid #7c3aed;border-radius:4px;padding:1px 6px;font-size:10px">DRP</span> `
+      + `<b>${sym}</b> ${nN(units,4)} units @ ${n2(price)} = <b style="color:var(--green)">${n2(reinvested)}</b>`;
+    if(carryOut > 0.005){
+      prevC.innerHTML = `<span style="color:var(--text3)">Carry-forward →</span> `
+        + `<span style="color:var(--gold);font-weight:600">${n2(carryOut)}</span> saved for next ${sym} DRP`;
+    } else if(carryOut < -0.005){
+      prevC.innerHTML = `<span style="color:var(--red)">⚠ Units×price (${n2(reinvested)}) exceeds available (${n2(available)}) by ${n2(Math.abs(carryOut))}</span>`;
+    } else {
+      prevC.innerHTML = `<span style="color:var(--text3)">No remainder — fully reinvested ✓</span>`;
+    }
+  } else {
+    prevT.innerHTML = `<span style="color:var(--text3)">Enter units and price to see trade preview</span>`;
+    prevC.innerHTML = '';
+  }
 }
-function clearForm(){['fsy','fun','fpr','fno'].forEach(id=>$(id).value='');$('ffe').value='0';$('fpv').textContent='';}
-function delT(idx){
-  if(idx < 0 || idx >= trades.length){ notify('Trade not found.','err'); return; }
-  if(!confirm('Delete this trade?')) return;
-  trades.splice(idx,1); save(); renderT(); renderH(); renderR();
-  notify('Trade deleted.','ok');
+
+
+
+// ── COLLAPSIBLE SECTIONS ──────────────────────────────────────────────
+function toggleSection(key){
+  const body   = $('sec-body-'+key);
+  const toggle = $('sec-toggle-'+key);
+  if(!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display   = isOpen ? 'none' : '';
+  toggle.textContent   = isOpen ? '+' : '−';
+  toggle.style.color   = isOpen ? 'var(--text3)' : 'var(--blue)';
 }
+
+function togglePropForm(forceOpen){
+  const body   = $('prop-form-body');
+  const toggle = $('prop-form-toggle');
+  const isOpen = body.style.display !== 'none';
+  const open   = forceOpen !== undefined ? forceOpen : !isOpen;
+  body.style.display   = open ? '' : 'none';
+  toggle.textContent   = open ? '−' : '+';
+  toggle.style.color   = open ? 'var(--blue)' : 'var(--text3)';
+}
+
+// ── DEBT RECYCLING — form UI ────────────────────────────────────────────
+function togglePropDRVisibility(){
+  const wrap = $('pf-dr-wrap');
+  if(!wrap) return;
+  const isPpor = $('pf-type').value === 'ppor';
+  wrap.style.display = isPpor ? '' : 'none';
+  if(!isPpor && $('pf-dr')){
+    // Debt recycling only applies to the PPOR — clear it for other types
+    $('pf-dr').checked = false;
+    togglePropDRFields();
+  }
+}
+function togglePropDRFields(){
+  const box = $('pf-dr'), fields = $('pf-dr-fields');
+  if(!box || !fields) return;
+  fields.style.display = box.checked ? '' : 'none';
+  if(box.checked) renderDRSymbolChips();
+}
+function renderDRSymbolChips(selectedSyms){
+  const wrap = $('pf-dr-symbols');
+  if(!wrap) return;
+  const selected = selectedSyms
+    ? [...new Set(selectedSyms.map(s=>s.toUpperCase()))]
+    : JSON.parse(wrap.dataset.selected||'[]');
+  wrap.dataset.selected = JSON.stringify(selected);
+  // Keep broker-suffixed symbols (DHHF:AU vs DHHF:CMC) distinct — they're
+  // separate parcels, often with different owners, not the same holding.
+  const heldSyms = [...new Set(calcH().filter(h=>h.units>0.00000001).map(h=>h.symbol.toUpperCase()))].sort();
+  if(!heldSyms.length){
+    wrap.innerHTML = '<div style="font-size:11px;color:var(--text3)">No current holdings found — add trades first.</div>';
+    return;
+  }
+  wrap.innerHTML = heldSyms.map(sym=>{
+    const owner = getSymbolOwner(sym);
+    const oc = getPersonColour(owner);
+    const active = selected.includes(sym);
+    return `<span class="ca-pill${active?' active':''}" style="font-family:var(--mono);display:inline-flex;align-items:center;gap:5px" onclick="toggleDRSymbol('${sym}')">
+      ${plainSymbol(sym)}
+      <span style="width:7px;height:7px;border-radius:50%;background:${oc};box-shadow:0 0 4px ${oc}" title="${getPersonLabel(owner)}"></span>
+    </span>`;
+  }).join('');
+}
+function toggleDRSymbol(sym){
+  const wrap = $('pf-dr-symbols');
+  if(!wrap) return;
+  let selected = JSON.parse(wrap.dataset.selected||'[]');
+  selected = selected.includes(sym) ? selected.filter(s=>s!==sym) : [...selected, sym];
+  renderDRSymbolChips(selected);
+  calcPropPreview();
+}
+
+// ── DEBT RECYCLING — Total Investment breakdown popup ─────────────────
+function showDRTotalBreakdown(propId){
+  const t = (window.__drBreakdown||{})[propId];
+  if(!t){ notify('Breakdown not available — re-open Property tab.','err'); return; }
+  const existing = document.getElementById('dr-total-popup');
+  if(existing){ existing.remove(); return; }
+
+  const popup = document.createElement('div');
+  popup.id = 'dr-total-popup';
+  popup.style.cssText = [
+    'position:fixed','top:50%','left:50%',
+    'transform:translate(-50%,-50%)',
+    'background:var(--surface)','border:1px solid var(--border)',
+    'border-radius:10px','padding:20px 24px',
+    'z-index:9999','min-width:320px','max-width:95vw',
+    'box-shadow:0 8px 32px rgba(0,0,0,.5)',
+    'font-family:var(--mono)','font-size:12px',
+  ].join(';');
+
+  popup.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:700;color:var(--text)">Total Investment — ${escHtml(t.propName)}</div>
+      <button onclick="document.getElementById('dr-total-popup').remove()"
+        style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <details style="border-bottom:1px solid var(--border);padding:5px 0">
+        <summary style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;color:var(--text2);font-weight:600">
+          <span>Invested Amount</span>
+          <span style="color:var(--text);font-weight:600">${n2(t.invested)}</span>
+        </summary>
+        <div style="padding:6px 0 2px 14px;display:flex;flex-direction:column;gap:3px">
+          <div style="display:flex;justify-content:space-between;color:var(--text2)">
+            <span>Buy Orders</span><span style="color:var(--text)">${n2(t.buyOnly)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;color:var(--text2)">
+            <span>DRP Orders</span><span style="color:var(--text)">${n2(t.drpAmount)}</span>
+          </div>
+        </div>
+      </details>
+      <div style="display:flex;justify-content:space-between;border-bottom:2px solid var(--border2);padding:5px 0">
+        <span style="color:var(--text2)">Capital Gain <span style="color:var(--text3)">(unrealised, lifetime, buy+DRP units)</span></span>
+        <span style="color:${t.capitalGain>=0?'var(--green)':'var(--red)'}">${n2(t.capitalGain)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-weight:700">
+        <span style="color:var(--text)">Total Investment</span>
+        <span style="color:var(--text)">${n2(t.total)}</span>
+      </div>
+      <div style="padding:10px 0 5px;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase">Not included in total</div>
+      <div style="display:flex;justify-content:space-between;background:var(--gold-dim);padding:5px 8px;border-radius:4px">
+        <span style="color:var(--gold)">Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></span>
+        <span style="color:var(--gold)">${n2(t.dividends)}</span>
+      </div>
+    </div>
+    <div style="margin-top:12px;font-size:10px;color:var(--text3)">
+      Total Investment = Invested Amount (Buy + DRP orders) + Capital Gain.<br>
+      Dividend Income is shown for reference only — DRP-reinvested amounts are already
+      counted in Invested Amount, so adding it in would double-count.
+    </div>`;
+
+  popup.addEventListener('click', e => e.stopPropagation());
+  // Defer attaching the outside-click listener — otherwise the click that
+  // opened the popup is still bubbling to document and would close it instantly.
+  setTimeout(()=>{
+    document.addEventListener('click', function dismiss(){
+      popup.remove();
+      document.removeEventListener('click', dismiss);
+    });
+  }, 0);
+
+  document.body.appendChild(popup);
+}
+
+// ── DEBT RECYCLING — Total Gain breakdown popup ────────────────────────
+function showDRGainBreakdown(propId){
+  const t = (window.__drGainBreakdown||{})[propId];
+  if(!t){ notify('Breakdown not available — re-open Property tab.','err'); return; }
+  const existing = document.getElementById('dr-gain-popup');
+  if(existing){ existing.remove(); return; }
+
+  const popup = document.createElement('div');
+  popup.id = 'dr-gain-popup';
+  popup.style.cssText = [
+    'position:fixed','top:50%','left:50%',
+    'transform:translate(-50%,-50%)',
+    'background:var(--surface)','border:1px solid var(--border)',
+    'border-radius:10px','padding:20px 24px',
+    'z-index:9999','min-width:320px','max-width:95vw',
+    'box-shadow:0 8px 32px rgba(0,0,0,.5)',
+    'font-family:var(--mono)','font-size:12px',
+  ].join(';');
+
+  popup.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:700;color:var(--text)">Total Gain — ${escHtml(t.propName)}</div>
+      <button onclick="document.getElementById('dr-gain-popup').remove()"
+        style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;padding:5px 0;color:var(--text3);font-size:10px;letter-spacing:.06em;text-transform:uppercase">
+        <span>Capital Gain calc</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0 3px 10px;color:var(--text2)">
+        <span>Current Value <span style="color:var(--text3)">(linked holdings, today)</span></span>
+        <span style="color:var(--text)">${n2(t.currentValue)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0 5px 10px;color:var(--text2);border-bottom:1px solid var(--border)">
+        <span>− Invested Amount <span style="color:var(--text3)">(cost basis)</span></span>
+        <span style="color:var(--text)">${n2(t.invested)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:2px solid var(--border2)">
+        <span style="color:var(--text2);font-weight:600">= Capital Gain <span style="color:var(--text3);font-weight:400">(unrealised, lifetime)</span></span>
+        <span style="color:${t.capitalGain>=0?'var(--green)':'var(--red)'};font-weight:600">${n2(t.capitalGain)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:2px solid var(--border2)">
+        <span style="color:var(--text2)">+ Dividend Income <span style="color:var(--text3)">(lifetime, incl. DRP)</span></span>
+        <span style="color:var(--gold)">${n2(t.dividends)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-weight:700">
+        <span style="color:var(--text)">= Total Gain</span>
+        <span style="color:${t.total>=0?'var(--green)':'var(--red)'}">${n2(t.total)}</span>
+      </div>
+    </div>
+    <div style="margin-top:12px;font-size:10px;color:var(--text3)">
+      Total Gain = (Current Value − Invested Amount) + Dividend Income.<br>
+      This isn't double-counting: DRP dividends raise Invested Amount (via the reinvested
+      units' cost base), which lowers Capital Gain by that same amount — adding Dividend
+      Income back nets it out, leaving the true return versus actual cash you put in
+      (buy orders) plus every dollar of dividends the strategy has paid, reinvested or not.
+    </div>`;
+
+  popup.addEventListener('click', e => e.stopPropagation());
+  setTimeout(()=>{
+    document.addEventListener('click', function dismiss(){
+      popup.remove();
+      document.removeEventListener('click', dismiss);
+    });
+  }, 0);
+
+  document.body.appendChild(popup);
+}
+
+function togglePropSoldFields(){
+  const box = $('pf-sold');
+  const wrap = $('pf-sold-fields');
+  if(!box || !wrap) return;
+  wrap.style.display = box.checked ? 'grid' : 'none';
+}
+
+function clearPropForm(){
+  ['pf-name','pf-pprice','pf-pcosts','pf-improvements','pf-cval','pf-rent','pf-expenses','pf-notes','pf-sdate','pf-sprice','pf-scosts','pf-estsell']
+    .forEach(id=>{ const el=$(id); if(el) el.value=''; });
+  $('pf-pdate').value='';
+  updatePropFormFYFields();
+  if($('pf-sold')) $('pf-sold').checked=false;
+  if($('pf-mainres')) $('pf-mainres').checked=false;
+  togglePropSoldFields();
+  if($('pf-dr')) $('pf-dr').checked=false;
+  if($('pf-dr-symbols')) $('pf-dr-symbols').dataset.selected='[]';
+  togglePropDRVisibility();
+  togglePropDRFields();
+  $('pf-edit-id').textContent=''; $('pf-edit-id').dataset.id='';
+  $('prop-form-title-text').textContent='Add Property';
+  renderSplitRows([]);
+  togglePropForm(false);
+  $('prop-preview').style.display='none';
+}
+
+function editProperty(btn){
+  const id = btn.dataset.id;
+  const p = properties.find(x=>x.id===id);
+  if(!p) return;
+  $('pf-name').value         = p.name||'';
+  $('pf-type').value         = p.propType||'ppor';
+  $('pf-pdate').value        = p.purchaseDate||'';
+  $('pf-pprice').value       = p.purchasePrice||'';
+  $('pf-pcosts').value       = p.purchaseCosts||'';
+  if($('pf-improvements')) $('pf-improvements').value = p.capitalImprovements||'';
+  $('pf-cval').value         = p.currentValue||'';
+  $('pf-rent').value         = p.weeklyRent||'';
+  // Prefill Annual Expenses from Tax tab (rates+insurance+repairs+agent+other)
+  const _taxFY = getTaxFY();
+  const _taxRec = (taxData[taxKey(_taxFY)]||{}).props||{};
+  const _tpr = _taxRec[p.id]||{};
+  const _taxExpenses = (+_tpr.rates||0)+(+_tpr.insurance||0)+(+_tpr.repairs||0)+(+_tpr.agent||0)+(+_tpr.other||0);
+  // Use tax expenses if they exist, otherwise fall back to stored annualExpenses
+  $('pf-expenses').value = _taxExpenses > 0 ? _taxExpenses : (p.annualExpenses||'');
+  if($('pf-owner')) $('pf-owner').value = p.owner||'lumia';
+  $('pf-mgr').value          = p.hasManager||'no';
+  $('pf-notes').value        = p.notes||'';
+  if($('pf-estsell')) $('pf-estsell').value = p.estSellCostPct||'';
+  if($('pf-sold')){
+    $('pf-sold').checked   = !!p.sold;
+    $('pf-sdate').value    = p.soldDate||'';
+    $('pf-sprice').value   = p.salePrice||'';
+    $('pf-scosts').value   = p.sellingCosts||'';
+    $('pf-mainres').checked= !!p.mainResExempt;
+    togglePropSoldFields();
+  }
+  togglePropDRVisibility();
+  if($('pf-dr')){
+    $('pf-dr').checked = !!p.debtRecycling;
+    renderDRSymbolChips(p.drSymbols||[]);
+    togglePropDRFields();
+  }
+  $('pf-edit-id').dataset.id = p.id;
+  renderSplitRows(normaliseSplits(p));
+  updatePropFormFYFields();
+  document.querySelectorAll('#pf-fy-fields .pf-fy-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    inp.value = (p.fyData && p.fyData[yr]!=null) ? p.fyData[yr] : '';
+  });
+  document.querySelectorAll('#pf-fy-fields .pf-fy-debt-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    inp.value = (p.fyDebtData && p.fyDebtData[yr]!=null) ? p.fyDebtData[yr] : '';
+  });
+  document.querySelectorAll('#pf-fy-fields .pf-fy-offset-input').forEach(inp=>{
+    const yr = +inp.dataset.fy;
+    inp.value = (p.fyOffsetData && p.fyOffsetData[yr]!=null) ? p.fyOffsetData[yr] : '';
+  });
+  $('prop-form-title-text').textContent = 'Edit Property — '+p.name;
+  togglePropForm(true);
+  calcPropPreview();
+  $('prop-form-wrap').scrollIntoView({behavior:'smooth'});
+}
+
+function deleteProperty(btn){
+  const id = btn.dataset.id;
+  const p = properties.find(x=>x.id===id);
+  if(!confirm('Delete '+p?.name+'?')) return;
+  properties = properties.filter(x=>x.id!==id);
+  saveProps();
+  renderProperties();
+  renderPropCards();
+  if(typeof renderTax==='function') renderTax();
+  notify('Property deleted.','ok');
+}
+
+const PROP_TYPE_LABEL = {ppor:'PPOR',investment:'Investment',commercial:'Commercial',land:'Land'};
+
+// Snapshot each property's currentValue (and outstanding loan balance)
+// into fyData / fyDebtData when a new financial year starts — mirrors
+// checkSuperFYRollover() exactly. Property has no other history mechanism
+// (currentValue, loan balances, and offset balances are overwritten on
+// every edit), so this is the only way past-FY figures ever get preserved,
+// and it can only start from whichever FY is current the first time this
+// runs — there's no way to recover years before that; none of these
+// figures were ever stored.
+// fyDebtData and fyOffsetData are what let the Net Worth annual snapshot
+// show Property (gross value), Loan Remaining, and Cash (offset balances)
+// as separate figures for years captured from here on; years before this
+// was added still won't have a loan or offset figure, same limitation
+// fyData itself already has for value.
+function checkPropertyFYRollover(){
+  try{
+    const _d = new Date();
+    const CUR_FY  = _d.getMonth() >= 6 ? _d.getFullYear()+1 : _d.getFullYear();
+    const PREV_FY = CUR_FY - 1;
+    const lastFY  = +(localStorage.getItem('pt_property_last_fy')||0);
+
+    if(lastFY && lastFY < CUR_FY && Array.isArray(properties)){
+      let changed = false;
+      properties.forEach(p=>{
+        // A property sold on/before 30 June of PREV_FY wasn't owned at that year-end — capturing it
+        // here made every later FY's Net Worth snapshot keep counting a sold property at its stale
+        // last value/debt. (Sold with no date: can't tell, so it's not captured going forward.)
+        if(p.sold && (!p.soldDate || p.soldDate <= PREV_FY + '-06-30')) return;
+        if(!p.fyData) p.fyData = {};
+        if(p.fyData[PREV_FY] == null && p.currentValue != null){
+          p.fyData[PREV_FY] = +p.currentValue;
+          changed = true;
+        }
+        if(!p.fyDebtData) p.fyDebtData = {};
+        if(p.fyDebtData[PREV_FY] == null){
+          p.fyDebtData[PREV_FY] = normaliseSplits(p).reduce((s,sp)=>s+(+sp.balance||0),0);
+          changed = true;
+        }
+        if(!p.fyOffsetData) p.fyOffsetData = {};
+        if(p.fyOffsetData[PREV_FY] == null){
+          p.fyOffsetData[PREV_FY] = normaliseSplits(p).reduce((s,sp)=>s+(+sp.offset||0),0);
+          changed = true;
+        }
+      });
+      if(changed){
+        saveProps();
+        if(typeof notify === 'function') notify('Property values captured for FY'+PREV_FY+' ✓','ok');
+      }
+    }
+    localStorage.setItem('pt_property_last_fy', CUR_FY);
+  }catch(e){ console.warn('checkPropertyFYRollover error:', e); }
+}
+
+function renderProperties(){
+  checkPropertyFYRollover();
+  const wrap = $('prop-cards-wrap');
+  if(!properties.length){
+    wrap.innerHTML='<div class="empty"><div class="empty-icon">🏠</div>No properties added yet. Fill in the form above.</div>';
+    return;
+  }
+  window.__drBreakdown = {};
+  window.__drGainBreakdown = {};
+  // Built once so each card's CGT estimate doesn't re-run the whole parcel engine.
+  let __cgtCtx = null;
+  try{ if(typeof cgtSaleContext === 'function') __cgtCtx = cgtSaleContext(); }catch(e){ console.error('CGT context failed', e); }
+  wrap.innerHTML = properties.map(p=>{
+    const m = propMetrics(p);
+    const typeLabel = PROP_TYPE_LABEL[p.propType]||p.propType;
+    const lvrClass = m.lvr>80?'neg':m.lvr>60?'':'pos';
+    const isDR = p.propType==='ppor' && p.debtRecycling;
+    const drDivs = isDR ? calcDRDividendStats(p) : null;
+    const drCap  = isDR ? calcDRCapitalGains(p)   : null;
+
+    const stat = (label,val,cls='neu') =>
+      `<div><div style="font-size:10px;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:2px">${label}</div>
+       <div class="${cls}" style="font-family:var(--mono);font-size:13px;font-weight:600">${val}</div></div>`;
+
+    // Splits table
+    const splitsHtml = m.splits.length ? `
+      <div style="margin-bottom:16px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">LOAN SPLITS</div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px">
+            <thead>
+              <tr style="color:var(--text3);border-bottom:1px solid var(--border)">
+                <th style="text-align:left;padding:4px 8px 4px 0;font-weight:500">SPLIT</th>
+                <th style="text-align:right;padding:4px 8px;font-weight:500">TYPE</th>
+                <th style="text-align:right;padding:4px 8px;font-weight:500">BALANCE</th>
+                <th style="text-align:right;padding:4px 8px;font-weight:500">RATE</th>
+                <th style="text-align:right;padding:4px 8px;font-weight:500">OFFSET</th>
+                <th style="text-align:right;padding:4px 8px;font-weight:500">EFF. LOAN</th>
+                <th style="text-align:right;padding:4px 8px;font-weight:500">MO. INTEREST</th>
+                <th style="text-align:right;padding:4px 8px;font-weight:500">REPAYMENT</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${m.splits.map(sp=>{
+                const bal  = +sp.balance||0;
+                const off  = +sp.offset||0;
+                const rate = +sp.rate||0;
+                const eff  = Math.max(0, bal-off);
+                const moInt= +(eff*(rate/100)/12).toFixed(2);
+                const autoR= sp.ltype==='io' ? moInt : calcMonthlyPI(eff,rate,+sp.term||0);
+                const rep  = +(+sp.repay||autoR).toFixed(2);
+                return `<tr style="border-bottom:1px solid var(--border)">
+                  <td style="padding:5px 8px 5px 0;font-weight:600">${sp.label||'Split'}</td>
+                  <td style="text-align:right;padding:5px 8px"><span class="badge b-reit">${sp.ltype==='io'?'IO':'P&I'}</span></td>
+                  <td style="text-align:right;padding:5px 8px">${n2(bal)}</td>
+                  <td style="text-align:right;padding:5px 8px">${rate.toFixed(2)}%</td>
+                  <td style="text-align:right;padding:5px 8px;color:var(--green)">${off?n2(off):'—'}</td>
+                  <td style="text-align:right;padding:5px 8px">${n2(eff)}</td>
+                  <td style="text-align:right;padding:5px 8px;color:var(--red)">${n2(moInt)}</td>
+                  <td style="text-align:right;padding:5px 8px">${n2(rep)}</td>
+                </tr>`;
+              }).join('')}
+              ${m.splits.length>1?`<tr style="border-top:2px solid var(--border);font-weight:700;color:var(--text2)">
+                <td style="padding:5px 8px 5px 0">TOTAL</td>
+                <td style="text-align:right;padding:5px 8px;font-size:10px">${m.wtRate.toFixed(2)}% wtd</td>
+                <td style="text-align:right;padding:5px 8px">${n2(m.loanCur)}</td>
+                <td colspan="2"></td>
+                <td style="text-align:right;padding:5px 8px">${n2(m.effectiveLoan)}</td>
+                <td style="text-align:right;padding:5px 8px;color:var(--red)">${n2(m.monthlyInterest)}</td>
+                <td style="text-align:right;padding:5px 8px">${n2(m.repay)}</td>
+              </tr>`:''}
+            </tbody>
+          </table>
+        </div>
+      </div>` : '';
+
+    // ── Estimated CGT if this property were sold today ──
+    const saleBox = (()=>{
+      if(typeof cgtEstimatePropertySale !== 'function') return '';
+      let est;
+      try{ est = cgtEstimatePropertySale(p, __cgtCtx || undefined); }
+      catch(e){ console.error('Property CGT estimate failed', e); return ''; }
+      if(!est || est.status === 'sold') return '';
+      const boxStyle = 'background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-top:12px';
+      const title = '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">ESTIMATED CGT IF SOLD TODAY</div>';
+      const note = t => `<div style="font-size:11px;color:var(--text3);font-family:var(--mono);line-height:1.5">${t}</div>`;
+      if(est.status === 'exempt') return `<div style="${boxStyle}">${title}${note('Main residence — assumed exempt from CGT, so no tax on a sale.')}</div>`;
+      if(est.status === 'missing') return `<div style="${boxStyle}">${title}${note('Add a purchase price and purchase date to estimate CGT (needed for the cost base and the 12-month discount).')}</div>`;
+      const equityAfter = m.equity - est.sellCosts - est.totalTax;
+      const ownerLines = est.rows.length > 1
+        ? `<div style="font-size:11px;color:var(--text2);font-family:var(--mono);margin-top:10px">${est.rows.map(r => `${escHtml(typeof getPersonLabel==='function' ? getPersonLabel(r.person) : r.person)}: <b>${n2(r.tax)}</b>`).join(' &nbsp;·&nbsp; ')}</div>` : '';
+      return `<div style="${boxStyle}">
+        ${title}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
+          ${stat('Sale Value (current)', n2(est.value))}
+          ${stat('Cost Base', n2(est.costBase))}
+          ${est.sellCosts > 0 ? stat('Selling Costs' + (est.sellCostPct ? ' (' + est.sellCostPct + '%)' : ''), n2(est.sellCosts)) : ''}
+          ${stat('Capital Gain', n2(est.gain), clr(est.gain))}
+          ${stat('CGT Discount', est.long ? '50% (held 12+ months)' : 'None (under 12 months)')}
+          ${stat('Est. CGT Payable', est.gain > 0 ? n2(est.totalTax) : 'None — capital loss', est.gain > 0 ? 'neg' : 'neu')}
+          ${stat('Equity after est. CGT', n2(equityAfter), clr(equityAfter))}
+        </div>
+        ${ownerLines}
+        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);line-height:1.5;margin-top:10px">Estimate if this property alone were sold today: current value${est.sellCosts ? ' less selling costs' : ''} less cost base (purchase price + costs + improvements), 50% discount if held over 12 months, taxed at each owner's marginal rate on top of their estimated income, including gains/losses already realised this year and carried-forward losses. ${est.sellCosts ? '' : 'Selling costs aren\'t included — set "Est. Selling Costs %" when you edit this property to include agent/legal fees. '}Not tax advice.</div>
+      </div>`;
+    })();
+
+    return `<div class="fs" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div style="font-family:var(--mono);font-size:15px;font-weight:600">${escHtml(p.name)}</div>
+            <span style="font-size:10px;padding:2px 8px;border-radius:12px;font-family:var(--mono);background:${({lumia:"#1e3a5f",chilli:"#4a1942",joint:"#1a3a2a"})[p.owner||"lumia"]||"#1e3a5f"};color:${({lumia:"#60a5fa",chilli:"#f472b6",joint:"#34d399"})[p.owner||"lumia"]||"#60a5fa"}">${({lumia:"Lumia",chilli:"Chilli",joint:"Joint 50/50"})[p.owner||"lumia"]||"Lumia"}</span>
+            ${p.sold?'<span class="badge b-lic">SOLD '+(p.soldDate||'')+'</span>':''}
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:3px;font-family:var(--mono)">
+            <span class="badge b-reit">${typeLabel}</span>
+            ${p.purchaseDate?' · Purchased '+p.purchaseDate:''}
+            ${p.notes?' · '+escHtml(p.notes):''}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="editProperty(this)" data-id="${p.id}">✏ EDIT</button>
+          <button class="btn btn-r" onclick="deleteProperty(this)" data-id="${p.id}">✕ DELETE</button>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:16px">
+        ${stat('Current Value',   n2(m.cval))}
+        ${stat('Purchase Price',  n2(m.pprice))}
+        ${stat('Equity',          n2(m.equity),    clr(m.equity))}
+        ${stat('Unrealised Gain', n2(m.gainRaw),   clr(m.gainRaw))}
+        ${stat('Gain %',          m.gainPct.toFixed(2)+'%', clr(m.gainPct))}
+        ${stat('LVR',             m.lvr.toFixed(1)+'%', lvrClass)}
+      </div>
+
+      ${splitsHtml}
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">LOAN SUMMARY</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            ${stat('Total Balance',    n2(m.loanCur))}
+            ${stat('Initial Total',    n2(m.loanInit))}
+            ${stat('Total Offset',     n2(m.splits.reduce((s,sp)=>s+(+sp.offset||0),0)), 'pos')}
+            ${stat('Effective Loan',   n2(m.effectiveLoan))}
+            ${stat('Wtd Avg Rate',     m.wtRate.toFixed(2)+'% p.a.')}
+            ${stat('Monthly Interest', n2(m.monthlyInterest), 'neg')}
+            ${stat('Offset Savings/mo',n2(m.interestSaved),   'pos')}
+            ${stat('Est. Repayment',   n2(m.repay))}
+            ${stat('Principal Repaid', n2(m.principalRepaid),  'pos')}
+          </div>
+        </div>
+        ${p.propType!=='ppor'?`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">RENTAL INCOME</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            ${stat('Weekly Rent',      n2(+p.weeklyRent||0))}
+            ${stat('Annual Rent',      n2(m.annualRent), 'pos')}
+            ${stat('Annual Expenses',  n2(+p.annualExpenses||0), 'neg')}
+            ${stat('Annual Interest',  n2(m.annualInterest), 'neg')}
+            ${m.investmentAnnualInterest>0 ? stat('\u2514 Investment (📈 deductible)', n2(m.investmentAnnualInterest), 'neg') : ''}
+            ${m.personalAnnualInterest>0   ? stat('\u2514 Personal (👤 not deductible)', n2(m.personalAnnualInterest), 'neu') : ''}
+            ${stat('Net Annual Income',n2(m.annualNetRent), clr(m.annualNetRent))}
+            ${stat('Gross Yield',      m.grossYield.toFixed(2)+'%', m.grossYield>0?'pos':'neu')}
+            ${stat('Net Yield',        m.netYield.toFixed(2)+'%',   clr(m.netYield))}
+            ${stat('Manager',          p.hasManager==='yes'?'Yes':'Self')}
+          </div>
+        </div>`:(isDR?`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">DEBT RECYCLING</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            ${stat('Effective DR Balance', n2(m.drEffectiveBalance))}
+            ${stat('Annual Interest (📈 deductible)', n2(m.drAnnualInterest), 'neg')}
+            ${stat(fyLabel(drDivs.curFY)+' Dividend Income',  n2(drDivs.curFYIncome),  'pos')}
+            ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
+            ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
+            ${(()=>{
+              // Total Investment = Invested Amount (Buy orders + DRP orders,
+              // i.e. full cost basis of currently held units) + Capital Gain.
+              // Dividend Income is displayed for reference only and is NOT
+              // added in, since DRP amounts are already inside Investment Amount.
+              const drpAmount = drCap.costBasis - drCap.investedBuyOnly;
+              const totalInv = drCap.costBasis + drCap.lifetimeUnrealised;
+              window.__drBreakdown[p.id] = {
+                propName: p.name, buyOnly: drCap.investedBuyOnly, drpAmount,
+                invested: drCap.costBasis,
+                capitalGain: drCap.lifetimeUnrealised, dividends: drDivs.lifetimeIncome,
+                total: totalInv,
+              };
+              return `<div style="cursor:pointer" onclick="showDRTotalBreakdown('${p.id}')" title="Click for breakdown">
+                <div style="font-size:10px;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:2px">Total Investment <span style="text-decoration:underline">ⓘ</span></div>
+                <div class="${clr(totalInv)}" style="font-family:var(--mono);font-size:13px;font-weight:600">${n2(totalInv)}</div>
+              </div>`;
+            })()}
+            ${(()=>{
+              const capGain = drCap.lifetimeUnrealised;
+              const divs    = drDivs.lifetimeIncome;
+              const totalGain = capGain + divs;
+              window.__drGainBreakdown[p.id] = {
+                propName: p.name, currentValue: drCap.currentValue, invested: drCap.costBasis,
+                capitalGain: capGain, dividends: divs, total: totalGain,
+              };
+              return `<div style="cursor:pointer" onclick="showDRGainBreakdown('${p.id}')" title="Click for breakdown">
+                <div style="font-size:10px;color:var(--text3);letter-spacing:.07em;text-transform:uppercase;margin-bottom:2px">Total Gain (Capital + Dividends) <span style="text-decoration:underline">ⓘ</span></div>
+                <div class="${clr(totalGain)}" style="font-family:var(--mono);font-size:13px;font-weight:600">${n2(totalGain)}</div>
+              </div>`;
+            })()}
+            ${stat('ROI %', (drCap.costBasis>0 ? ((drCap.lifetimeUnrealised+drDivs.lifetimeIncome)/drCap.costBasis*100) : 0).toFixed(2)+'%', clr(drCap.lifetimeUnrealised + drDivs.lifetimeIncome))}
+            ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(plainSymbol(s))).join(', ') : '—')}
+          </div>
+        </div>`:`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;display:flex;align-items:center;justify-content:center">
+          <div style="text-align:center;color:var(--text3);font-family:var(--mono);font-size:12px">🏠<br>Primary Residence<br>No rental income</div>
+        </div>`)}
+      </div>
+
+      ${saleBox}
+    </div>`;
+  }).join('');
+}
+
+function renderPropCards(){
+  const heldProperties = properties.filter(p=>!p.sold);
+  const totalVal    = heldProperties.reduce((s,p)=>s+(+p.currentValue||0),0);
+  const totalEquity = heldProperties.reduce((s,p)=>s+propMetrics(p).equity,0);
+  const totalDebt   = heldProperties.reduce((s,p)=>s+normaliseSplits(p).reduce((t,sp)=>t+(+sp.balance||0),0),0);
+  const totalOffset = heldProperties.reduce((s,p)=>s+normaliseSplits(p).reduce((t,sp)=>t+(+sp.offset||0),0),0);
+  const netDebt     = Math.max(0, totalDebt - totalOffset);
+  const totalGain   = heldProperties.reduce((s,p)=>s+propMetrics(p).gainRaw,0);
+  const annualRent  = heldProperties.filter(p=>p.propType!=='ppor')
+                       .reduce((s,p)=>s+(+p.weeklyRent||0)*52,0);
+  const monthlyRepay= heldProperties.reduce((s,p)=>s+propMetrics(p).repay,0);
+
+  // Debt toggle
+  const debtVal   = propDebtNet ? netDebt   : totalDebt;
+  const debtLabel = propDebtNet ? 'Net Debt' : 'Total Debt';
+  const debtSub   = propDebtNet
+    ? 'Debt − offsets ('+n2(totalOffset)+') ↻'
+    : 'Outstanding loans ↻';
+
+  // Rent toggle — whole card clickable
+  const rentVal   = propRentAnnual ? annualRent   : annualRent/12;
+  const rentLabel = propRentAnnual ? 'Annual Rent' : 'Monthly Rent';
+  const rentSub   = propRentAnnual ? 'Gross rental income ↻' : 'Gross rental income ↻';
+
+  // Repayment toggle — whole card clickable
+  const repayVal   = propRepayAnnual ? monthlyRepay*12 : monthlyRepay;
+  const repayLabel = propRepayAnnual ? 'Annual Repayments' : 'Total Repayments';
+  const repaySub   = propRepayAnnual ? 'Per year ↻' : 'Per month ↻';
+
+  const cards = [
+    {l:'Property Value',  v:n2(totalVal),    s:'neu',            sub:heldProperties.length+' propert'+(heldProperties.length===1?'y':'ies'), fn:''},
+    {l:'Total Equity',    v:n2(totalEquity), s:clr(totalEquity), sub:'Value − loan balance',   fn:''},
+    {l:debtLabel,         v:n2(debtVal),     s:'neg',            sub:debtSub,                  fn:'togglePropDebt()'},
+    {l:'Unrealised Gain', v:n2(totalGain),   s:clr(totalGain),   sub:'vs purchase price',      fn:''},
+    {l:rentLabel,         v:n2(rentVal),     s:'pos',            sub:rentSub,                  fn:'togglePropRent()'},
+    {l:repayLabel,        v:n2(repayVal),    s:'neg',            sub:repaySub,                 fn:'togglePropRepay()'},
+  ];
+  $('pw-cards').innerHTML = cards.map(c=>
+    `<div class="card"${c.fn?` onclick="${c.fn}" style="cursor:pointer" title="Click to toggle"`:''}>
+      <div class="card-label">${c.l}</div>
+      <div class="card-value ${c.s}">${c.v}</div>
+      <div class="card-sub">${c.sub}</div>
+    </div>`
+  ).join('');
+}
+function togglePropDebt(){
+  propDebtNet = !propDebtNet;
+  renderPropCards();
+}
+
+function togglePropRent(){
+  propRentAnnual = !propRentAnnual;
+  renderPropCards();
+}
+function togglePropRepay(){
+  propRepayAnnual = !propRepayAnnual;
+  renderPropCards();
+}
+
+
+// ── SETTINGS ─────────────────────────────────────────────────────────
