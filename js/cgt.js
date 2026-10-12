@@ -2142,7 +2142,10 @@ function cgtFetchCutoffPrice(){
   }).catch(e=>{ notify('Failed to fetch price: '+(e.message||e),'err'); });
 }
 
-function cgtAutoFillIncome(person){
+// Taxable-income estimate for `person` (last FY's salary, dividends + franking,
+// net rental, realised CGT). Pure calculation — no DOM. Used by the CGT simulator's
+// auto-fill below and by the Net Worth tab's after-tax estimate. Returns null on error.
+function cgtEstimateBaseIncome(person){
   try{
     const curFY = dateToFY(localDateStr());
     const prevFY = curFY - 1;
@@ -2179,14 +2182,20 @@ function cgtAutoFillIncome(person){
       if(annualRent - expenses >= 0) netPropGain += (annualRent - expenses); else netPropLoss += (expenses - annualRent);
     });
 
-    const taxableIncome = salaryNet + myDivs + myFrank - investInterestDeduction + netPropGain - netPropLoss + myCGT;
-    const input = $('cgt-sim-income');
-    if(input) {
-      input.value = Math.round(taxableIncome) || 0;
-      const noteEl = $('cgt-sim-income-note'); if(noteEl) noteEl.textContent = '(auto-filled)';
-    }
-  }catch(e){ /* ignore */ }
+    return salaryNet + myDivs + myFrank - investInterestDeduction + netPropGain - netPropLoss + myCGT;
+  }catch(e){ return null; }
 }
+
+function cgtAutoFillIncome(person){
+  const taxableIncome = cgtEstimateBaseIncome(person);
+  if(taxableIncome == null) return; // same as before: silently do nothing on error
+  const input = $('cgt-sim-income');
+  if(input) {
+    input.value = Math.round(taxableIncome) || 0;
+    const noteEl = $('cgt-sim-income-note'); if(noteEl) noteEl.textContent = '(auto-filled)';
+  }
+}
+
 
 // Auto-snapshot current prices for portfolio symbols on the cutoff date.
 // Runs once (sets a saved flag) to avoid duplicate captures.

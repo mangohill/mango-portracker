@@ -276,8 +276,8 @@ function getAnnualSnapshot(year){
   // real, useful figure. `partial` flags when something's missing (or a
   // loan/offset figure is unknown for that year) so it's never silently
   // presented as if it were the full picture.
-  const parts = [holdingsTotal, superTotal, cashTotal, propTotal].filter(v=>v!=null);
-  const netWorth = parts.length ? (holdingsTotal||0)+(superTotal||0)+(cashTotal||0)+(propTotal||0)-loanTotal : null;
+  const parts = [holdingsTotal, propTotal, cashTotal, superTotal].filter(v=>v!=null);
+  const netWorth = parts.length ? (holdingsTotal||0)+(propTotal||0)+(cashTotal||0)+(superTotal||0)-loanTotal : null;
   const partial = netWorth!=null && (holdingsTotal==null || superTotal==null || cashTotal==null || propTotal==null || loanPartial || cashPartial);
   return { year, date: h ? h.date : `${year}-06-30`, holdings: h, superRows, superTotal, propRows, propTotal, loanTotal, loanPartial, cashTotal, cashPartial, netWorth, partial };
 }
@@ -309,12 +309,12 @@ function renderAnnualSnapshots(){
     <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px">
       <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border);font-size:10px">
         <th style="text-align:left;padding:4px 8px;position:sticky;top:0;background:var(--surface2)">FY (30 JUN)</th>
-        ${theadCell('HOLDINGS')}
-        ${theadCell('SUPER')}
-        ${theadCell('CASH')}
-        ${theadCell('PROPERTY')}
-        ${theadCell('LOAN')}
         ${theadCell('NET WORTH')}
+        ${theadCell('PORTFOLIO')}
+        ${theadCell('PROPERTY')}
+        ${theadCell('CASH')}
+        ${theadCell('SUPER')}
+        ${theadCell('LOAN')}
         ${theadCell('CSV')}
       </tr></thead>
       <tbody>
@@ -322,19 +322,19 @@ function renderAnnualSnapshots(){
           const s = getAnnualSnapshot(y);
           return `<tr style="border-bottom:1px solid var(--border)">
             <td style="padding:5px 8px"><b>FY${y}</b></td>
-            <td style="text-align:right;padding:5px 8px">${s.holdings ? n2(s.holdings.total) + (s.holdings.complete?'':' *') : '<span style="color:var(--text3)">—</span>'}</td>
-            <td style="text-align:right;padding:5px 8px">${s.superTotal!=null ? n2(s.superTotal) : '<span style="color:var(--text3)">—</span>'}</td>
-            <td style="text-align:right;padding:5px 8px">${s.cashTotal!=null ? n2(s.cashTotal) + (s.cashPartial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
-            <td style="text-align:right;padding:5px 8px">${s.propTotal!=null ? n2(s.propTotal) : '<span style="color:var(--text3)">—</span>'}</td>
-            <td style="text-align:right;padding:5px 8px">${s.propTotal!=null ? n2(s.loanTotal) + (s.loanPartial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
             <td style="text-align:right;padding:5px 8px;font-weight:700">${s.netWorth!=null ? n2(s.netWorth) + (s.partial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.holdings ? n2(s.holdings.total) + (s.holdings.complete?'':' *') : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.propTotal!=null ? n2(s.propTotal) : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.cashTotal!=null ? n2(s.cashTotal) + (s.cashPartial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.superTotal!=null ? n2(s.superTotal) : '<span style="color:var(--text3)">—</span>'}</td>
+            <td style="text-align:right;padding:5px 8px">${s.propTotal!=null ? n2(s.loanTotal) + (s.loanPartial?' *':'') : '<span style="color:var(--text3)">—</span>'}</td>
             <td style="text-align:right;padding:5px 8px"><button class="btn btn-g" style="padding:3px 8px;font-size:10px" onclick="exportAnnualSnapshotCSV(${y})">↓ Year</button></td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
     </div>
-    <div style="font-size:10px;color:var(--text3);margin-top:8px">Showing ${years.length} FY${years.length===1?'':'s'} · scroll for older years (and sideways on narrow screens). Holdings * = price data incomplete for one or more symbols that 30 June. Cash = property offset-account balances; Property = full value, before loans; Loan = amount deducted to get Net Worth. * on Cash or Loan = that figure is unavailable for one or more properties that FY (treated as $0 in the total below it), so Net Worth may be overstated. Net Worth * = partial total, missing one of Holdings/Super/Cash/Property for that year, or a Cash/Loan * as above (Super may predate this feature if you'd already entered it manually; Property only started being tracked once this feature was added, so early years won't have it).</div>
+    <div style="font-size:10px;color:var(--text3);margin-top:8px">Showing ${years.length} FY${years.length===1?'':'s'} · scroll for older years (and sideways on narrow screens). Portfolio * = price data incomplete for one or more symbols that 30 June. Cash = property offset-account balances; Property = full value, before loans; Loan = amount deducted to get Net Worth. * on Cash or Loan = that figure is unavailable for one or more properties that FY (treated as $0 in the total below it), so Net Worth may be overstated. Net Worth * = partial total, missing one of Holdings/Super/Cash/Property for that year, or a Cash/Loan * as above (Super may predate this feature if you'd already entered it manually; Property only started being tracked once this feature was added, so early years won't have it).</div>
     <div style="margin-top:12px"><button class="btn btn-g" onclick="exportAllAnnualSnapshotsCSV()">↓ Download all years (combined CSV)</button></div>
   `;
 }
@@ -358,6 +358,8 @@ function exportAnnualSnapshotCSV(year){
   const rows = [];
   rows.push(['ANNUAL SNAPSHOT', 'FY'+year, s.date]);
   rows.push([]);
+  rows.push(['NET WORTH', s.netWorth, '', '(Portfolio + Property + Cash + Super − Loan)']);
+  rows.push([]);
   rows.push(['HOLDINGS']);
   rows.push(['Symbol','Owner','Asset Type','Units','Price','Market Value','Cost Basis','Source']);
   (s.holdings ? s.holdings.rows : []).forEach(h=>rows.push([
@@ -365,25 +367,23 @@ function exportAnnualSnapshotCSV(year){
   ]));
   rows.push(['', '', '', '', '', 'TOTAL', s.holdings ? s.holdings.total : '']);
   rows.push([]);
-  rows.push(['SUPER']);
-  rows.push(['Account','Balance']);
-  s.superRows.forEach(r=>rows.push([r.name, r.balance]));
-  rows.push(['TOTAL', s.superTotal]);
-  rows.push([]);
   rows.push(['PROPERTY']);
   rows.push(['Property','Value','Loan Balance','Offset (Cash)']);
   s.propRows.forEach(r=>rows.push([r.name, r.value, r.debtKnown ? r.debt : 'unknown', r.offsetKnown ? r.offset : 'unknown']));
   rows.push(['', 'TOTAL', s.propTotal, s.loanTotal, s.cashTotal]);
   rows.push([]);
-  rows.push(['NET WORTH', s.netWorth, '', '(Holdings + Super + Cash + Property − Loan)']);
+  rows.push(['SUPER']);
+  rows.push(['Account','Balance']);
+  s.superRows.forEach(r=>rows.push([r.name, r.balance]));
+  rows.push(['TOTAL', s.superTotal]);
   downloadCSVRows(`eofy-snapshot-FY${year}.csv`, rows);
 }
 function exportAllAnnualSnapshotsCSV(){
   const years = annualSnapshotYears();
-  const rows = [['FY','Date','Holdings Total','Holdings Complete','Super Total','Cash Total','Property Total (Gross)','Loan Total','Loan/Cash Known','Net Worth']];
+  const rows = [['FY','Date','Net Worth','Holdings Total','Holdings Complete','Property Total (Gross)','Cash Total','Super Total','Loan Total','Loan/Cash Known']];
   years.slice().sort((a,b)=>a-b).forEach(y=>{
     const s = getAnnualSnapshot(y);
-    rows.push([y, s.date, s.holdings?s.holdings.total:'', s.holdings?(s.holdings.complete?'yes':'no'):'', s.superTotal, s.cashTotal, s.propTotal, s.loanTotal, (s.loanPartial||s.cashPartial)?'no':'yes', s.netWorth]);
+    rows.push([y, s.date, s.netWorth, s.holdings?s.holdings.total:'', s.holdings?(s.holdings.complete?'yes':'no'):'', s.propTotal, s.cashTotal, s.superTotal, s.loanTotal, (s.loanPartial||s.cashPartial)?'no':'yes']);
   });
   downloadCSVRows('eofy-snapshots-all-years.csv', rows);
 }
@@ -403,6 +403,193 @@ const NW_COLORS = {
 function nwTint(c){
   return `--c:${c};border-color:color-mix(in srgb,var(--c) 40%,var(--border));` +
          `background:linear-gradient(160deg,color-mix(in srgb,var(--c) 18%,var(--surface)),var(--surface) 75%)`;
+}
+
+// ── AFTER-TAX NET WORTH ─────────────────────────────────────────────────
+// Click the Net Worth badge to see Net Worth less the capital gains tax you'd
+// owe if everything were sold today. Read-only estimate:
+//  • Shares/ETFs/crypto: every open parcel (same FIFO + AMIT-adjusted cost
+//    base the CGT tab uses) marked to the live price. Held > 12 months gets
+//    the 50% discount.
+//  • Investment properties: current value less cost base (purchase price +
+//    costs + improvements) and any selling costs entered. PPOR is treated as
+//    exempt. Properties with no purchase price/date are left out and flagged.
+//  • Losses offset short-term gains first, then long-term, then the discount
+//    — the same ordering the CGT tab uses. Capital gains/losses already
+//    realised this FY and any carried-forward losses are included, so the tax
+//    shown is the EXTRA tax the hypothetical sale would add.
+//  • Tax = marginal income tax + Medicare levy on top of each person's
+//    estimated base income (the CGT simulator's own auto-fill figure).
+//  • Super is not reduced (its earnings are taxed inside the fund).
+function nwEstimateCGTIfSold(){
+  const todayStr = localDateStr();
+  const today = new Date(todayStr);
+  const curFY = +dateToFY(todayStr);
+  const persons = getAllPersons();
+  const summary = computeCGTSummary();
+  const result = summary.result || {};
+  const openParcels = summary.openParcels || {};
+
+  const bucket = () => persons.reduce((o,p)=>{ o[p] = {short:0, long:0, loss:0}; return o; }, {});
+  const stock = bucket(), prop = bucket();
+  const add = (b, owner, gain, long) => persons.forEach(person => {
+    const share = shareForOwner(owner, person);
+    if(share <= 0) return;
+    const g = gain * share;
+    if(g >= 0){ if(long) b[person].long += g; else b[person].short += g; }
+    else b[person].loss += -g;
+  });
+
+  // Shares / ETFs / crypto
+  const unpriced = [];
+  Object.entries(openParcels).forEach(([sym, list]) => {
+    if(sym.startsWith('_stash_')) return;
+    const price = prices[typeof priceSymbol === 'function' ? priceSymbol(sym) : sym];
+    const owner = getSymbolOwner(sym);
+    list.forEach(p => {
+      if(!(p.units > 0.000001)) return;
+      if(price == null){ if(!unpriced.includes(sym)) unpriced.push(sym); return; }
+      const gain = p.units * price - p.cost;
+      const heldDays = Math.floor((today - new Date(p.date)) / 86400000);
+      add(stock, owner, gain, heldDays > 365);
+    });
+  });
+
+  // Investment properties (unsold, not the main residence)
+  const propDetail = [], propSkipped = [];
+  (typeof properties !== 'undefined' && typeof propMetrics === 'function' ? properties : [])
+    .filter(p => !p.sold && p.propType !== 'ppor')
+    .forEach(p => {
+      if(!(+p.purchasePrice > 0) || !p.purchaseDate){ propSkipped.push(p.name); return; }
+      const value = propMetrics(p).cval;
+      const costBase = (+p.purchasePrice||0) + (+p.purchaseCosts||0) + (+p.capitalImprovements||0);
+      const sellCosts = +p.sellingCosts || 0;
+      const gain = value - sellCosts - costBase;
+      const long = (today - new Date(p.purchaseDate)) / 86400000 > 365;
+      const owner = p.owner || 'lumia';
+      add(prop, owner, gain, long);
+      propDetail.push({ name: p.name, owner, value, costBase, sellCosts, gain, long });
+    });
+
+  const applyLosses = (a, carryIn) => {
+    const pool = a.loss + carryIn;
+    const offShort = Math.min(a.short, pool);
+    let rem = pool - offShort;
+    const netShort = a.short - offShort;
+    const offLong = Math.min(a.long, rem);
+    const netLong = a.long - offLong;
+    return { ncg: netShort + netLong * 0.5 };
+  };
+
+  const scenario = includeProp => {
+    let totalTax = 0;
+    const rows = [];
+    persons.forEach(person => {
+      const hyp = {
+        short: stock[person].short + (includeProp ? prop[person].short : 0),
+        long:  stock[person].long  + (includeProp ? prop[person].long  : 0),
+        loss:  stock[person].loss  + (includeProp ? prop[person].loss  : 0),
+      };
+      if(!(hyp.short > 0 || hyp.long > 0 || hyp.loss > 0)) return;
+
+      const res = result[person] || {};
+      const cur = res[curFY] || null;
+      const realised = cur ? { short: cur.shortGain, long: cur.longGain, loss: cur.losses } : { short:0, long:0, loss:0 };
+      let carry = 0;
+      if(cur) carry = cur.lossCarryIn || 0;
+      else {
+        const prior = Object.keys(res).map(Number).filter(f => f < curFY).sort((a,b)=>b-a)[0];
+        if(prior != null) carry = res[prior].lossCarryOut || 0;
+        else {
+          const o = typeof getCGTLossCarryIn === 'function' ? (getCGTLossCarryIn()[person] || null) : null;
+          if(o && +o.amount > 0 && +o.fy <= curFY) carry = +o.amount;
+        }
+      }
+
+      const before = applyLosses(realised, carry);
+      const after  = applyLosses({ short: realised.short + hyp.short, long: realised.long + hyp.long, loss: realised.loss + hyp.loss }, carry);
+      const base = +(typeof cgtEstimateBaseIncome === 'function' ? cgtEstimateBaseIncome(person) : 0) || 0;
+      const incomeTax = calcTax(base + after.ncg, curFY) - calcTax(base + before.ncg, curFY);
+      const medicare  = typeof calcMedicareLevy === 'function'
+        ? calcMedicareLevy(base + after.ncg) - calcMedicareLevy(base + before.ncg) : 0;
+      const tax = +(incomeTax + medicare).toFixed(2);
+      rows.push({ person, short: hyp.short, long: hyp.long, loss: hyp.loss, added: after.ncg - before.ncg, base, tax });
+      totalTax += tax;
+    });
+    return { rows, totalTax: +totalTax.toFixed(2) };
+  };
+
+  return { all: scenario(true), stockOnly: scenario(false), propDetail, propSkipped, unpriced };
+}
+
+function nwShowAfterTax(){
+  if(typeof computeCGTSummary !== 'function' || typeof calcTax !== 'function'){
+    if(typeof notify === 'function') notify('CGT/tax modules not loaded yet', 'err');
+    return;
+  }
+  let est;
+  try{ est = nwEstimateCGTIfSold(); }
+  catch(e){ console.error('After-tax estimate failed', e); if(typeof notify === 'function') notify('Could not estimate CGT: ' + e.message, 'err'); return; }
+
+  const netWorth = nwPortfolioValue() + nwPropertyValue() + nwOffsetCash() + nwSuperBalance() - nwLoanBalance();
+  const stockTax = est.stockOnly.totalTax;
+  const allTax   = est.all.totalTax;
+  const propTax  = +(allTax - stockTax).toFixed(2);
+  const hasProp  = est.propDetail.length > 0;
+  const esc = v => typeof escHtml === 'function' ? escHtml(v) : String(v);
+  const label = k => esc(typeof getPersonLabel === 'function' ? getPersonLabel(k) : k);
+  const gl = v => `<span style="color:${v>=0?'var(--green)':'var(--red)'}">${v>=0?'':'−'}${n2(Math.abs(v))}</span>`;
+  const cell = 'text-align:right;padding:5px 8px';
+  const th = 'text-align:right;padding:4px 8px;color:var(--text3);font-size:10px';
+
+  const line = (lbl, val, opts) => `<tr style="${opts&&opts.top?'border-top:1px solid var(--border);':''}">
+    <td style="padding:6px 0;${opts&&opts.bold?'font-weight:700;font-size:14px;':''}">${lbl}</td>
+    <td style="text-align:right;padding:6px 0;${opts&&opts.bold?'font-weight:700;font-size:14px;':''}${opts&&opts.color?'color:'+opts.color+';':''}">${val}</td></tr>`;
+
+  const personRows = est.all.rows.length ? `
+    <div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">Estimated tax by person (selling everything)</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="${th};text-align:left">Person</th><th style="${th}">Short-term</th><th style="${th}">Long-term</th><th style="${th}">Losses</th><th style="${th}">Added taxable gain</th><th style="${th}">Est. tax</th></tr></thead>
+      <tbody>${est.all.rows.map(r => `<tr style="border-top:1px solid var(--border)">
+        <td style="padding:5px 8px">${label(r.person)}</td>
+        <td style="${cell}">${n2(r.short)}</td><td style="${cell}">${n2(r.long)}</td><td style="${cell}">${r.loss ? '−'+n2(r.loss) : '—'}</td>
+        <td style="${cell}">${n2(r.added)}</td><td style="${cell};font-weight:700;color:var(--red)">${n2(r.tax)}</td></tr>`).join('')}
+      </tbody></table></div>`
+    : `<div style="color:var(--text3);margin-top:14px">No unrealised gains found — nothing to deduct.</div>`;
+
+  const propTable = hasProp ? `
+    <div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">Investment properties included</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr><th style="${th};text-align:left">Property</th><th style="${th}">Value</th><th style="${th}">Cost base</th><th style="${th}">Selling costs</th><th style="${th}">Gain</th><th style="${th}">&gt; 12 months</th></tr></thead>
+      <tbody>${est.propDetail.map(p => `<tr style="border-top:1px solid var(--border)">
+        <td style="padding:5px 8px">${esc(p.name)} <span style="color:var(--text3)">· ${label(p.owner)}</span></td>
+        <td style="${cell}">${n2(p.value)}</td><td style="${cell}">${n2(p.costBase)}</td><td style="${cell}">${p.sellCosts ? n2(p.sellCosts) : '—'}</td>
+        <td style="${cell}">${gl(p.gain)}</td><td style="${cell}">${p.long ? 'Yes (50% discount)' : 'No'}</td></tr>`).join('')}
+      </tbody></table></div>` : '';
+
+  const flags = [];
+  if(est.unpriced.length) flags.push(`No price for ${est.unpriced.map(esc).join(', ')} — excluded from the estimate.`);
+  if(est.propSkipped.length) flags.push(`${est.propSkipped.map(esc).join(', ')} excluded — no purchase price/date recorded (needed for a cost base).`);
+
+  const html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-size:15px;font-weight:700;color:var(--text)">After-tax net worth</div>
+      <button class="btn btn-g" style="padding:3px 10px;font-size:11px" onclick="closeHudPopup('nw-after-tax')">✕</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      ${line('Net worth today', n2(netWorth))}
+      ${line('Less: est. CGT on portfolio', '−' + n2(stockTax), {color:'var(--red)'})}
+      ${hasProp ? line('Less: est. CGT on investment property', '−' + n2(propTax), {color:'var(--red)'}) : ''}
+      ${line('After-tax net worth', n2(netWorth - allTax), {bold:true, top:true})}
+    </table>
+    ${hasProp ? `<div style="margin-top:8px;color:var(--text2)">If you kept your property and only sold the portfolio: <b>${n2(netWorth - stockTax)}</b></div>` : ''}
+    ${personRows}
+    ${propTable}
+    ${flags.length ? `<div style="margin-top:12px;color:var(--amber);font-size:11px">${flags.map(f => '⚠ ' + f).join('<br>')}</div>` : ''}
+    <div style="margin-top:14px;color:var(--text3);font-size:10px;line-height:1.5">
+      Estimate of the capital gains tax if every holding were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage/selling costs (unless entered on the property), or other tax circumstances. Estimate only — not tax advice.
+    </div>`;
+  openHudPopup('nw-after-tax', html, { minWidth: '560px', maxWidth: '860px', fontSize: '12px' });
 }
 
 function renderNetWorth(){
@@ -515,7 +702,7 @@ function renderNetWorth(){
   panel.innerHTML = `
     <style>#nw-cards .card[style*="--c"]::before{background:var(--c);}</style>
     <div class="cards" id="nw-cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
-      <div class="card"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Property + Cash + Super − Loan</div></div>
+      <div class="card" role="button" tabindex="0" title="Click for after-tax net worth" style="cursor:pointer" onclick="nwShowAfterTax()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();nwShowAfterTax();}"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Property + Cash + Super − Loan</div><div class="card-sub" style="color:var(--blue)">Click for after-tax view ›</div></div>
       <div class="card" style="${nwTint(NW_COLORS.portfolio)}"><div class="card-label">Portfolio</div><div class="card-value neu">${n2(portfolioVal)}</div><div class="card-sub">Market value</div></div>
       <div class="card" style="${nwTint(NW_COLORS.property)}"><div class="card-label">Property Value</div><div class="card-value neu">${n2(propertyVal)}</div><div class="card-sub">Current value, gross</div></div>
       <div class="card" style="${nwTint(NW_COLORS.cash)}"><div class="card-label">Offset Cash</div><div class="card-value neu">${n2(offsetCash)}</div><div class="card-sub">Offset account balances</div></div>
