@@ -2272,10 +2272,44 @@ function renderProperties(){
       if(!est || est.status === 'sold') return '';
       const boxStyle = 'background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-top:12px';
       const title = '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">ESTIMATED CGT IF SOLD TODAY</div>';
-      const note = t => `<div style="font-size:11px;color:var(--text3);font-family:var(--mono);line-height:1.5">${t}</div>`;
-      if(est.status === 'exempt') return `<div style="${boxStyle}">${title}${note('Main residence — assumed exempt from CGT, so no tax on a sale.')}</div>`;
-      if(est.status === 'missing') return `<div style="${boxStyle}">${title}${note('Add a purchase price and purchase date to estimate CGT (needed for the cost base and the 12-month discount).')}</div>`;
-      const equityAfter = m.equity - est.sellCosts - est.totalTax;
+      const note = (t, mt) => `<div style="font-size:11px;color:var(--text3);font-family:var(--mono);line-height:1.5${mt ? ';margin-top:'+mt : ''}">${t}</div>`;
+
+      // ── Cash in hand after a sale ──
+      // Net cash from sale = sale value − selling costs − loan payout − CGT.
+      // The loan is repaid in full (offset doesn't reduce the principal owed);
+      // the offset balance is the owner's own cash, so it's added back as a
+      // separate line rather than being treated as sale proceeds.
+      const value = m.cval;
+      const sellCostPct = +p.estSellCostPct || 0;
+      const sellCosts = typeof cgtPropertySellingCosts === 'function' ? cgtPropertySellingCosts(p, value) : (+p.sellingCosts || 0);
+      const loan = m.loanCur;
+      const offset = (m.splits || []).reduce((t, sp) => t + (+sp.offset || 0), 0);
+      const taxKnown = est.status !== 'missing';
+      const tax = est.status === 'ok' ? est.totalTax : 0;
+      const netCash = value - sellCosts - loan - tax;
+      const totalCash = netCash + offset;
+      const row = (lbl, val, o) => { o = o || {}; const f = o.bold ? 'font-weight:700;' : ''; return `<tr style="${o.top ? 'border-top:1px solid var(--border);' : ''}"><td style="padding:5px 0;${f}">${lbl}</td><td style="text-align:right;padding:5px 0;${f}color:${o.color || 'var(--text)'}">${val}</td></tr>`; };
+      const taxCell = !taxKnown ? 'unknown'
+        : tax > 0 ? '−' + n2(tax)
+        : tax < 0 ? '+' + n2(-tax) + ' (saving from the loss)'
+        : est.status === 'exempt' ? 'None (main residence)' : '—';
+      const cashHtml = `<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">CASH IN HAND AFTER SALE</div>
+        <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px">
+          ${row('Sale value', n2(value))}
+          ${row('Less: selling costs' + (sellCostPct ? ' (' + sellCostPct + '%)' : ''), sellCosts > 0 ? '−' + n2(sellCosts) : '—')}
+          ${row('Less: loan payout', loan > 0 ? '−' + n2(loan) : '—')}
+          ${row('Less: est. CGT', taxCell)}
+          ${row('Net cash from sale' + (taxKnown ? '' : ' (before CGT)'), n2(netCash), { bold: true, top: true, color: netCash >= 0 ? 'var(--green)' : 'var(--red)' })}
+          ${row('Plus: offset balance (your own cash)', offset > 0 ? '+' + n2(offset) : '—')}
+          ${row('Total cash after sale', n2(totalCash), { bold: true, top: true, color: totalCash >= 0 ? 'var(--green)' : 'var(--red)' })}
+        </table>
+        ${netCash < 0 ? note('Negative: the sale price wouldn\'t cover the loan and costs — you\'d need to find the shortfall' + (offset > 0 ? ', which your offset balance may help cover.' : '.'), '8px') : ''}
+      </div>`;
+
+      if(est.status === 'exempt') return `<div style="${boxStyle}">${title}${note('Main residence — assumed exempt from CGT, so no tax on a sale.')}${cashHtml}</div>`;
+      if(est.status === 'missing') return `<div style="${boxStyle}">${title}${note('Add a purchase price and purchase date to estimate CGT (needed for the cost base and the 12-month discount). Cash below is before any CGT.')}${cashHtml}</div>`;
+
       const ownerLines = est.rows.length > 1
         ? `<div style="font-size:11px;color:var(--text2);font-family:var(--mono);margin-top:10px">${est.rows.map(r => `${escHtml(typeof getPersonLabel==='function' ? getPersonLabel(r.person) : r.person)}: <b>${n2(r.tax)}</b>`).join(' &nbsp;·&nbsp; ')}</div>` : '';
       return `<div style="${boxStyle}">
@@ -2287,10 +2321,10 @@ function renderProperties(){
           ${stat('Capital Gain', n2(est.gain), clr(est.gain))}
           ${stat('CGT Discount', est.long ? '50% (held 12+ months)' : 'None (under 12 months)')}
           ${stat('Est. CGT Payable', est.gain > 0 ? n2(est.totalTax) : 'None — capital loss', est.gain > 0 ? 'neg' : 'neu')}
-          ${stat('Equity after est. CGT', n2(equityAfter), clr(equityAfter))}
         </div>
         ${ownerLines}
-        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);line-height:1.5;margin-top:10px">Estimate if this property alone were sold today: current value${est.sellCosts ? ' less selling costs' : ''} less cost base (purchase price + costs + improvements), 50% discount if held over 12 months, taxed at each owner's marginal rate on top of their estimated income, including gains/losses already realised this year and carried-forward losses. ${est.sellCosts ? '' : 'Selling costs aren\'t included — set "Est. Selling Costs %" when you edit this property to include agent/legal fees. '}Not tax advice.</div>
+        ${cashHtml}
+        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);line-height:1.5;margin-top:10px">Estimate if this property alone were sold today: current value${est.sellCosts ? ' less selling costs' : ''} less cost base (purchase price + costs + improvements), 50% discount if held over 12 months, taxed at each owner's marginal rate on top of their estimated income, including gains/losses already realised this year and carried-forward losses. Cash in hand repays the full loan from the sale; your offset balance stays yours and is added separately. ${est.sellCosts ? '' : 'Selling costs aren\'t included — set "Est. Selling Costs %" when you edit this property to include agent/legal fees. '}Not tax advice.</div>
       </div>`;
     })();
 
