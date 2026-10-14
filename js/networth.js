@@ -38,6 +38,14 @@ function nwLoanBalance(){
   if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
   return properties.filter(p => !p.sold).reduce((s,p) => s + propMetrics(p).loanCur, 0);
 }
+// Totals for "if every unsold property were sold today". Uses the same
+// property set and inputs as the Net Worth badge (value, loan, offset) so the
+// figures tie out, plus each property's estimated selling costs.
+function nwPropertySaleCash(){
+  const list = (typeof properties !== 'undefined' && typeof propMetrics === 'function') ? properties.filter(p => !p.sold) : [];
+  const sellCosts = list.reduce((t, p) => t + cgtPropertySellingCosts(p, propMetrics(p).cval), 0);
+  return { count: list.length, value: nwPropertyValue(), sellCosts: +sellCosts.toFixed(2), loan: nwLoanBalance(), offset: nwOffsetCash() };
+}
 function nwOffsetCash(){
   if(typeof properties === 'undefined' || typeof propMetrics !== 'function') return 0;
   return properties.filter(p => !p.sold).reduce((s,p) => {
@@ -506,6 +514,13 @@ function nwShowAfterTax(){
   const allTax   = est.all.totalTax;
   const propTax  = +(allTax - stockTax).toFixed(2);
   const hasProp  = est.propDetail.length > 0;
+
+  // Cash in hand if all properties were sold (main residence included, CGT-exempt).
+  // Net cash = sale value − selling costs − loan payouts − CGT; offset balances
+  // are the owners' own cash, so they're added back as a separate line.
+  const pc = nwPropertySaleCash();
+  const propNetCash = pc.value - pc.sellCosts - pc.loan - propTax;
+  const propTotalCash = propNetCash + pc.offset;
   const esc = v => typeof escHtml === 'function' ? escHtml(v) : String(v);
   const label = k => esc(typeof getPersonLabel === 'function' ? getPersonLabel(k) : k);
   const gl = v => `<span style="color:${v>=0?'var(--green)':'var(--red)'}">${v>=0?'':'−'}${n2(Math.abs(v))}</span>`;
@@ -541,6 +556,21 @@ function nwShowAfterTax(){
   if(est.unpriced.length) flags.push(`No price for ${est.unpriced.map(esc).join(', ')} — excluded from the estimate.`);
   if(est.propSkipped.length) flags.push(`${est.propSkipped.map(esc).join(', ')} excluded — no purchase price/date recorded (needed for a cost base).`);
 
+  const gcol = v => v >= 0 ? 'var(--green)' : 'var(--red)';
+  const taxLbl = propTax > 0 ? '−' + n2(propTax) : propTax < 0 ? '+' + n2(-propTax) : '—';
+  const cashSection = pc.count ? `
+    <div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">Cash in hand if all ${pc.count} ${pc.count === 1 ? 'property were' : 'properties were'} sold</div>
+    <table style="width:100%;border-collapse:collapse">
+      ${line('Sale value', n2(pc.value))}
+      ${line('Less: selling costs', pc.sellCosts > 0 ? '−' + n2(pc.sellCosts) : '—')}
+      ${line('Less: loan payouts', pc.loan > 0 ? '−' + n2(pc.loan) : '—')}
+      ${line('Less: est. CGT', taxLbl)}
+      ${line('Net cash from sales', n2(propNetCash), {bold:true, top:true, color:gcol(propNetCash)})}
+      ${line('Plus: offset balances (your own cash)', pc.offset > 0 ? '+' + n2(pc.offset) : '—')}
+      ${line('Total cash after selling all properties', n2(propTotalCash), {bold:true, top:true, color:gcol(propTotalCash)})}
+    </table>
+    <div style="margin-top:6px;color:var(--text3);font-size:10px;line-height:1.5">Loans are repaid in full from the proceeds; offset balances stay yours and are added separately. CGT is the property figure above (properties sold alongside the portfolio) — each property card estimates it as if sold on its own, so the totals can differ. Main residence is treated as CGT-exempt.${pc.sellCosts > 0 ? '' : ' Selling costs aren\'t included — set Est. Selling Costs % on each property to include agent/legal fees.'}${est.propSkipped.length ? ' Cash is before CGT on ' + est.propSkipped.map(esc).join(', ') + ' (no purchase price/date).' : ''}</div>` : '';
+
   const html = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div style="font-size:15px;font-weight:700;color:var(--text)">After-tax net worth</div>
@@ -553,6 +583,7 @@ function nwShowAfterTax(){
       ${line('After-tax net worth', n2(netWorth - allTax), {bold:true, top:true})}
     </table>
     ${hasProp ? `<div style="margin-top:8px;color:var(--text2)">If you kept your property and only sold the portfolio: <b>${n2(netWorth - stockTax)}</b></div>` : ''}
+    ${cashSection}
     ${personRows}
     ${propTable}
     ${flags.length ? `<div style="margin-top:12px;color:var(--amber);font-size:11px">${flags.map(f => '⚠ ' + f).join('<br>')}</div>` : ''}
