@@ -509,7 +509,8 @@ function nwShowAfterTax(){
   try{ est = nwEstimateCGTIfSold(); }
   catch(e){ console.error('After-tax estimate failed', e); if(typeof notify === 'function') notify('Could not estimate CGT: ' + e.message, 'err'); return; }
 
-  const netWorth = nwPortfolioValue() + nwPropertyValue() + nwOffsetCash() + nwSuperBalance() - nwLoanBalance();
+  const portfolioVal = nwPortfolioValue(), superBal = nwSuperBalance();
+  const netWorth = portfolioVal + nwPropertyValue() + nwOffsetCash() + superBal - nwLoanBalance();
   const stockTax = est.stockOnly.totalTax;
   const allTax   = est.all.totalTax;
   const propTax  = +(allTax - stockTax).toFixed(2);
@@ -521,6 +522,10 @@ function nwShowAfterTax(){
   const pc = nwPropertySaleCash();
   const propNetCash = pc.value - pc.sellCosts - pc.loan - propTax;
   const propTotalCash = propNetCash + pc.offset;
+  // Everything sold: net worth less ALL CGT and the selling costs on the property sales.
+  // (Loans are already deducted in net worth, so repaying them changes nothing further.)
+  const afterTaxNW = netWorth - allTax - pc.sellCosts;
+  const portfolioCash = portfolioVal - stockTax; // portfolio proceeds after CGT
   const esc = v => typeof escHtml === 'function' ? escHtml(v) : String(v);
   const label = k => esc(typeof getPersonLabel === 'function' ? getPersonLabel(k) : k);
   const gl = v => `<span style="color:${v>=0?'var(--green)':'var(--red)'}">${v>=0?'':'−'}${n2(Math.abs(v))}</span>`;
@@ -556,6 +561,15 @@ function nwShowAfterTax(){
   if(est.unpriced.length) flags.push(`No price for ${est.unpriced.map(esc).join(', ')} — excluded from the estimate.`);
   if(est.propSkipped.length) flags.push(`${est.propSkipped.map(esc).join(', ')} excluded — no purchase price/date recorded (needed for a cost base).`);
 
+  const holdSection = `
+    <div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">If everything were sold you'd hold</div>
+    <table style="width:100%;border-collapse:collapse">
+      ${pc.count ? line('Cash from property sales (incl. offset balances)', n2(propTotalCash)) : ''}
+      ${line('Cash from portfolio sale (after CGT)', n2(portfolioCash))}
+      ${line('Super (not sold)', n2(superBal))}
+      ${line('Total = after-tax net worth', n2(afterTaxNW), {bold:true, top:true})}
+    </table>`;
+
   const gcol = v => v >= 0 ? 'var(--green)' : 'var(--red)';
   const taxLbl = propTax > 0 ? '−' + n2(propTax) : propTax < 0 ? '+' + n2(-propTax) : '—';
   const cashSection = pc.count ? `
@@ -572,7 +586,7 @@ function nwShowAfterTax(){
     <div style="margin-top:6px;color:var(--text3);font-size:10px;line-height:1.5">Loans are repaid in full from the proceeds; offset balances stay yours and are added separately. CGT is the property figure above (properties sold alongside the portfolio) — each property card estimates it as if sold on its own, so the totals can differ. Main residence is treated as CGT-exempt.${pc.sellCosts > 0 ? '' : ' Selling costs aren\'t included — set Est. Selling Costs % on each property to include agent/legal fees.'}${est.propSkipped.length ? ' Cash is before CGT on ' + est.propSkipped.map(esc).join(', ') + ' (no purchase price/date).' : ''}</div>` : '';
 
   const html = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;position:sticky;top:0;z-index:1;background:#132029;padding:2px 0 8px">
       <div style="font-size:15px;font-weight:700;color:var(--text)">After-tax net worth</div>
       <button class="btn btn-g" style="padding:3px 10px;font-size:11px" onclick="closeHudPopup('nw-after-tax')">✕</button>
     </div>
@@ -580,17 +594,23 @@ function nwShowAfterTax(){
       ${line('Net worth today', n2(netWorth))}
       ${line('Less: est. CGT on portfolio', '−' + n2(stockTax), {color:'var(--red)'})}
       ${hasProp ? line('Less: est. CGT on investment property', '−' + n2(propTax), {color:'var(--red)'}) : ''}
-      ${line('After-tax net worth', n2(netWorth - allTax), {bold:true, top:true})}
+      ${pc.sellCosts > 0 ? line('Less: selling costs on property sales', '−' + n2(pc.sellCosts), {color:'var(--red)'}) : ''}
+      ${line('After-tax net worth (everything sold)', n2(afterTaxNW), {bold:true, top:true})}
     </table>
     ${hasProp ? `<div style="margin-top:8px;color:var(--text2)">If you kept your property and only sold the portfolio: <b>${n2(netWorth - stockTax)}</b></div>` : ''}
+    ${holdSection}
     ${cashSection}
     ${personRows}
     ${propTable}
     ${flags.length ? `<div style="margin-top:12px;color:var(--amber);font-size:11px">${flags.map(f => '⚠ ' + f).join('<br>')}</div>` : ''}
     <div style="margin-top:14px;color:var(--text3);font-size:10px;line-height:1.5">
-      Estimate of the capital gains tax if every holding were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage on shares, or property selling costs unless you've set Est. Selling Costs % on the property, or other tax circumstances. Estimate only — not tax advice.
+      Estimate of the capital gains tax if every holding were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage on shares, or property selling costs unless you've set Est. Selling Costs % on the property, or other tax circumstances. Property selling costs (from each property's Est. Selling Costs %) are deducted in the after-tax figure. Estimate only — not tax advice.
     </div>`;
-  openHudPopup('nw-after-tax', html, { minWidth: '560px', maxWidth: '860px', fontSize: '12px' });
+  // The shared popup panel has a max-height but no overflow rule, so tall content
+  // can't be reached. Scroll inside a wrapper (panel padding is 20px top + bottom).
+  openHudPopup('nw-after-tax',
+    '<div style="max-height:calc(90vh - 40px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-right:6px">' + html + '</div>',
+    { minWidth: '560px', maxWidth: '860px', fontSize: '12px' });
 }
 
 function renderNetWorth(){
