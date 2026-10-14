@@ -1798,7 +1798,7 @@ function cgtShowExportPreview(method){
   const netDelta = methodKey==='FIFO' && sim.fifoFull ? sim.fifoFull.delta : (methodKey==='LIFO' && sim.lifoFull ? sim.lifoFull.delta : 0);
 
   const inner = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <div data-hud-header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div style="font-size:14px;font-weight:700">Export preview — ${escHtml(sim.sym)} (${methodKey})</div>
       <button onclick="closeHudPopup('cgt-export-preview')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">✕</button>
     </div>
@@ -1950,7 +1950,7 @@ function cgtShowMethodDetails(method){
   }
 
   const inner = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <div data-hud-header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div style="font-size:14px;font-weight:700">Detailed calculations — ${escHtml(sim.sym)} (${methodKey})</div>
       <button onclick="closeHudPopup('cgt-method-details')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px">✕</button>
     </div>

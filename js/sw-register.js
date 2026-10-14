@@ -1092,7 +1092,7 @@ function showDiv293Breakdown(personKey){
   const taxableCC  = Math.min(t.totalConcess, excessAmt);
 
   openHudPopup('div293-popup', `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div data-hud-header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div style="font-size:14px;font-weight:700;color:var(--text)">Division 293 Calculation — ${escHtml(t.personLabel)}</div>
       <button onclick="closeHudPopup('div293-popup')"
         style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>

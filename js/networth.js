@@ -586,7 +586,7 @@ function nwShowAfterTax(){
     <div style="margin-top:6px;color:var(--text3);font-size:10px;line-height:1.5">Loans are repaid in full from the proceeds; offset balances stay yours and are added separately. CGT is the property figure above (properties sold alongside the portfolio) — each property card estimates it as if sold on its own, so the totals can differ. Main residence is treated as CGT-exempt.${pc.sellCosts > 0 ? '' : ' Selling costs aren\'t included — set Est. Selling Costs % on each property to include agent/legal fees.'}${est.propSkipped.length ? ' Cash is before CGT on ' + est.propSkipped.map(esc).join(', ') + ' (no purchase price/date).' : ''}</div>` : '';
 
   const html = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;position:sticky;top:0;z-index:1;background:#132029;padding:2px 0 8px">
+    <div data-hud-header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <div style="font-size:15px;font-weight:700;color:var(--text)">After-tax net worth</div>
       <button class="btn btn-g" style="padding:3px 10px;font-size:11px" onclick="closeHudPopup('nw-after-tax')">✕</button>
     </div>
@@ -606,11 +606,8 @@ function nwShowAfterTax(){
     <div style="margin-top:14px;color:var(--text3);font-size:10px;line-height:1.5">
       Estimate of the capital gains tax if every holding were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage on shares, or property selling costs unless you've set Est. Selling Costs % on the property, or other tax circumstances. Property selling costs (from each property's Est. Selling Costs %) are deducted in the after-tax figure. Estimate only — not tax advice.
     </div>`;
-  // The shared popup panel has a max-height but no overflow rule, so tall content
-  // can't be reached. Scroll inside a wrapper (panel padding is 20px top + bottom).
-  openHudPopup('nw-after-tax',
-    '<div style="max-height:calc(90vh - 40px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-right:6px">' + html + '</div>',
-    { minWidth: '560px', maxWidth: '860px', fontSize: '12px' });
+  // Scrolling + pinned header (data-hud-header above) are handled by openHudPopup.
+  openHudPopup('nw-after-tax', html, { minWidth: '560px', maxWidth: '860px', fontSize: '12px' });
 }
 
 function renderNetWorth(){

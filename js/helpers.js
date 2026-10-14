@@ -434,13 +434,30 @@ function nd(s){
 }
 
 // ── HUD-STYLE POPUP HELPER ─────────────────────────────────────────────
-// Shared by breakdown popups (Div293, Debt Recycling) so they all read as
-// a floating cockpit overlay — dark backdrop scrim + blue-glow instrument
+// Shared by every breakdown/detail popup (Div293, Debt Recycling, Net Worth,
+// CGT details/export/examples, Biggest Movers) so they all read as a
+// floating cockpit overlay — dark backdrop scrim + blue-glow instrument
 // panel — rather than blending into the surface colour behind them.
+//
+// SCROLLING (normal mode): the panel is a flex column capped at 90% of the
+// visible viewport height. Content goes in a scrolling body so nothing can
+// end up past the screen edge. If the markup passed in contains a direct
+// child marked `data-hud-header` (title + ✕ row), that element is lifted
+// out into a pinned strip above the scroller so the close button never
+// scrolls away. No marker = the whole popup scrolls as one, which is still
+// fully reachable. Callers need no wrapper/overflow/max-height of their own.
+//
+// ASPECT-RATIO mode (opts.aspectRatio) keeps its original single-box
+// structure: fitPanelToAspectRatio() sizes the box by measuring the panel's
+// own scrollHeight, so it must not gain an inner scroller. If the content
+// still doesn't fit after sizing (very short window) it falls back to
+// scrolling rather than clipping.
 function openHudPopup(id, innerHtml, opts){
   opts = opts || {};
   // Acts as a toggle: clicking the same trigger again closes it
   if(document.getElementById(id)){ closeHudPopup(id); return null; }
+
+  const aspect = !!opts.aspectRatio;
 
   const backdrop = document.createElement('div');
   backdrop.id = id+'-backdrop';
@@ -449,27 +466,43 @@ function openHudPopup(id, innerHtml, opts){
 
   const panel = document.createElement('div');
   panel.id = id;
-  const sizeRules = opts.aspectRatio
+  // min-width is clamped to the viewport: a bare min-width beats max-width in
+  // CSS, so a 760px popup on a 390px phone used to overflow off both edges.
+  const sizeRules = aspect
     ? [`width:${opts.width || opts.minWidth || '480px'}`]
-    : [`min-width:${opts.minWidth||'320px'}`];
+    : [`min-width:min(${opts.minWidth||'320px'},95vw)`];
+  // 90vh is the *large* viewport on iOS Safari (ignores the collapsing toolbar),
+  // so also declare 90dvh; browsers without dvh drop that line and keep 90vh.
+  const heightRules = opts.maxHeight
+    ? [`max-height:${opts.maxHeight}`]
+    : aspect ? ['max-height:90vh'] : ['max-height:90vh','max-height:90dvh'];
   panel.style.cssText = [
     'position:fixed','top:50%','left:50%',
     'transform:translate(-50%,-50%)',
     'background:linear-gradient(165deg,#132029 0%,#0a1319 100%)',
     'border:1px solid var(--blue)',
-    'border-radius:10px','padding:20px 24px',
-    'z-index:9999',...sizeRules,`max-width:${opts.maxWidth||'95vw'}`,`max-height:${opts.maxHeight||'90vh'}`,
+    'border-radius:10px',
+    aspect ? 'padding:20px 24px' : 'padding:0',
+    'z-index:9999',...sizeRules,`max-width:${opts.maxWidth||'95vw'}`,...heightRules,
     'box-shadow:0 12px 40px rgba(0,0,0,.7), 0 0 30px var(--blue-glow)',
     'font-family:var(--mono)',`font-size:${opts.fontSize||'12px'}`,
-    opts.aspectRatio ? 'overflow:hidden' : '',
+    'overflow:hidden',
+    aspect ? '' : 'display:flex;flex-direction:column',
   ].join(';');
   panel.innerHTML = innerHtml;
   panel.addEventListener('click', e => e.stopPropagation());
 
+  if(!aspect) buildHudScrollLayout(panel);
+
   document.body.appendChild(backdrop);
   document.body.appendChild(panel);
 
-  if(opts.aspectRatio) fitPanelToAspectRatio(panel, opts.aspectRatio, opts.maxWidth);
+  if(aspect){
+    fitPanelToAspectRatio(panel, opts.aspectRatio, opts.maxWidth);
+    // Safety net: if the content still doesn't fit the capped box, make it
+    // scrollable instead of silently clipping the bottom.
+    if(panel.scrollHeight > panel.clientHeight + 1) panel.style.overflowY = 'auto';
+  }
 
   // Defer the outside-click dismiss listener — otherwise the click that
   // opened this popup is still bubbling to document and would close it instantly.
@@ -481,6 +514,31 @@ function openHudPopup(id, innerHtml, opts){
   }, 0);
 
   return panel;
+}
+
+// Restructures a freshly-filled normal-mode panel into [pinned header?] +
+// [scrolling body]. The panel itself carries no padding in this mode — the
+// 20px/24px inset lives on the two inner pieces so the scrollbar sits flush
+// against the panel edge and the header strip can span the full width.
+function buildHudScrollLayout(panel){
+  const body = document.createElement('div');
+  body.className = 'hud-body';
+  while(panel.firstChild) body.appendChild(panel.firstChild);
+
+  const header = Array.from(body.children).find(el => el.hasAttribute('data-hud-header'));
+  const scrollCss = 'flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch';
+
+  if(header){
+    const pinned = document.createElement('div');
+    pinned.className = 'hud-head';
+    pinned.style.cssText = 'flex:0 0 auto;padding:20px 24px 0';
+    pinned.appendChild(header); // moves it out of the scroller
+    body.style.cssText = scrollCss + ';padding:0 24px 20px';
+    panel.appendChild(pinned);
+  } else {
+    body.style.cssText = scrollCss + ';padding:20px 24px';
+  }
+  panel.appendChild(body);
 }
 function closeHudPopup(id){
   const panel = document.getElementById(id);
