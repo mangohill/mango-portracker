@@ -822,12 +822,13 @@ function nwShowAfterTax(){
     const personRows = r.rows.length ? `
       ${title('Estimated tax by person (this selection)')}
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
-        <thead><tr><th style="${th};text-align:left">Person</th><th style="${th}">Short-term</th><th style="${th}">Long-term</th><th style="${th}">Losses</th><th style="${th}">Added taxable gain</th><th style="${th}">Est. tax</th></tr></thead>
+        <thead><tr><th style="${th};text-align:left">Person</th><th style="${th}">Short-term</th><th style="${th}">Long-term</th><th style="${th}">Losses</th><th style="${th}">Added taxable gain</th><th style="${th}" title="Last financial year's taxable income, built the same way as the Tax tab. The added gain is stacked on top of it.">Base income (last FY)</th><th style="${th}">Est. tax</th><th style="${th}" title="Est. tax ÷ added taxable gain">Rate on added gain</th></tr></thead>
         <tbody>${r.rows.map(x => `<tr style="border-top:1px solid var(--border)">
           <td style="padding:8px 14px">${label(x.person)}</td>
           <td style="${cell}">${n2(x.short)}</td><td style="${cell}">${n2(x.long)}</td><td style="${cell}">${x.loss ? '−' + n2(x.loss) : '—'}</td>
-          <td style="${cell}">${n2(x.added)}</td><td style="${cell};font-weight:700;color:var(--red)">${n2(x.tax)}</td></tr>`).join('')}
-        </tbody></table></div>`
+          <td style="${cell}">${n2(x.added)}</td><td style="${cell};color:var(--text2)">${n2(x.base)}</td><td style="${cell};font-weight:700;color:var(--red)">${n2(x.tax)}</td><td style="${cell};color:var(--text2)">${x.added > 0 ? (x.tax / x.added * 100).toFixed(1) + '%' : '—'}</td></tr>`).join('')}
+        </tbody></table></div>
+        <div style="margin-top:6px;color:var(--text3);font-size:10px;line-height:1.5">The added gain is stacked on top of each person's base income (last financial year's taxable income, built the same way as the Tax tab: salary less sacrifice, dividends + franking, net rental, and that year's net capital gain). Only the slice that lands above $190,000 is taxed at 45% + 2% Medicare; the part below is taxed at the lower brackets, so the rate on the added gain is usually below the top rate.</div>`
       : `${title('Estimated tax by person (this selection)')}<div style="color:var(--text3)">${r.segs.some(sg => sg.f > 0) || r.soldProps.length ? 'No gains found in this selection — nothing to deduct.' : 'Nothing selected to sell — no tax.'}</div>`;
 
     const propTable = hasTaxableProp ? `
