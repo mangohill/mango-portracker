@@ -441,6 +441,7 @@ function nwEstimateCGTIfSold(){
 
   const bucket = () => persons.reduce((o,p)=>{ o[p] = {short:0, long:0, loss:0}; return o; }, {});
   const stock = bucket(), prop = bucket();
+  const propBuckets = []; // per-property gain buckets, so the popup can re-tax any subset
   const add = (b, owner, gain, long) => persons.forEach(person => {
     const share = shareForOwner(owner, person);
     if(share <= 0) return;
@@ -477,6 +478,8 @@ function nwEstimateCGTIfSold(){
       const long = (today - new Date(p.purchaseDate)) / 86400000 > 365;
       const owner = p.owner || 'lumia';
       add(prop, owner, gain, long);
+      const pb = bucket(); add(pb, owner, gain, long);
+      propBuckets.push({ ref: p, bucket: pb, costBase, gain, long });
       propDetail.push({ name: p.name, owner, value, costBase, sellCosts, gain, long });
     });
 
@@ -497,9 +500,139 @@ function nwEstimateCGTIfSold(){
     return { rows, totalTax: +totalTax.toFixed(2) };
   };
 
-  return { all: scenario(true), stockOnly: scenario(false), propDetail, propSkipped, unpriced };
+  return {
+    all: scenario(true), stockOnly: scenario(false), propDetail, propSkipped, unpriced,
+    // Raw pieces for the interactive popup (see nwAfterTaxScenario)
+    persons, stock, propBuckets,
+    taxFn: (person, hyp) => cgtHypotheticalTax(person, hyp, ctx),
+  };
 }
 
+// ── INTERACTIVE "WHAT IF I SELL…" SCENARIO ──────────────────────────────
+// nwAfterTaxScenario() is pure — no DOM, no globals beyond what's in `model`
+// — so it can be tested on its own. Given the selection (what fraction of the
+// portfolio to sell, and which properties) it returns every figure the popup
+// shows.
+//
+// Tax is NOT additive across assets: it's marginal-rate tax on each person's
+// COMBINED gains, after loss netting and the 50% discount. So every selection
+// is re-run through model.taxFn on the summed gains rather than adding up
+// per-asset tax. Property CGT is shown the same way the popup always has:
+// portfolio tax is what the sold part of the portfolio would owe on its own,
+// and property tax is the EXTRA tax the sold properties add on top.
+//
+// Partial portfolio sales are pro-rata: selling 40% realises 40% of every
+// parcel's gain/loss (the real parcel choice would depend on which lots you
+// pick, so this is an approximation).
+//
+// model = { persons, taxFn(person,hyp), stock:{person:{short,long,loss}},
+//           portfolioVal, superBal, netWorth,
+//           props:[{ name, owner, ppor, taxable, value, loan, offset, sellCosts,
+//                    costBase, gain, long, bucket:{person:{short,long,loss}}|null }] }
+// sel   = { f: 0..1 portfolio fraction sold, sold: [bool per model.props] }
+function nwAfterTaxScenario(model, sel){
+  const f = Math.min(1, Math.max(0, +sel.f || 0));
+  const soldProps = model.props.filter((_, i) => sel.sold[i]);
+  const heldProps = model.props.filter((_, i) => !sel.sold[i]);
+
+  const taxFor = (frac, props) => {
+    let total = 0;
+    const rows = [];
+    model.persons.forEach(person => {
+      const s = model.stock[person];
+      const hyp = { short: s.short * frac, long: s.long * frac, loss: s.loss * frac };
+      props.forEach(p => {
+        if(!p.bucket) return; // main residence / no purchase data: no CGT estimated
+        const b = p.bucket[person];
+        hyp.short += b.short; hyp.long += b.long; hyp.loss += b.loss;
+      });
+      if(!(hyp.short > 0 || hyp.long > 0 || hyp.loss > 0)) return;
+      const h = model.taxFn(person, hyp);
+      rows.push({ person, short: hyp.short, long: hyp.long, loss: hyp.loss, added: h.added, base: h.base, tax: h.tax });
+      total += h.tax;
+    });
+    return { rows, total: +total.toFixed(2) };
+  };
+
+  const stockTax = taxFor(f, []).total;
+  const all = taxFor(f, soldProps);
+  const allTax = all.total;
+  const propTax = +(allTax - stockTax).toFixed(2);
+
+  const agg = list => ({
+    count: list.length,
+    value: list.reduce((t, p) => t + p.value, 0),
+    loan: list.reduce((t, p) => t + p.loan, 0),
+    offset: list.reduce((t, p) => t + p.offset, 0),
+    sellCosts: +list.reduce((t, p) => t + p.sellCosts, 0).toFixed(2),
+  });
+  const sold = agg(soldProps), held = agg(heldProps);
+  held.equity = held.value - held.loan;
+
+  const portfolioSold = model.portfolioVal * f;
+  const portfolioHeld = model.portfolioVal - portfolioSold;
+  const portfolioCash = portfolioSold - stockTax;
+  const propNetCash = sold.value - sold.sellCosts - sold.loan - propTax;
+  const propTotalCash = propNetCash + sold.offset;
+  const afterTaxNW = model.netWorth - allTax - sold.sellCosts;
+
+  return {
+    f, soldProps, heldProps, sold, held,
+    rows: all.rows, stockTax, propTax, allTax,
+    portfolioSold, portfolioHeld, portfolioCash,
+    propNetCash, propTotalCash,
+    afterTaxNW, delta: afterTaxNW - model.netWorth,
+    // What you'd end up holding, added up from the pieces — must equal afterTaxNW.
+    holdTotal: portfolioHeld + held.equity + held.offset + portfolioCash + propTotalCash + model.superBal,
+  };
+}
+
+// Builds the scenario model from the live data + the estimator's raw pieces.
+function nwAtBuildModel(est){
+  const portfolioVal = nwPortfolioValue(), superBal = nwSuperBalance();
+  const list = (typeof properties !== 'undefined' && typeof propMetrics === 'function') ? properties.filter(p => !p.sold) : [];
+  const props = list.map(p => {
+    const m = propMetrics(p);
+    const det = est.propBuckets.find(x => x.ref === p) || null;
+    return {
+      name: p.name, owner: p.owner || 'lumia', ppor: p.propType === 'ppor',
+      taxable: !!det, value: m.cval, loan: m.loanCur,
+      offset: (m.splits || []).reduce((t, sp) => t + (+sp.offset || 0), 0),
+      sellCosts: cgtPropertySellingCosts(p, m.cval),
+      costBase: det ? det.costBase : null, gain: det ? det.gain : null, long: det ? det.long : null,
+      bucket: det ? det.bucket : null,
+    };
+  });
+  return {
+    persons: est.persons, taxFn: est.taxFn, stock: est.stock, portfolioVal, superBal, props,
+    netWorth: portfolioVal + nwPropertyValue() + nwOffsetCash() + superBal - nwLoanBalance(),
+  };
+}
+
+// Live state of the open popup (one at a time — openHudPopup toggles).
+let nwAtActive = null;
+function nwAtSetPortfolio(v){
+  if(!nwAtActive) return;
+  nwAtActive.sel.f = Math.min(100, Math.max(0, +v || 0)) / 100;
+  nwAtActive.render();
+}
+function nwAtSet(i, sell){
+  if(!nwAtActive || !(i in nwAtActive.sel.sold)) return;
+  nwAtActive.sel.sold[i] = !!sell;
+  nwAtActive.render();
+}
+function nwAtAll(sell){
+  if(!nwAtActive) return;
+  nwAtActive.sel.f = sell ? 1 : 0;
+  nwAtActive.sel.sold.fill(!!sell);
+  nwAtActive.render();
+}
+
+// ── After-tax popup ─────────────────────────────────────────────────────
+// Click the Net Worth badge. Pick what to sell (portfolio %, each property)
+// and see the net worth that leaves you with after CGT and selling costs. The
+// default — sell everything — is the same figure this popup always showed.
+// Estimation rules are documented on nwEstimateCGTIfSold above.
 function nwShowAfterTax(){
   if(typeof computeCGTSummary !== 'function' || typeof calcTax !== 'function'){
     if(typeof notify === 'function') notify('CGT/tax modules not loaded yet', 'err');
@@ -509,108 +642,199 @@ function nwShowAfterTax(){
   try{ est = nwEstimateCGTIfSold(); }
   catch(e){ console.error('After-tax estimate failed', e); if(typeof notify === 'function') notify('Could not estimate CGT: ' + e.message, 'err'); return; }
 
-  const portfolioVal = nwPortfolioValue(), superBal = nwSuperBalance();
-  const netWorth = portfolioVal + nwPropertyValue() + nwOffsetCash() + superBal - nwLoanBalance();
-  const stockTax = est.stockOnly.totalTax;
-  const allTax   = est.all.totalTax;
-  const propTax  = +(allTax - stockTax).toFixed(2);
-  const hasProp  = est.propDetail.length > 0;
+  const model = nwAtBuildModel(est);
+  const sel = { f: 1, sold: model.props.map(() => true) };
+  const everything = nwAfterTaxScenario(model, { f: 1, sold: model.props.map(() => true) });
+  const nProps = model.props.length;
+  const hasTaxableProp = model.props.some(p => p.taxable);
+  const anySellCosts = model.props.some(p => p.sellCosts > 0);
+  const anyOffset = model.props.some(p => p.offset > 0);
 
-  // Cash in hand if all properties were sold (main residence included, CGT-exempt).
-  // Net cash = sale value − selling costs − loan payouts − CGT; offset balances
-  // are the owners' own cash, so they're added back as a separate line.
-  const pc = nwPropertySaleCash();
-  const propNetCash = pc.value - pc.sellCosts - pc.loan - propTax;
-  const propTotalCash = propNetCash + pc.offset;
-  // Everything sold: net worth less ALL CGT and the selling costs on the property sales.
-  // (Loans are already deducted in net worth, so repaying them changes nothing further.)
-  const afterTaxNW = netWorth - allTax - pc.sellCosts;
-  const portfolioCash = portfolioVal - stockTax; // portfolio proceeds after CGT
   const esc = v => typeof escHtml === 'function' ? escHtml(v) : String(v);
   const label = k => esc(typeof getPersonLabel === 'function' ? getPersonLabel(k) : k);
   const gl = v => `<span style="color:${v>=0?'var(--green)':'var(--red)'}">${v>=0?'':'−'}${n2(Math.abs(v))}</span>`;
+  const dash = v => Math.abs(v) < 0.005 ? '—' : n2(v);
+  const minus = v => v > 0.004 ? '−' + n2(v) : v < -0.004 ? '+' + n2(-v) : '—';
   const cell = 'text-align:right;padding:8px 14px;white-space:nowrap';
   const th = 'text-align:right;padding:6px 14px;color:var(--text3);font-size:10px;white-space:nowrap';
-  // Label/value summary tables stay a readable width — stretched across the full
-  // wide popup the value ends up ~900px from its label.
-  const sumTbl = 'width:100%;max-width:560px;border-collapse:collapse';
-
+  const gcol = v => v >= 0 ? 'var(--green)' : 'var(--red)';
+  const title = t => `<div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">${t}</div>`;
+  const tbl = rows => `<table style="width:100%;border-collapse:collapse">${rows}</table>`;
   const line = (lbl, val, opts) => `<tr style="${opts&&opts.top?'border-top:1px solid var(--border);':''}">
     <td style="padding:6px 0;${opts&&opts.bold?'font-weight:700;font-size:14px;':''}">${lbl}</td>
     <td style="text-align:right;padding:6px 0;${opts&&opts.bold?'font-weight:700;font-size:14px;':''}${opts&&opts.color?'color:'+opts.color+';':''}">${val}</td></tr>`;
 
-  const personRows = est.all.rows.length ? `
-    <div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">Estimated tax by person (selling everything)</div>
-    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
-      <thead><tr><th style="${th};text-align:left">Person</th><th style="${th}">Short-term</th><th style="${th}">Long-term</th><th style="${th}">Losses</th><th style="${th}">Added taxable gain</th><th style="${th}">Est. tax</th></tr></thead>
-      <tbody>${est.all.rows.map(r => `<tr style="border-top:1px solid var(--border)">
-        <td style="padding:8px 14px">${label(r.person)}</td>
-        <td style="${cell}">${n2(r.short)}</td><td style="${cell}">${n2(r.long)}</td><td style="${cell}">${r.loss ? '−'+n2(r.loss) : '—'}</td>
-        <td style="${cell}">${n2(r.added)}</td><td style="${cell};font-weight:700;color:var(--red)">${n2(r.tax)}</td></tr>`).join('')}
-      </tbody></table></div>`
-    : `<div style="color:var(--text3);margin-top:14px">No unrealised gains found — nothing to deduct.</div>`;
+  // ── controls (built once; handlers re-render the results, never this markup) ──
+  const segBtn = (i, sell) => `<button type="button" data-nw-i="${i}" data-nw-sell="${sell?1:0}" onclick="nwAtSet(${i},${sell})" style="border:none;padding:5px 14px;font:inherit;font-size:11px;cursor:pointer">${sell?'Sell':'Hold'}</button>`;
+  const propRows = model.props.map((p, i) => `
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--border)">
+      <div style="flex:1 1 240px;min-width:0">
+        <div style="font-weight:600">${esc(p.name)} <span style="color:var(--text3);font-weight:400">· ${label(p.owner)}</span></div>
+        <div style="font-size:10px;color:var(--text3)">${p.ppor ? 'Main residence · CGT-exempt' : p.taxable ? 'Investment property' : 'Investment property · no purchase price/date, CGT not estimated'}</div>
+      </div>
+      <div style="flex:0 0 130px;text-align:right"><div>${n2(p.value)}</div><div style="font-size:10px;color:var(--text3)">equity ${n2(p.value - p.loan)}</div></div>
+      <div style="flex:0 0 280px;display:flex;justify-content:flex-end">
+        <div role="group" aria-label="Hold or sell ${esc(p.name)}" style="display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">${segBtn(i, 0)}${segBtn(i, 1)}</div>
+      </div>
+    </div>`).join('');
 
-  const propTable = hasProp ? `
-    <div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">Investment properties included</div>
-    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
-      <thead><tr><th style="${th};text-align:left">Property</th><th style="${th}">Value</th><th style="${th}">Cost base</th><th style="${th}">Selling costs</th><th style="${th}">Gain</th><th style="${th}">&gt; 12 months</th></tr></thead>
-      <tbody>${est.propDetail.map(p => `<tr style="border-top:1px solid var(--border)">
-        <td style="padding:8px 14px">${esc(p.name)} <span style="color:var(--text3)">· ${label(p.owner)}</span></td>
-        <td style="${cell}">${n2(p.value)}</td><td style="${cell}">${n2(p.costBase)}</td><td style="${cell}">${p.sellCosts ? n2(p.sellCosts) : '—'}</td>
-        <td style="${cell}">${gl(p.gain)}</td><td style="${cell}">${p.long ? 'Yes (50% discount)' : 'No'}</td></tr>`).join('')}
-      </tbody></table></div>` : '';
-
-  const flags = [];
-  if(est.unpriced.length) flags.push(`No price for ${est.unpriced.map(esc).join(', ')} — excluded from the estimate.`);
-  if(est.propSkipped.length) flags.push(`${est.propSkipped.map(esc).join(', ')} excluded — no purchase price/date recorded (needed for a cost base).`);
-
-  const holdSection = `
-    <div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">If everything were sold you'd hold</div>
-    <table style="${sumTbl}">
-      ${pc.count ? line('Cash from property sales (incl. offset balances)', n2(propTotalCash)) : ''}
-      ${line('Cash from portfolio sale (after CGT)', n2(portfolioCash))}
-      ${line('Super (not sold)', n2(superBal))}
-      ${line('Total = after-tax net worth', n2(afterTaxNW), {bold:true, top:true})}
-    </table>`;
-
-  const gcol = v => v >= 0 ? 'var(--green)' : 'var(--red)';
-  const taxLbl = propTax > 0 ? '−' + n2(propTax) : propTax < 0 ? '+' + n2(-propTax) : '—';
-  const cashSection = pc.count ? `
-    <div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">Cash in hand if all ${pc.count} ${pc.count === 1 ? 'property were' : 'properties were'} sold</div>
-    <table style="${sumTbl}">
-      ${line('Sale value', n2(pc.value))}
-      ${line('Less: selling costs', pc.sellCosts > 0 ? '−' + n2(pc.sellCosts) : '—')}
-      ${line('Less: loan payouts', pc.loan > 0 ? '−' + n2(pc.loan) : '—')}
-      ${line('Less: est. CGT', taxLbl)}
-      ${line('Net cash from sales', n2(propNetCash), {bold:true, top:true, color:gcol(propNetCash)})}
-      ${line('Plus: offset balances (your own cash)', pc.offset > 0 ? '+' + n2(pc.offset) : '—')}
-      ${line('Total cash after selling all properties', n2(propTotalCash), {bold:true, top:true, color:gcol(propTotalCash)})}
-    </table>
-    <div style="margin-top:6px;max-width:760px;color:var(--text3);font-size:10px;line-height:1.5">Loans are repaid in full from the proceeds; offset balances stay yours and are added separately. CGT is the property figure above (properties sold alongside the portfolio) — each property card estimates it as if sold on its own, so the totals can differ. Main residence is treated as CGT-exempt.${pc.sellCosts > 0 ? '' : ' Selling costs aren\'t included — set Est. Selling Costs % on each property to include agent/legal fees.'}${est.propSkipped.length ? ' Cash is before CGT on ' + est.propSkipped.map(esc).join(', ') + ' (no purchase price/date).' : ''}</div>` : '';
-
-  const html = `
-    <div data-hud-header style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div style="font-size:15px;font-weight:700;color:var(--text)">After-tax net worth</div>
-      <button class="btn btn-g" style="padding:3px 10px;font-size:11px" onclick="closeHudPopup('nw-after-tax')">✕</button>
-    </div>
-    <table style="${sumTbl}">
-      ${line('Net worth today', n2(netWorth))}
-      ${line('Less: est. CGT on portfolio', '−' + n2(stockTax), {color:'var(--red)'})}
-      ${hasProp ? line('Less: est. CGT on investment property', '−' + n2(propTax), {color:'var(--red)'}) : ''}
-      ${pc.sellCosts > 0 ? line('Less: selling costs on property sales', '−' + n2(pc.sellCosts), {color:'var(--red)'}) : ''}
-      ${line('After-tax net worth (everything sold)', n2(afterTaxNW), {bold:true, top:true})}
-    </table>
-    ${hasProp ? `<div style="margin-top:8px;color:var(--text2)">If you kept your property and only sold the portfolio: <b>${n2(netWorth - stockTax)}</b></div>` : ''}
-    ${holdSection}
-    ${cashSection}
-    ${personRows}
-    ${propTable}
-    ${flags.length ? `<div style="margin-top:12px;color:var(--amber);font-size:11px">${flags.map(f => '⚠ ' + f).join('<br>')}</div>` : ''}
-    <div style="margin-top:14px;max-width:760px;color:var(--text3);font-size:10px;line-height:1.5">
-      Estimate of the capital gains tax if every holding were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage on shares, or property selling costs unless you've set Est. Selling Costs % on the property, or other tax circumstances. Property selling costs (from each property's Est. Selling Costs %) are deducted in the after-tax figure. Estimate only — not tax advice.
+  const quickBtn = 'background:none;border:1px solid var(--border);border-radius:5px;color:var(--text2);font:inherit;font-size:11px;padding:3px 10px;cursor:pointer';
+  const controls = `
+    <div id="nw-at-controls" style="border:1px solid var(--border);border-radius:8px;padding:10px 16px;margin-bottom:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+        <div style="font-size:11px;font-weight:700;color:var(--text2)">What would you sell?</div>
+        <div style="display:flex;gap:8px"><button type="button" style="${quickBtn}" onclick="nwAtAll(1)">Sell everything</button><button type="button" style="${quickBtn}" onclick="nwAtAll(0)">Hold everything</button></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--border)">
+        <div style="flex:1 1 240px;min-width:0">
+          <div style="font-weight:600">Portfolio <span style="color:var(--text3);font-weight:400">· shares, ETFs, crypto</span></div>
+          <div style="font-size:10px;color:var(--text3)">A partial sale assumes every parcel is sold in equal proportion</div>
+        </div>
+        <div style="flex:0 0 130px;text-align:right">${n2(model.portfolioVal)}</div>
+        <div style="flex:0 0 280px;display:flex;align-items:center;gap:10px">
+          <input type="range" id="nw-at-slider" min="0" max="100" step="5" value="100" aria-label="Percent of portfolio to sell" oninput="nwAtSetPortfolio(this.value)" style="flex:1;min-width:0;accent-color:var(--blue)">
+          <span id="nw-at-pct" style="min-width:62px;text-align:right;font-weight:700"></span>
+        </div>
+      </div>
+      ${propRows}
     </div>`;
-  // Scrolling + pinned header (data-hud-header above) are handled by openHudPopup.
-  openHudPopup('nw-after-tax', html, { minWidth: '560px', width: '1000px', fontSize: '12px' });
+
+  const header = `
+    <div data-hud-header style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px">
+      <div style="min-width:0">
+        <div style="font-size:15px;font-weight:700;color:var(--text)">After-tax net worth</div>
+        <div id="nw-at-headline" style="margin-top:4px"></div>
+      </div>
+      <button class="btn btn-g" style="padding:3px 10px;font-size:11px;flex:0 0 auto" onclick="closeHudPopup('nw-after-tax')">✕</button>
+    </div>`;
+
+  const disclaimer = `
+    <div style="margin-top:14px;color:var(--text3);font-size:10px;line-height:1.5">
+      Estimate of the capital gains tax if the holdings you've selected were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills, so tax on a combination isn't the sum of each asset's tax. A partial portfolio sale assumes every parcel is sold in equal proportion. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage on shares, or property selling costs unless you've set Est. Selling Costs % on the property, or other tax circumstances. Property selling costs (from each property's Est. Selling Costs %) are deducted in the after-tax figure. Estimate only — not tax advice.
+    </div>`;
+
+  // ── live pieces ──
+  const describe = r => {
+    const parts = [];
+    const pct = Math.round(r.f * 100);
+    if(r.f > 0) parts.push(pct === 100 ? 'all of the portfolio' : pct + '% of the portfolio');
+    if(r.soldProps.length){
+      const word = nProps === 1 ? 'property' : 'properties';
+      parts.push(r.soldProps.length === nProps ? (nProps === 1 ? 'the property' : `all ${nProps} properties`) : `${r.soldProps.length} of ${nProps} ${word}`);
+    }
+    return parts.length ? 'Selling ' + parts.join(' + ') : 'Holding everything';
+  };
+
+  const headlineHtml = r => {
+    const pct = model.netWorth ? (Math.abs(r.delta) / Math.abs(model.netWorth) * 100).toFixed(1) : '0.0';
+    const d = Math.abs(r.delta) < 0.005 ? '<span style="color:var(--text3)">no change vs net worth today</span>'
+      : `<span style="color:var(--red)">−${n2(Math.abs(r.delta))} (−${pct}%)</span> <span style="color:var(--text3)">vs net worth today</span>`;
+    return `<span style="font-size:20px;font-weight:700;color:var(--text)">${n2(r.afterTaxNW)}</span> <span style="margin-left:8px">${d}</span>
+      <div style="margin-top:2px;color:var(--text3);font-size:11px">${describe(r)}</div>`;
+  };
+
+  const resultsHtml = r => {
+    const bridge = tbl(
+      line('Net worth today', n2(model.netWorth)) +
+      line('Less: est. CGT on portfolio', minus(r.stockTax), {color: r.stockTax > 0.004 ? 'var(--red)' : ''}) +
+      (hasTaxableProp ? line('Less: est. CGT on investment property', minus(r.propTax), {color: r.propTax > 0.004 ? 'var(--red)' : ''}) : '') +
+      (nProps ? line('Less: selling costs on property sales', minus(r.sold.sellCosts), {color: r.sold.sellCosts > 0 ? 'var(--red)' : ''}) : '') +
+      line('After-tax net worth', n2(r.afterTaxNW), {bold: true, top: true}));
+
+    const diff = r.afterTaxNW - everything.afterTaxNW;
+    const vsAll = Math.abs(diff) < 0.005 ? '' :
+      `<div style="margin-top:8px;color:var(--text2)">Compared with selling everything: <b style="color:${gcol(diff)}">${diff >= 0 ? '+' : '−'}${n2(Math.abs(diff))}</b> after tax <span style="color:var(--text3)">(selling everything leaves ${n2(everything.afterTaxNW)})</span></div>`;
+
+    const cashBlock = r.sold.count ? `
+      ${title(`Cash in hand from the ${r.sold.count} ${r.sold.count === 1 ? 'property' : 'properties'} sold`)}
+      ${tbl(
+        line('Sale value', n2(r.sold.value)) +
+        line('Less: selling costs', minus(r.sold.sellCosts)) +
+        line('Less: loan payouts', minus(r.sold.loan)) +
+        line('Less: est. CGT', minus(r.propTax)) +
+        line('Net cash from sales', n2(r.propNetCash), {bold: true, top: true, color: gcol(r.propNetCash)}) +
+        line('Plus: offset balances (your own cash)', r.sold.offset > 0 ? '+' + n2(r.sold.offset) : '—') +
+        line('Total cash after selling these properties', n2(r.propTotalCash), {bold: true, top: true, color: gcol(r.propTotalCash)}))}
+      <div style="margin-top:6px;color:var(--text3);font-size:10px;line-height:1.5">Loans are repaid in full from the proceeds; offset balances stay yours and are added separately. CGT is the property figure above (properties sold alongside the portfolio) — each property card estimates it as if sold on its own, so the totals can differ. Main residence is treated as CGT-exempt.${anySellCosts ? '' : ' Selling costs aren\'t included — set Est. Selling Costs % on each property to include agent/legal fees.'}</div>` : '';
+
+    const holdBlock = `
+      ${title("After selling, you'd hold")}
+      ${tbl(
+        line('Portfolio kept (at market value)', dash(r.portfolioHeld)) +
+        (nProps ? line('Properties kept (equity' + (anyOffset ? ' + offset cash' : '') + ')', dash(r.held.equity + r.held.offset)) : '') +
+        line('Cash from portfolio sale (after CGT)', dash(r.portfolioCash)) +
+        (nProps ? line('Cash from property sales' + (anyOffset ? ' (incl. offset balances)' : ''), dash(r.propTotalCash)) : '') +
+        line('Super (not sold)', n2(model.superBal)) +
+        line('Total = after-tax net worth', n2(r.afterTaxNW), {bold: true, top: true}))}`;
+
+    const personRows = r.rows.length ? `
+      ${title('Estimated tax by person (this selection)')}
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr><th style="${th};text-align:left">Person</th><th style="${th}">Short-term</th><th style="${th}">Long-term</th><th style="${th}">Losses</th><th style="${th}">Added taxable gain</th><th style="${th}">Est. tax</th></tr></thead>
+        <tbody>${r.rows.map(x => `<tr style="border-top:1px solid var(--border)">
+          <td style="padding:8px 14px">${label(x.person)}</td>
+          <td style="${cell}">${n2(x.short)}</td><td style="${cell}">${n2(x.long)}</td><td style="${cell}">${x.loss ? '−' + n2(x.loss) : '—'}</td>
+          <td style="${cell}">${n2(x.added)}</td><td style="${cell};font-weight:700;color:var(--red)">${n2(x.tax)}</td></tr>`).join('')}
+        </tbody></table></div>`
+      : `${title('Estimated tax by person (this selection)')}<div style="color:var(--text3)">${r.f > 0 || r.soldProps.length ? 'No gains found in this selection — nothing to deduct.' : 'Nothing selected to sell — no tax.'}</div>`;
+
+    const propTable = hasTaxableProp ? `
+      ${title('Investment properties included')}
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr><th style="${th};text-align:left">Property</th><th style="${th}">Value</th><th style="${th}">Cost base</th><th style="${th}">Selling costs</th><th style="${th}">Gain</th><th style="${th}">&gt; 12 months</th><th style="${th}">Action</th></tr></thead>
+        <tbody>${model.props.map((p, i) => !p.taxable ? '' : `<tr style="border-top:1px solid var(--border);${sel.sold[i] ? '' : 'opacity:.45'}">
+          <td style="padding:8px 14px">${esc(p.name)} <span style="color:var(--text3)">· ${label(p.owner)}</span></td>
+          <td style="${cell}">${n2(p.value)}</td><td style="${cell}">${n2(p.costBase)}</td><td style="${cell}">${p.sellCosts ? n2(p.sellCosts) : '—'}</td>
+          <td style="${cell}">${gl(p.gain)}</td><td style="${cell}">${p.long ? 'Yes (50% discount)' : 'No'}</td>
+          <td style="${cell};font-weight:700">${sel.sold[i] ? 'Sell' : 'Hold'}</td></tr>`).join('')}
+        </tbody></table></div>` : '';
+
+    const flags = [];
+    if(r.f > 0 && est.unpriced.length) flags.push(`No price for ${est.unpriced.map(esc).join(', ')} — excluded from the estimate.`);
+    const noData = r.soldProps.filter(p => !p.ppor && !p.taxable).map(p => esc(p.name));
+    if(noData.length) flags.push(`${noData.join(', ')} excluded from the tax estimate — no purchase price/date recorded (needed for a cost base). Its cash above is before CGT.`);
+
+    return `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr));gap:0 40px;align-items:start">
+        <div>${title('From net worth to after-tax net worth')}${bridge}${vsAll}${cashBlock}</div>
+        <div>${holdBlock}</div>
+      </div>
+      ${personRows}
+      ${propTable}
+      ${flags.length ? `<div style="margin-top:12px;color:var(--amber);font-size:11px">${flags.map(f => '⚠ ' + f).join('<br>')}</div>` : ''}`;
+  };
+
+  const paintControls = () => {
+    const pct = Math.round(sel.f * 100);
+    const slider = document.getElementById('nw-at-slider');
+    if(slider && +slider.value !== pct) slider.value = pct;
+    const pctEl = document.getElementById('nw-at-pct');
+    if(pctEl) pctEl.textContent = pct === 0 ? 'Hold' : pct === 100 ? 'Sell all' : 'Sell ' + pct + '%';
+    document.querySelectorAll('#nw-at-controls [data-nw-i]').forEach(b => {
+      const i = +b.dataset.nwI, isSellBtn = b.dataset.nwSell === '1';
+      const active = !!sel.sold[i] === isSellBtn;
+      b.setAttribute('aria-pressed', active ? 'true' : 'false');
+      b.style.background = active ? (isSellBtn ? 'var(--amber)' : 'var(--blue)') : 'transparent';
+      b.style.color = active ? '#0a1319' : 'var(--text3)';
+      b.style.fontWeight = active ? '700' : '400';
+    });
+  };
+
+  const render = () => {
+    const r = nwAfterTaxScenario(model, sel);
+    const h = document.getElementById('nw-at-headline');
+    const out = document.getElementById('nw-at-results');
+    if(!h || !out) return; // popup was closed
+    h.innerHTML = headlineHtml(r);
+    out.innerHTML = resultsHtml(r);
+    paintControls();
+  };
+
+  const panel = openHudPopup('nw-after-tax', header + controls + '<div id="nw-at-results"></div>' + disclaimer,
+    { minWidth: '560px', width: '1000px', fontSize: '12px' });
+  if(!panel) return; // clicking again just closes it
+  nwAtActive = { model, sel, render };
+  render();
 }
 
 function renderNetWorth(){
