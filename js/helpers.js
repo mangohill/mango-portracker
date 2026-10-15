@@ -470,7 +470,10 @@ function openHudPopup(id, innerHtml, opts){
   // CSS, so a 760px popup on a 390px phone used to overflow off both edges.
   const sizeRules = aspect
     ? [`width:${opts.width || opts.minWidth || '480px'}`]
-    : [`min-width:min(${opts.minWidth||'320px'},95vw)`];
+    : [`min-width:min(${opts.minWidth||'320px'},95vw)`,
+       // Optional explicit width. A left:50% fixed panel otherwise shrink-to-fits
+       // to roughly half the viewport, so maxWidth alone can't make it wider.
+       ...(opts.width ? [`width:min(${opts.width},95vw)`] : [])];
   // 90vh is the *large* viewport on iOS Safari (ignores the collapsing toolbar),
   // so also declare 90dvh; browsers without dvh drop that line and keep 90vh.
   const heightRules = opts.maxHeight
