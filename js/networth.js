@@ -431,6 +431,16 @@ function nwTint(c){
 //    on top of each person's estimated base income (the CGT simulator's own
 //    auto-fill figure).
 //  • Super is not reduced (its earnings are taxed inside the fund).
+// Which side of the Stocks/Crypto split a symbol is on. Mirrors calcH(): a holding's
+// assetType is its latest trade's, and "Stocks" means everything that isn't crypto
+// (ETFs, LICs, REITs, bonds and managed funds included), as in the portfolio views.
+function nwAssetKinds(){
+  const kind = {};
+  (typeof trades !== 'undefined' ? [...trades] : [])
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .forEach(t => { kind[t.symbol] = t.assetType === 'crypto' ? 'crypto' : 'stocks'; });
+  return sym => kind[sym] || 'stocks';
+}
 function nwEstimateCGTIfSold(){
   const todayStr = localDateStr();
   const today = new Date(todayStr);
@@ -442,6 +452,8 @@ function nwEstimateCGTIfSold(){
   const bucket = () => persons.reduce((o,p)=>{ o[p] = {short:0, long:0, loss:0}; return o; }, {});
   const stock = bucket(), prop = bucket();
   const propBuckets = []; // per-property gain buckets, so the popup can re-tax any subset
+  const kindOf = nwAssetKinds();
+  const segBuckets = { stocks: bucket(), crypto: bucket() }; // shares/ETFs vs crypto, for separate sell controls
   const add = (b, owner, gain, long) => persons.forEach(person => {
     const share = shareForOwner(owner, person);
     if(share <= 0) return;
@@ -462,6 +474,7 @@ function nwEstimateCGTIfSold(){
       const gain = p.units * price - p.cost;
       const heldDays = Math.floor((today - new Date(p.date)) / 86400000);
       add(stock, owner, gain, heldDays > 365);
+      add(segBuckets[kindOf(sym)], owner, gain, heldDays > 365);
     });
   });
 
@@ -503,44 +516,49 @@ function nwEstimateCGTIfSold(){
   return {
     all: scenario(true), stockOnly: scenario(false), propDetail, propSkipped, unpriced,
     // Raw pieces for the interactive popup (see nwAfterTaxScenario)
-    persons, stock, propBuckets,
+    persons, stock, segBuckets, propBuckets,
     taxFn: (person, hyp) => cgtHypotheticalTax(person, hyp, ctx),
   };
 }
 
 // ── INTERACTIVE "WHAT IF I SELL…" SCENARIO ──────────────────────────────
 // nwAfterTaxScenario() is pure — no DOM, no globals beyond what's in `model`
-// — so it can be tested on its own. Given the selection (what fraction of the
-// portfolio to sell, and which properties) it returns every figure the popup
-// shows.
+// — so it can be tested on its own. Given the selection (what fraction of each
+// part of the portfolio to sell, and which properties) it returns every figure
+// the popup shows.
 //
 // Tax is NOT additive across assets: it's marginal-rate tax on each person's
 // COMBINED gains, after loss netting and the 50% discount. So every selection
 // is re-run through model.taxFn on the summed gains rather than adding up
-// per-asset tax. Property CGT is shown the same way the popup always has:
-// portfolio tax is what the sold part of the portfolio would owe on its own,
-// and property tax is the EXTRA tax the sold properties add on top.
+// per-asset tax. The extra tax is then ATTRIBUTED in a fixed order — shares &
+// ETFs first, then crypto, then properties — each line being the EXTRA tax that
+// part adds on top of the ones before it (the same way property CGT has always
+// been shown). The total doesn't depend on that order; only the split does.
 //
-// Partial portfolio sales are pro-rata: selling 40% realises 40% of every
-// parcel's gain/loss (the real parcel choice would depend on which lots you
-// pick, so this is an approximation).
+// Partial portfolio sales are pro-rata: selling 40% of shares realises 40% of
+// every parcel's gain/loss (the real parcel choice would depend on which lots
+// you pick, so this is an approximation).
 //
-// model = { persons, taxFn(person,hyp), stock:{person:{short,long,loss}},
-//           portfolioVal, superBal, netWorth,
+// model = { persons, taxFn(person,hyp), portfolioVal, superBal, netWorth,
+//           segments:[{ key, label, short, value, bucket:{person:{short,long,loss}} }],
 //           props:[{ name, owner, ppor, taxable, value, loan, offset, sellCosts,
 //                    costBase, gain, long, bucket:{person:{short,long,loss}}|null }] }
-// sel   = { f: 0..1 portfolio fraction sold, sold: [bool per model.props] }
+// sel   = { f: { [segmentKey]: 0..1 sold }, sold: [bool per model.props] }
 function nwAfterTaxScenario(model, sel){
-  const f = Math.min(1, Math.max(0, +sel.f || 0));
+  const segments = model.segments || [];
+  const fOf = key => Math.min(1, Math.max(0, +(sel.f && sel.f[key]) || 0));
   const soldProps = model.props.filter((_, i) => sel.sold[i]);
   const heldProps = model.props.filter((_, i) => !sel.sold[i]);
 
-  const taxFor = (frac, props) => {
+  const taxFor = (segList, props) => {
     let total = 0;
     const rows = [];
     model.persons.forEach(person => {
-      const s = model.stock[person];
-      const hyp = { short: s.short * frac, long: s.long * frac, loss: s.loss * frac };
+      const hyp = { short: 0, long: 0, loss: 0 };
+      segList.forEach(sg => {
+        const b = sg.bucket[person], fr = fOf(sg.key);
+        hyp.short += b.short * fr; hyp.long += b.long * fr; hyp.loss += b.loss * fr;
+      });
       props.forEach(p => {
         if(!p.bucket) return; // main residence / no purchase data: no CGT estimated
         const b = p.bucket[person];
@@ -554,10 +572,18 @@ function nwAfterTaxScenario(model, sel){
     return { rows, total: +total.toFixed(2) };
   };
 
-  const stockTax = taxFor(f, []).total;
-  const all = taxFor(f, soldProps);
+  // Attribute portfolio tax segment by segment (each = extra tax on top of the previous ones).
+  const segTax = {};
+  let running = 0;
+  segments.forEach((sg, k) => {
+    const t = taxFor(segments.slice(0, k + 1), []).total;
+    segTax[sg.key] = +(t - running).toFixed(2);
+    running = t;
+  });
+  const stockTax = running;                       // all sold portfolio parts together
+  const all = taxFor(segments, soldProps);
   const allTax = all.total;
-  const propTax = +(allTax - stockTax).toFixed(2);
+  const propTax = +(allTax - stockTax).toFixed(2); // extra tax the sold properties add
 
   const agg = list => ({
     count: list.length,
@@ -569,17 +595,21 @@ function nwAfterTaxScenario(model, sel){
   const sold = agg(soldProps), held = agg(heldProps);
   held.equity = held.value - held.loan;
 
-  const portfolioSold = model.portfolioVal * f;
-  const portfolioHeld = model.portfolioVal - portfolioSold;
-  const portfolioCash = portfolioSold - stockTax;
+  const segs = segments.map(sg => {
+    const f = fOf(sg.key), soldV = sg.value * f;
+    return { key: sg.key, label: sg.label, short: sg.short, f, value: sg.value,
+             sold: soldV, held: sg.value - soldV, tax: segTax[sg.key], cash: soldV - segTax[sg.key] };
+  });
+  const portfolioHeld = segs.reduce((t, g) => t + g.held, 0);
+  const portfolioCash = segs.reduce((t, g) => t + g.cash, 0);
   const propNetCash = sold.value - sold.sellCosts - sold.loan - propTax;
   const propTotalCash = propNetCash + sold.offset;
   const afterTaxNW = model.netWorth - allTax - sold.sellCosts;
 
   return {
-    f, soldProps, heldProps, sold, held,
+    segs, soldProps, heldProps, sold, held,
     rows: all.rows, stockTax, propTax, allTax,
-    portfolioSold, portfolioHeld, portfolioCash,
+    portfolioHeld, portfolioCash,
     propNetCash, propTotalCash,
     afterTaxNW, delta: afterTaxNW - model.netWorth,
     // What you'd end up holding, added up from the pieces — must equal afterTaxNW.
@@ -588,8 +618,24 @@ function nwAfterTaxScenario(model, sel){
 }
 
 // Builds the scenario model from the live data + the estimator's raw pieces.
+// The portfolio is split the way the Portfolio tab's Stocks/Crypto views split it
+// (crypto vs everything else); a part with no holdings isn't offered at all.
 function nwAtBuildModel(est){
   const portfolioVal = nwPortfolioValue(), superBal = nwSuperBalance();
+  const segVal = { stocks: 0, crypto: 0 };
+  if(typeof calcH === 'function' && typeof prices !== 'undefined'){
+    calcH().forEach(h => {
+      const p = prices[typeof priceSymbol === 'function' ? priceSymbol(h.symbol) : h.symbol];
+      if(p != null) segVal[h.assetType === 'crypto' ? 'crypto' : 'stocks'] += p * h.units;
+    });
+  }
+  const hasGains = b => Object.values(b).some(x => x.short > 0 || x.long > 0 || x.loss > 0);
+  const segments = [
+    { key: 'stocks', label: 'Shares & ETFs', short: 'shares & ETFs', hint: 'Shares, ETFs, LICs, REITs, bonds & managed funds · partial sales are pro-rata across parcels' },
+    { key: 'crypto', label: 'Crypto', short: 'crypto', hint: 'Partial sales are pro-rata across parcels' },
+  ].map(d => ({ ...d, value: segVal[d.key], bucket: est.segBuckets[d.key] }))
+   .filter(sg => sg.value > 0.005 || hasGains(sg.bucket));
+
   const list = (typeof properties !== 'undefined' && typeof propMetrics === 'function') ? properties.filter(p => !p.sold) : [];
   const props = list.map(p => {
     const m = propMetrics(p);
@@ -604,16 +650,16 @@ function nwAtBuildModel(est){
     };
   });
   return {
-    persons: est.persons, taxFn: est.taxFn, stock: est.stock, portfolioVal, superBal, props,
+    persons: est.persons, taxFn: est.taxFn, portfolioVal, superBal, segments, props,
     netWorth: portfolioVal + nwPropertyValue() + nwOffsetCash() + superBal - nwLoanBalance(),
   };
 }
 
 // Live state of the open popup (one at a time — openHudPopup toggles).
 let nwAtActive = null;
-function nwAtSetPortfolio(v){
-  if(!nwAtActive) return;
-  nwAtActive.sel.f = Math.min(100, Math.max(0, +v || 0)) / 100;
+function nwAtSetPortfolio(key, v){
+  if(!nwAtActive || !(key in nwAtActive.sel.f)) return;
+  nwAtActive.sel.f[key] = Math.min(100, Math.max(0, +v || 0)) / 100;
   nwAtActive.render();
 }
 function nwAtSet(i, sell){
@@ -623,16 +669,16 @@ function nwAtSet(i, sell){
 }
 function nwAtAll(sell){
   if(!nwAtActive) return;
-  nwAtActive.sel.f = sell ? 1 : 0;
+  Object.keys(nwAtActive.sel.f).forEach(k => { nwAtActive.sel.f[k] = sell ? 1 : 0; });
   nwAtActive.sel.sold.fill(!!sell);
   nwAtActive.render();
 }
 
 // ── After-tax popup ─────────────────────────────────────────────────────
-// Click the Net Worth badge. Pick what to sell (portfolio %, each property)
-// and see the net worth that leaves you with after CGT and selling costs. The
-// default — sell everything — is the same figure this popup always showed.
-// Estimation rules are documented on nwEstimateCGTIfSold above.
+// Click the Net Worth badge. Pick what to sell (shares & ETFs %, crypto %, each
+// property) and see the net worth that leaves you with after CGT and selling
+// costs. The default — sell everything — is the same figure this popup always
+// showed. Estimation rules are documented on nwEstimateCGTIfSold above.
 function nwShowAfterTax(){
   if(typeof computeCGTSummary !== 'function' || typeof calcTax !== 'function'){
     if(typeof notify === 'function') notify('CGT/tax modules not loaded yet', 'err');
@@ -643,8 +689,9 @@ function nwShowAfterTax(){
   catch(e){ console.error('After-tax estimate failed', e); if(typeof notify === 'function') notify('Could not estimate CGT: ' + e.message, 'err'); return; }
 
   const model = nwAtBuildModel(est);
-  const sel = { f: 1, sold: model.props.map(() => true) };
-  const everything = nwAfterTaxScenario(model, { f: 1, sold: model.props.map(() => true) });
+  const allF = v => model.segments.reduce((o, sg) => { o[sg.key] = v; return o; }, {});
+  const sel = { f: allF(1), sold: model.props.map(() => true) };
+  const everything = nwAfterTaxScenario(model, { f: allF(1), sold: model.props.map(() => true) });
   const nProps = model.props.length;
   const hasTaxableProp = model.props.some(p => p.taxable);
   const anySellCosts = model.props.some(p => p.sellCosts > 0);
@@ -666,6 +713,18 @@ function nwShowAfterTax(){
 
   // ── controls (built once; handlers re-render the results, never this markup) ──
   const segBtn = (i, sell) => `<button type="button" data-nw-i="${i}" data-nw-sell="${sell?1:0}" onclick="nwAtSet(${i},${sell})" style="border:none;padding:5px 14px;font:inherit;font-size:11px;cursor:pointer">${sell?'Sell':'Hold'}</button>`;
+  const segRows = model.segments.map(sg => `
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--border)">
+        <div style="flex:1 1 240px;min-width:0">
+          <div style="font-weight:600">${esc(sg.label)}</div>
+          <div style="font-size:10px;color:var(--text3)">${esc(sg.hint)}</div>
+        </div>
+        <div style="flex:0 0 130px;text-align:right">${n2(sg.value)}</div>
+        <div style="flex:0 0 280px;display:flex;align-items:center;gap:10px">
+          <input type="range" data-nw-seg="${sg.key}" min="0" max="100" step="5" value="100" aria-label="Percent of ${esc(sg.short)} to sell" oninput="nwAtSetPortfolio('${sg.key}',this.value)" style="flex:1;min-width:0;accent-color:var(--blue)">
+          <span data-nw-pct="${sg.key}" style="min-width:62px;text-align:right;font-weight:700"></span>
+        </div>
+      </div>`).join('');
   const propRows = model.props.map((p, i) => `
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--border)">
       <div style="flex:1 1 240px;min-width:0">
@@ -685,17 +744,7 @@ function nwShowAfterTax(){
         <div style="font-size:11px;font-weight:700;color:var(--text2)">What would you sell?</div>
         <div style="display:flex;gap:8px"><button type="button" style="${quickBtn}" onclick="nwAtAll(1)">Sell everything</button><button type="button" style="${quickBtn}" onclick="nwAtAll(0)">Hold everything</button></div>
       </div>
-      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--border)">
-        <div style="flex:1 1 240px;min-width:0">
-          <div style="font-weight:600">Portfolio <span style="color:var(--text3);font-weight:400">· shares, ETFs, crypto</span></div>
-          <div style="font-size:10px;color:var(--text3)">A partial sale assumes every parcel is sold in equal proportion</div>
-        </div>
-        <div style="flex:0 0 130px;text-align:right">${n2(model.portfolioVal)}</div>
-        <div style="flex:0 0 280px;display:flex;align-items:center;gap:10px">
-          <input type="range" id="nw-at-slider" min="0" max="100" step="5" value="100" aria-label="Percent of portfolio to sell" oninput="nwAtSetPortfolio(this.value)" style="flex:1;min-width:0;accent-color:var(--blue)">
-          <span id="nw-at-pct" style="min-width:62px;text-align:right;font-weight:700"></span>
-        </div>
-      </div>
+      ${segRows}
       ${propRows}
     </div>`;
 
@@ -710,14 +759,17 @@ function nwShowAfterTax(){
 
   const disclaimer = `
     <div style="margin-top:14px;color:var(--text3);font-size:10px;line-height:1.5">
-      Estimate of the capital gains tax if the holdings you've selected were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills, so tax on a combination isn't the sum of each asset's tax. A partial portfolio sale assumes every parcel is sold in equal proportion. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage on shares, or property selling costs unless you've set Est. Selling Costs % on the property, or other tax circumstances. Property selling costs (from each property's Est. Selling Costs %) are deducted in the after-tax figure. Estimate only — not tax advice.
+      Estimate of the capital gains tax if the holdings you've selected were sold today. Uses the 50% discount for assets held over 12 months, offsets losses against short-term gains first, and includes gains/losses already realised this financial year plus any carried-forward losses — so the tax shown is the extra tax the sale would add. Taxed at marginal rates (income tax + Medicare levy) on top of each person's estimated income, the same base-income estimate the CGT simulator auto-fills, so tax on a combination isn't the sum of each asset's tax: when you sell several things together, the total is exact but its split is attributed in order — shares &amp; ETFs first, then crypto, then property — each showing the extra tax it adds. A partial sale of shares or crypto assumes every parcel is sold in equal proportion. Main residence treated as exempt; super isn't reduced. Doesn't include the proposed CGT reform cut-off, brokerage on shares, or property selling costs unless you've set Est. Selling Costs % on the property, or other tax circumstances. Property selling costs (from each property's Est. Selling Costs %) are deducted in the after-tax figure. Estimate only — not tax advice.
     </div>`;
 
   // ── live pieces ──
   const describe = r => {
     const parts = [];
-    const pct = Math.round(r.f * 100);
-    if(r.f > 0) parts.push(pct === 100 ? 'all of the portfolio' : pct + '% of the portfolio');
+    const active = r.segs.filter(sg => sg.f > 0);
+    if(active.length){
+      if(r.segs.every(sg => Math.round(sg.f * 100) === 100)) parts.push(r.segs.length > 1 ? 'the whole portfolio' : 'all ' + r.segs[0].short);
+      else active.forEach(sg => { const pct = Math.round(sg.f * 100); parts.push(pct === 100 ? 'all ' + sg.short : pct + '% of ' + sg.short); });
+    }
     if(r.soldProps.length){
       const word = nProps === 1 ? 'property' : 'properties';
       parts.push(r.soldProps.length === nProps ? (nProps === 1 ? 'the property' : `all ${nProps} properties`) : `${r.soldProps.length} of ${nProps} ${word}`);
@@ -736,7 +788,7 @@ function nwShowAfterTax(){
   const resultsHtml = r => {
     const bridge = tbl(
       line('Net worth today', n2(model.netWorth)) +
-      line('Less: est. CGT on portfolio', minus(r.stockTax), {color: r.stockTax > 0.004 ? 'var(--red)' : ''}) +
+      r.segs.map(sg => line(`Less: est. CGT on ${sg.short}`, minus(sg.tax), {color: sg.tax > 0.004 ? 'var(--red)' : ''})).join('') +
       (hasTaxableProp ? line('Less: est. CGT on investment property', minus(r.propTax), {color: r.propTax > 0.004 ? 'var(--red)' : ''}) : '') +
       (nProps ? line('Less: selling costs on property sales', minus(r.sold.sellCosts), {color: r.sold.sellCosts > 0 ? 'var(--red)' : ''}) : '') +
       line('After-tax net worth', n2(r.afterTaxNW), {bold: true, top: true}));
@@ -760,9 +812,9 @@ function nwShowAfterTax(){
     const holdBlock = `
       ${title("After selling, you'd hold")}
       ${tbl(
-        line('Portfolio kept (at market value)', dash(r.portfolioHeld)) +
+        r.segs.map(sg => line(`${esc(sg.label)} kept (at market value)`, dash(sg.held))).join('') +
         (nProps ? line('Properties kept (equity' + (anyOffset ? ' + offset cash' : '') + ')', dash(r.held.equity + r.held.offset)) : '') +
-        line('Cash from portfolio sale (after CGT)', dash(r.portfolioCash)) +
+        r.segs.map(sg => line(`Cash from ${esc(sg.short)} sold (after CGT)`, dash(sg.cash))).join('') +
         (nProps ? line('Cash from property sales' + (anyOffset ? ' (incl. offset balances)' : ''), dash(r.propTotalCash)) : '') +
         line('Super (not sold)', n2(model.superBal)) +
         line('Total = after-tax net worth', n2(r.afterTaxNW), {bold: true, top: true}))}`;
@@ -776,7 +828,7 @@ function nwShowAfterTax(){
           <td style="${cell}">${n2(x.short)}</td><td style="${cell}">${n2(x.long)}</td><td style="${cell}">${x.loss ? '−' + n2(x.loss) : '—'}</td>
           <td style="${cell}">${n2(x.added)}</td><td style="${cell};font-weight:700;color:var(--red)">${n2(x.tax)}</td></tr>`).join('')}
         </tbody></table></div>`
-      : `${title('Estimated tax by person (this selection)')}<div style="color:var(--text3)">${r.f > 0 || r.soldProps.length ? 'No gains found in this selection — nothing to deduct.' : 'Nothing selected to sell — no tax.'}</div>`;
+      : `${title('Estimated tax by person (this selection)')}<div style="color:var(--text3)">${r.segs.some(sg => sg.f > 0) || r.soldProps.length ? 'No gains found in this selection — nothing to deduct.' : 'Nothing selected to sell — no tax.'}</div>`;
 
     const propTable = hasTaxableProp ? `
       ${title('Investment properties included')}
@@ -790,7 +842,7 @@ function nwShowAfterTax(){
         </tbody></table></div>` : '';
 
     const flags = [];
-    if(r.f > 0 && est.unpriced.length) flags.push(`No price for ${est.unpriced.map(esc).join(', ')} — excluded from the estimate.`);
+    if(r.segs.some(sg => sg.f > 0) && est.unpriced.length) flags.push(`No price for ${est.unpriced.map(esc).join(', ')} — excluded from the estimate.`);
     const noData = r.soldProps.filter(p => !p.ppor && !p.taxable).map(p => esc(p.name));
     if(noData.length) flags.push(`${noData.join(', ')} excluded from the tax estimate — no purchase price/date recorded (needed for a cost base). Its cash above is before CGT.`);
 
@@ -805,11 +857,12 @@ function nwShowAfterTax(){
   };
 
   const paintControls = () => {
-    const pct = Math.round(sel.f * 100);
-    const slider = document.getElementById('nw-at-slider');
-    if(slider && +slider.value !== pct) slider.value = pct;
-    const pctEl = document.getElementById('nw-at-pct');
-    if(pctEl) pctEl.textContent = pct === 0 ? 'Hold' : pct === 100 ? 'Sell all' : 'Sell ' + pct + '%';
+    document.querySelectorAll('#nw-at-controls [data-nw-seg]').forEach(sl => {
+      const key = sl.dataset.nwSeg, pct = Math.round((sel.f[key] || 0) * 100);
+      if(+sl.value !== pct) sl.value = pct;
+      const lab = document.querySelector(`#nw-at-controls [data-nw-pct="${key}"]`);
+      if(lab) lab.textContent = pct === 0 ? 'Hold' : pct === 100 ? 'Sell all' : 'Sell ' + pct + '%';
+    });
     document.querySelectorAll('#nw-at-controls [data-nw-i]').forEach(b => {
       const i = +b.dataset.nwI, isSellBtn = b.dataset.nwSell === '1';
       const active = !!sel.sold[i] === isSellBtn;
