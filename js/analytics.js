@@ -426,6 +426,13 @@ function toggleAnGroup(g){
   renderAnalytics();
 }
 
+// "By Asset Type" offers exactly two groups: Crypto and Stocks. Same split the rest
+// of the app uses (Portfolio's Stocks/Crypto views, the daily snapshots): crypto is
+// crypto, and everything else — shares, ETFs, LICs, REITs, bonds, managed funds —
+// counts as Stocks. Fixed order so each group keeps the same colour.
+const AN_KIND = at => at === 'crypto' ? 'Crypto' : 'Stocks';
+const AN_KIND_ORDER = ['Stocks', 'Crypto'];
+
 function renderMainChart(filtered, groupBy, chartType, holdings, period){
   // Only bail out entirely when there's no trade history at all — a narrow
   // period (e.g. "Last 3 months") with zero trades IN it can still have
@@ -480,11 +487,12 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
   // Groups shown = currently held + anything traded in the selected period,
   // so a position bought before the period (and untouched during it) still
   // appears instead of silently vanishing from the chart and legend.
-  const heldSet   = groupBy==='bytype' ? new Set(holdings.map(h=>h.assetType))
+  const heldSet   = groupBy==='bytype' ? new Set(holdings.map(h=>AN_KIND(h.assetType)))
                    : groupBy==='bysymbol'? new Set(holdings.map(h=>h.symbol)) : null;
-  const tradedSet = groupBy==='bytype' ? new Set(filtered.map(t=>t.assetType))
+  const tradedSet = groupBy==='bytype' ? new Set(filtered.map(t=>AN_KIND(t.assetType)))
                    : groupBy==='bysymbol'? new Set(filtered.map(t=>t.symbol)) : null;
   const groups = groupBy==='combined' ? ['All']
+    : groupBy==='bytype' ? AN_KIND_ORDER.filter(k => heldSet.has(k) || tradedSet.has(k))
     : [...new Set([...(heldSet||[]), ...(tradedSet||[])])];
 
   // Month buckets span the FULL selected period continuously, not just
@@ -524,7 +532,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
     // accumulated position, rather than incorrectly resetting to zero at
     // the start of whatever period is selected.
     const groupTrades = groupBy==='combined' ? tradesChrono :
-                        groupBy==='bytype'   ? tradesChrono.filter(t=>t.assetType===g) :
+                        groupBy==='bytype'   ? tradesChrono.filter(t=>AN_KIND(t.assetType)===g) :
                                                tradesChrono.filter(t=>t.symbol===g);
 
     const data = allDates.map(month=>{
