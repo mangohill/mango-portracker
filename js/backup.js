@@ -22,6 +22,114 @@ const BACKUP_LS_EXTRAS = ['pt_benchmarks','pt_price_alerts','pt_concentration_al
   'pt_holdings_fy_snapshots','pt_ath',
   'pt_fire_current_age','pt_fire_re_age','pt_fire_fi_age','pt_fire_monthly_contrib','pt_fire_growth_pct','pt_fire_annual_spend'];
 
+// Every localStorage key the app owns must be in exactly one of these three lists. The first is
+// handled explicitly in backupExport()/backupConfirm(); BACKUP_LS_EXTRAS (above) is the catch-all
+// for small settings; the third is bookkeeping that must NOT travel with the data. Anything else
+// that starts with pt_/cf_/su_ is reported by backupUnlistedKeys() the next time you export, so a
+// new feature that adds a key can't silently go missing from backups.
+const BACKUP_EXPLICIT_KEYS = ['pt_trades','pt_divs','pt_props','pt_spending','pt_prices','cf_worker_url','pt_drp_carry',
+  'pt_drp_skipped','pt_expdiv_skipped','pt_drp_settings','pt_brokers','pt_super','su_combined_color','pt_tax','pt_stock_owners',
+  'pt_extra_persons','pt_amit','pt_cgt_loss_carry_in','pt_pf_snapshots','pt_cg_overrides','pt_price_cgt_cutoff',
+  'pt_price_cgt_cutoff_auto_saved','pt_pf_backfill_date','pt_pf_pruned_date','pt_super_last_fy','pt_property_last_fy',
+  'pt_price_feed_url','pt_sync_key','pt_sync_gist_id','pt_sync_device','pt_last_sync'];
+const BACKUP_IGNORED_KEYS = [
+  'pt_last_backup_export',                       // written by the export itself
+  'pt_last_restore',                             // when a backup was last restored here (stops Cloud Sync's auto-pull undoing it)
+  'pt_bm_backfill_date','pt_pf_upgrade_date',    // once-a-day "already tried" throttles: restoring one could skip the history
+                                                 // backfill a restore needs (the Clear-all routine wipes them for the same reason)
+  'pt_price_20270630','pt_price_20270630_auto_saved']; // legacy names of the CGT cutoff keys (read as a fallback on restore)
+function backupUnlistedKeys(){
+  const known = new Set([...BACKUP_EXPLICIT_KEYS, ...BACKUP_LS_EXTRAS, ...BACKUP_IGNORED_KEYS]);
+  const out = [];
+  for(let i = 0; i < localStorage.length; i++){
+    const k = localStorage.key(i);
+    if(/^(pt|cf|su)_/.test(k) && !known.has(k)) out.push(k);
+  }
+  return out.sort();
+}
+// Checks a backup's data section BEFORE anything is written, so a damaged or hand-edited file can't wreck
+// the data that's already here. Only types are checked, and only for fields that are present (older backups
+// legitimately lack many); the types match what the app's own loaders assume. Returns a message or null.
+function backupValidate(d){
+  const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+  if(!isObj(d)) return 'the data section is missing';
+  const LISTS = ['pt_trades','pt_divs','pt_props','pt_spending','pt_super','pt_amit','pt_brokers','pt_extra_persons'];
+  const RECORD_LISTS = ['pt_trades','pt_divs','pt_props','pt_spending','pt_super','pt_amit'];
+  const OBJECTS = ['pt_prices','pt_tax','pt_stock_owners','pt_pf_snapshots','pt_cg_overrides','pt_drp_carry','pt_drp_skipped',
+    'pt_expdiv_skipped','pt_drp_settings','pt_cgt_loss_carry_in','pt_price_cgt_cutoff','pt_price_20270630'];
+  const TEXTS = ['cf_worker_url','su_combined_color','pt_price_cgt_cutoff_auto_saved','pt_price_20270630_auto_saved','pt_pf_backfill_date',
+    'pt_pf_pruned_date','pt_super_last_fy','pt_property_last_fy','pt_price_feed_url','pt_sync_key','pt_sync_gist_id','pt_sync_device','pt_last_sync'];
+  for(const k of LISTS) if(d[k] != null){
+    if(!Array.isArray(d[k])) return `${k} should be a list`;
+    if(RECORD_LISTS.includes(k) && d[k].some(x => !isObj(x))) return `${k} contains an entry that isn't a record`;
+  }
+  for(const k of OBJECTS) if(d[k] != null && !isObj(d[k])) return `${k} should be an object`;
+  for(const k of TEXTS) if(d[k] != null && typeof d[k] !== 'string') return `${k} should be text`;
+  if(d.pt_ls_extras != null){
+    if(!isObj(d.pt_ls_extras)) return 'pt_ls_extras should be an object';
+    for(const k of BACKUP_LS_EXTRAS){
+      const v = d.pt_ls_extras[k];
+      if(v == null) continue;
+      if(typeof v !== 'string') return `${k} (in pt_ls_extras) should be text`;
+      if(['pt_benchmarks','pt_price_alerts','pt_concentration_alerts','pt_holdings_fy_snapshots'].includes(k)){
+        try{ JSON.parse(v); }catch(e){ return `${k} (in pt_ls_extras) is damaged`; }
+      }
+    }
+  }
+  if(d.pt_ls_extras_covered != null && !(Array.isArray(d.pt_ls_extras_covered) && d.pt_ls_extras_covered.every(x => typeof x === 'string')))
+    return 'pt_ls_extras_covered should be a list of names';
+  return null;
+}
+
+// After writing a restore, read it back from storage and confirm it matches the file. Returns the keys that don't.
+function backupVerifyRestore(d){
+  const bad = [];
+  const read = k => { try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return undefined; } };
+  const size = v => Array.isArray(v) ? v.length : (v && typeof v === 'object' ? Object.keys(v).length : -1);
+  const always = { pt_trades: d.pt_trades || [], pt_divs: d.pt_divs || [], pt_props: d.pt_props || [], pt_spending: d.pt_spending || [], pt_prices: d.pt_prices || {} };
+  const sometimes = { pt_super: d.pt_super, pt_tax: d.pt_tax, pt_stock_owners: d.pt_stock_owners, pt_extra_persons: d.pt_extra_persons,
+    pt_amit: d.pt_amit, pt_pf_snapshots: d.pt_pf_snapshots, pt_cg_overrides: d.pt_cg_overrides, pt_drp_carry: d.pt_drp_carry,
+    pt_drp_skipped: d.pt_drp_skipped, pt_expdiv_skipped: d.pt_expdiv_skipped, pt_drp_settings: d.pt_drp_settings,
+    pt_cgt_loss_carry_in: d.pt_cgt_loss_carry_in, pt_brokers: (d.pt_brokers && d.pt_brokers.length) ? d.pt_brokers : null };
+  for(const [k, v] of Object.entries(always)) if(size(read(k)) !== size(v)) bad.push(k);
+  for(const [k, v] of Object.entries(sometimes)) if(v && size(read(k)) !== size(v)) bad.push(k);
+  const x = d.pt_ls_extras || {};
+  for(const k of BACKUP_LS_EXTRAS) if(typeof x[k] === 'string' && localStorage.getItem(k) !== x[k]) bad.push(k);
+  return bad;
+}
+
+// Before exporting: parse the JSON back and make sure nothing was silently dropped (e.g. a field that was
+// undefined disappears from JSON) or shortened. Returns a message or null.
+function backupVerifyExport(payload, json){
+  let back;
+  try{ back = JSON.parse(json); }catch(e){ return 'the file could not be read back (' + e.message + ')'; }
+  if(!back || !back.data) return 'the data section was lost';
+  const lost = Object.keys(payload.data).filter(k => !(k in back.data));
+  if(lost.length) return 'these fields were lost while saving: ' + lost.join(', ');
+  const short = Object.keys(payload.data).filter(k => Array.isArray(payload.data[k]) && (!Array.isArray(back.data[k]) || back.data[k].length !== payload.data[k].length));
+  if(short.length) return 'these lists came back a different length: ' + short.join(', ');
+  return null;
+}
+
+// Puts storage back exactly as it was before a failed restore. Frees the space first so the old values fit,
+// then restores every key it can — one stubborn key doesn't stop the rest. Returns true only if all went back.
+function backupRollback(snap){
+  let allBack = true;
+  Object.keys(snap).forEach(k => { try{ localStorage.removeItem(k); }catch(e){ allBack = false; } });
+  Object.entries(snap).forEach(([k, v]) => {
+    if(v === null) return;
+    try{ localStorage.setItem(k, v); }catch(e){ allBack = false; console.error('Rollback could not restore', k, e); }
+  });
+  return allBack;
+}
+function _bkReload(){ location.reload(); }
+
+// Number of entries in a JSON object/array stored as a string (0 if missing/invalid).
+function _bkJsonCount(s){
+  try{ const o = typeof s === 'string' ? JSON.parse(s) : s; return o && typeof o === 'object' ? Object.keys(o).length : 0; }
+  catch(e){ return 0; }
+}
+
 // ── BACKUP STALENESS REMINDER ─────────────────────────────────────────
 // This app is localStorage-only with no server database — a cleared
 // browser cache or a dead device loses everything unless you've exported
@@ -111,10 +219,24 @@ function backupExport(){
       // Benchmark history, price/concentration alert thresholds, FIRE calculator inputs.
       // (Cloud Sync's own payload is built elsewhere — same omission worth checking there.)
       pt_ls_extras: Object.fromEntries(BACKUP_LS_EXTRAS.map(k=>[k, localStorage.getItem(k)]).filter(([,v])=>v!=null)),
+      // Which extras this backup looked at. A key listed here but missing from pt_ls_extras was genuinely
+      // unset (e.g. a FIRE age you'd cleared), so restore mirrors that. Older backups lack this list and
+      // may simply pre-date a key, so for them restore only ever writes — never deletes.
+      pt_ls_extras_covered: BACKUP_LS_EXTRAS.slice(),
     }
   };
 
+  const unlisted = backupUnlistedKeys();
+  if(unlisted.length) console.warn('Backup: these stored keys are NOT included in backups:', unlisted);
+
   const json = JSON.stringify(payload, null, 2);
+  const exportErr = backupVerifyExport(payload, json);
+  if(exportErr){
+    console.error('Backup export self-check failed:', exportErr);
+    backupStatus('✗ Backup NOT downloaded — ' + exportErr + '. Nothing was changed; please report this.', 'var(--red)');
+    notify('Backup failed its self-check — not downloaded', 'err');
+    return;
+  }
   const blob = new Blob([json], {type:'application/json'});
   const url  = URL.createObjectURL(blob);
   const date = _bkDate();
@@ -130,7 +252,12 @@ function backupExport(){
     + `${payload.data.pt_brokers.length} custom brokers, `
     + `${payload.data.pt_amit.length} AMIT adjustments, `
     + `${Object.keys(payload.data.pt_prices||{}).length} cached prices, `
-    + `${Object.keys(payload.data.pt_pf_snapshots||{}).length} portfolio history days`, 'var(--green)');
+    + `${Object.keys(payload.data.pt_pf_snapshots||{}).length} portfolio history days, `
+    + `${_bkJsonCount(payload.data.pt_ls_extras.pt_holdings_fy_snapshots)} Net Worth year-end snapshots, `
+    + `${Object.keys(payload.data.pt_ls_extras).filter(k=>k.startsWith('pt_fire_')).length} FIRE inputs, `
+    + `${_bkJsonCount(payload.data.pt_ls_extras.pt_benchmarks)} benchmark days`
+    + (unlisted.length ? ` — ⚠ ${unlisted.length} stored setting${unlisted.length===1?'':'s'} NOT covered by backups: ${unlisted.join(', ')}` : ''),
+    unlisted.length ? 'var(--gold)' : 'var(--green)');
 }
 
 function backupImport(input){
@@ -152,10 +279,20 @@ function backupImport(input){
       return;
     }
 
+    const invalid = backupValidate(payload.data);
+    if(invalid){
+      backupStatus('✗ This backup file looks damaged — ' + invalid + '. Nothing was changed.', 'var(--red)');
+      input.value = '';
+      return;
+    }
+
     const d = payload.data;
     const exportDate = payload.exportedAt ? payload.exportedAt.slice(0,10) : 'unknown date';
 
     // Build preview
+    const x = d.pt_ls_extras || {};
+    const fireKeys = BACKUP_LS_EXTRAS.filter(k => k.startsWith('pt_fire_'));
+    const money = v => isFinite(parseFloat(v)) ? n2(parseFloat(v)) : '—';
     const rows = [
       ['Trades',            (d.pt_trades||[]).length,   trades.length],
       ['Dividends',         (d.pt_divs||[]).length,     dividends.length],
@@ -169,6 +306,10 @@ function backupImport(input){
       ['AMIT adjustments',  (d.pt_amit||[]).length,     amitAdjustments.length],
       ['Portfolio history (days)', Object.keys(d.pt_pf_snapshots||{}).length, Object.keys(pfSnapshots).length],
       ['CoinGecko ID overrides',   Object.keys(d.pt_cg_overrides||{}).length, Object.keys(CG_OVERRIDES).length],
+      ['Net Worth year-end snapshots', _bkJsonCount(x.pt_holdings_fy_snapshots), _bkJsonCount(localStorage.getItem('pt_holdings_fy_snapshots'))],
+      ['Net Worth FIRE inputs saved', fireKeys.filter(k => typeof x[k] === 'string').length, fireKeys.filter(k => localStorage.getItem(k) != null).length],
+      ['All-time high',              money(x.pt_ath), money(localStorage.getItem('pt_ath'))],
+      ['Benchmark history (days)',   _bkJsonCount(x.pt_benchmarks), Object.keys(benchmarkHistory||{}).length],
       ['Cloud Sync token/gist',    d.pt_sync_key ? 'included' : '—', syncKey ? 'set' : '—'],
     ];
 
@@ -220,6 +361,13 @@ function backupConfirm(){
   }
   if(d.pt_prices != null && (typeof d.pt_prices !== 'object' || Array.isArray(d.pt_prices))){ notify('Backup field pt_prices is malformed — restore aborted, nothing changed.','err'); return; }
 
+  const invalid = backupValidate(d);
+  if(invalid){ notify('Backup looks damaged (' + invalid + ') — restore aborted, nothing changed.','err'); return; }
+
+  // Snapshot everything the restore can touch, so a failure part-way puts it all back.
+  const snapshot = {};
+  [...BACKUP_EXPLICIT_KEYS, ...BACKUP_LS_EXTRAS].forEach(k => { snapshot[k] = localStorage.getItem(k); });
+
   try {
   // Restore all data
   trades      = d.pt_trades     || [];
@@ -263,18 +411,39 @@ function backupConfirm(){
   if(d.pt_sync_device)   { syncDevice = d.pt_sync_device; localStorage.setItem('pt_sync_device', d.pt_sync_device); }
   if(d.pt_last_sync)       localStorage.setItem('pt_last_sync', d.pt_last_sync);
   if(d.pt_ls_extras && typeof d.pt_ls_extras === 'object'){
-    BACKUP_LS_EXTRAS.forEach(k => { if(typeof d.pt_ls_extras[k] === 'string') localStorage.setItem(k, d.pt_ls_extras[k]); });
+    // Keys this backup covered but has no value for were unset when it was made — remove them locally too,
+    // otherwise a "replace all" restore leaves stale values behind (e.g. a FIRE age you'd since cleared).
+    // Backups without the covered list (older versions) only ever write, never delete.
+    const covered = Array.isArray(d.pt_ls_extras_covered) ? new Set(d.pt_ls_extras_covered) : null;
+    BACKUP_LS_EXTRAS.forEach(k => {
+      if(typeof d.pt_ls_extras[k] === 'string') localStorage.setItem(k, d.pt_ls_extras[k]);
+      else if(covered && covered.has(k)) localStorage.removeItem(k);
+    });
     if(typeof d.pt_ls_extras.pt_benchmarks === 'string'){ try{ benchmarkHistory = JSON.parse(d.pt_ls_extras.pt_benchmarks); }catch(e){} }
+    else if(covered && covered.has('pt_benchmarks')) benchmarkHistory = {};
   }
   // Worker code is embedded in the app — no need to restore it
+
+  // Read it all back from storage and confirm it matches the file before calling it a success.
+  const unverified = backupVerifyRestore(d);
+  if(unverified.length) throw new Error('could not confirm what was saved for ' + unverified.join(', '));
   } catch(err) {
-    // Most likely a localStorage quota error part-way through. Storage may now be a
-    // mix of old and restored data — say so rather than reporting success.
+    // Most likely a localStorage quota error part-way through. Put the previous data back so the app is
+    // never left on a mix of old and restored data. In-memory copies were already replaced, so reload.
     console.error('Restore failed:', err);
-    backupStatus('✗ Restore failed part-way: ' + err.message + ' — data may be partially restored. Do NOT push to Cloud Sync; re-run the restore or pull from the cloud.', 'var(--red)');
-    notify('Restore failed: ' + err.message, 'err');
+    if(backupRollback(snapshot)){
+      backupStatus('✗ Restore failed (' + err.message + ') — your previous data has been put back unchanged. Reloading…', 'var(--red)');
+      notify('Restore failed — previous data put back', 'err');
+      setTimeout(_bkReload, 2500);
+    } else {
+      backupStatus('✗ Restore failed part-way: ' + err.message + ' — and the previous data could not be put back, so data may be partially restored. Do NOT push to Cloud Sync; re-run the restore or pull from the cloud.', 'var(--red)');
+      notify('Restore failed: ' + err.message, 'err');
+    }
     return;
   }
+  // Tell Cloud Sync this device's data is newer than any cloud copy saved before now — otherwise the
+  // auto-pull on the next page open would silently overwrite a restored (older) backup with that copy.
+  try{ localStorage.setItem('pt_last_restore', new Date().toISOString()); }catch(e){}
 
   _pendingRestore = null;
   $('backup-preview').style.display = 'none';

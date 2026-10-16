@@ -937,7 +937,13 @@ async function syncAutoLoad(){
     const remote = JSON.parse(raw);
     const remoteSavedAt = remote.savedAt;
     const localSavedAt  = localStorage.getItem('pt_last_sync');
-    const cloudIsNewer  = !localSavedAt || new Date(remoteSavedAt) > new Date(localSavedAt);
+    // A backup restored AFTER the cloud copy was saved must not be overwritten by that older copy on the
+    // next page open (restoring an older backup is exactly when this matters). A cloud save made after
+    // the restore still pulls as normal.
+    const restoredAt = localStorage.getItem('pt_last_restore');
+    const cloudOlderThanRestore = !!(restoredAt && remoteSavedAt && new Date(remoteSavedAt) <= new Date(restoredAt));
+    const cloudNewerThanLocal   = !localSavedAt || new Date(remoteSavedAt) > new Date(localSavedAt);
+    const cloudIsNewer  = cloudNewerThanLocal && !cloudOlderThanRestore;
     if(cloudIsNewer){
       applyRemoteData(remote);
       localStorage.setItem('pt_last_sync', remoteSavedAt);
@@ -945,6 +951,8 @@ async function syncAutoLoad(){
       const ts = new Date(remoteSavedAt).toLocaleString();
       setSyncStatus('✓ Auto-synced '+ts,'var(--green)');
       setTimeout(()=>setSyncStatus('Last sync: '+ts,'var(--text3)'),4000);
+    } else if(cloudNewerThanLocal && cloudOlderThanRestore){
+      setSyncStatus('ℹ Cloud copy is older than your restored backup — not pulled. Push to make the restored data the cloud copy.','var(--gold)');
     } else {
       const ts = new Date(localSavedAt).toLocaleString();
       setSyncStatus('✓ Up to date','var(--green)');
