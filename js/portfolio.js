@@ -1380,6 +1380,31 @@ function calcPortfolioChangeMWR(scopeFn){
 // so the popup always matches exactly what's on screen.
 let _lastChangeScopeFn = null;
 
+// Date of your oldest trade (YYYY-MM-DD), or null. Ignores blank/garbage dates and anything before 1995
+// (no ASX/crypto price history exists that far back, so it can only be a typo).
+function earliestTradeDate(){
+  return (typeof trades !== 'undefined' ? trades : []).reduce((m, t) => {
+    const d = String(t && t.date || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= '1995-01-01' && (!m || d < m) ? d : m;
+  }, null);
+}
+
+// Caption under PORTFOLIO CHANGE. The count is stored SNAPSHOTS, not calendar days: the Worker keeps full daily
+// prices only from 2025-07-01 and the app thins older snapshots (daily for ~14 months, weekly to 3 years, monthly
+// beyond — see prunePfSnapshotHistory), so even a complete multi-year history is only ~500-600 entries. The date
+// range is what shows how far back it really goes, so lead with that, and flag when it starts later than your
+// oldest trade.
+function pfChangeHistoryCaption(pricedDays, firstTradeDate){
+  if(!pricedDays.length) return { text: 'recording per-symbol daily prices — history builds over time', title: '' };
+  const first = pricedDays[0], last = pricedDays[pricedDays.length - 1];
+  const yrs = (new Date(last + 'T00:00:00') - new Date(first + 'T00:00:00')) / (365.25 * 86400000);
+  const span = yrs >= 1 ? yrs.toFixed(1) + ' yrs' : Math.max(1, Math.round(yrs * 12)) + ' mo';
+  let text = `${first} → ${last} (${span}) · ${pricedDays.length} price snapshots`;
+  const gapDays = firstTradeDate ? (new Date(first + 'T00:00:00') - new Date(firstTradeDate + 'T00:00:00')) / 86400000 : 0;
+  if(gapDays > 45) text += ` · ⚠ oldest trade is ${firstTradeDate} — run Backfill in Settings to extend`;
+  return { text, title: 'Stored daily for roughly the last 14 months, weekly out to 3 years and monthly beyond (keeps the app fast), so the count is not calendar days — the date range is how far back history goes.' };
+}
+
 function renderPortfolioChange(scopeFn, isFiltered){
   const wrap = $('pf-change-wrap');
   if(!wrap) return;
@@ -1402,9 +1427,9 @@ function renderPortfolioChange(scopeFn, isFiltered){
       const pr = pfSnapshots[d] && pfSnapshots[d].prices;
       return pr && Object.keys(pr).length;
     }).sort();
-    const base = pricedDays.length
-      ? `${pricedDays.length} day${pricedDays.length>1?'s':''} with per-symbol prices · since ${pricedDays[0]}`
-      : 'recording per-symbol daily prices — history builds over time';
+    const cap = pfChangeHistoryCaption(pricedDays, earliestTradeDate());
+    sub.title = cap.title;
+    const base = cap.text;
     const modeHint = mode.key==='value' ? 'Mark-to-market · ' + base + ' · ALL = cost vs market'
       : mode.key==='twr' ? 'Time-weighted (strategy return) · ' + base
       : "Money-weighted (your money's return, period IRR) · " + base;

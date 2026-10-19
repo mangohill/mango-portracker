@@ -195,11 +195,18 @@ function loadCFUrl(){
 // every held symbol is done, then pulls the result into pfSnapshots so
 // Portfolio Change picks it up immediately rather than waiting for the
 // next scheduled refresh.
+// Where a historical backfill starts: your oldest trade if that's before 2018, otherwise 1 Jan 2018 (as before —
+// keeps the benchmark comparison history). It used to be a hard-coded 2018-01-01, which silently cut off anything
+// earlier. The Worker fetches each symbol's full history and only filters by this date, so nothing else limits it.
+function backfillStartDate(){
+  const oldest = typeof earliestTradeDate === 'function' ? earliestTradeDate() : null;
+  return oldest && oldest < '2018-01-01' ? oldest : '2018-01-01';
+}
 async function runBackfill(){
   const workerURL = getWorkerURL();
   if(!workerURL){ notify('Set your Cloudflare Worker URL first.','err'); return; }
   const resolution = $('bf-resolution').value;
-  const since = '2018-01-01';
+  const since = backfillStartDate();
   const limit = 8; // small slice per call — keeps each worker invocation under Cloudflare's subrequest cap
 
   const btn = $('bf-run-btn'), barWrap = $('bf-bar-wrap'), bar = $('bf-bar'), status = $('bf-status');
@@ -289,7 +296,7 @@ async function runPruneHistory(){
     status.style.color = 'var(--green)';
 
     if(totalRemoved){
-      await backfillPortfolioHistory('2018-01-01');
+      await backfillPortfolioHistory(backfillStartDate());
       status.textContent = status.textContent.replace('Pulling refreshed history…', 'Done ✓');
     }
     notify(totalRemoved ? `✓ Cleaned up ${totalRemoved} stray entries` : '✓ No stray pre-listing entries found', 'ok');
