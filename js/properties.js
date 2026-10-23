@@ -2097,6 +2097,14 @@ function deleteProperty(btn){
   notify('Property deleted.','ok');
 }
 
+// Which properties' "ESTIMATED CGT IF SOLD TODAY" sections the user has expanded this session.
+// Sections start collapsed; this just stops a re-render from collapsing one you opened.
+const propSaleOpen = new Set();
+function propSaleToggle(el){
+  const id = String(el.dataset.id);
+  if(el.open) propSaleOpen.add(id); else propSaleOpen.delete(id);
+  if(el.firstElementChild) el.firstElementChild.style.marginBottom = el.open ? '12px' : '0';
+}
 const PROP_TYPE_LABEL = {ppor:'PPOR',investment:'Investment',commercial:'Commercial',land:'Land'};
 
 // Snapshot each property's currentValue (and outstanding loan balance)
@@ -2235,7 +2243,11 @@ function renderProperties(){
       catch(e){ console.error('Property CGT estimate failed', e); return ''; }
       if(!est || est.status === 'sold') return '';
       const boxStyle = 'background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;margin-top:12px';
-      const title = '<div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">ESTIMATED CGT IF SOLD TODAY</div>';
+      // Collapsed by default. The open state is remembered per property for this session so a
+      // re-render (editing a property, switching tabs) doesn't snap a section you opened shut again.
+      const saleOpen = propSaleOpen.has(String(p.id));
+      const boxAttrs = `data-id="${p.id}" style="${boxStyle}" ${saleOpen ? 'open' : ''} ontoggle="propSaleToggle(this)"`;
+      const title = `<summary style="cursor:pointer;font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:${saleOpen ? '12px' : '0'}">ESTIMATED CGT IF SOLD TODAY</summary>`;
       const note = (t, mt) => `<div style="font-size:11px;color:var(--text3);font-family:var(--mono);line-height:1.5${mt ? ';margin-top:'+mt : ''}">${t}</div>`;
 
       // ── Cash in hand after a sale ──
@@ -2271,12 +2283,12 @@ function renderProperties(){
         ${netCash < 0 ? note('Negative: the sale price wouldn\'t cover the loan and costs — you\'d need to find the shortfall' + (offset > 0 ? ', which your offset balance may help cover.' : '.'), '8px') : ''}
       </div>`;
 
-      if(est.status === 'exempt') return `<div style="${boxStyle}">${title}${note('Main residence — assumed exempt from CGT, so no tax on a sale.')}${cashHtml}</div>`;
-      if(est.status === 'missing') return `<div style="${boxStyle}">${title}${note('Add a purchase price and purchase date to estimate CGT (needed for the cost base and the 12-month discount). Cash below is before any CGT.')}${cashHtml}</div>`;
+      if(est.status === 'exempt') return `<details ${boxAttrs}>${title}${note('Main residence — assumed exempt from CGT, so no tax on a sale.')}${cashHtml}</details>`;
+      if(est.status === 'missing') return `<details ${boxAttrs}>${title}${note('Add a purchase price and purchase date to estimate CGT (needed for the cost base and the 12-month discount). Cash below is before any CGT.')}${cashHtml}</details>`;
 
       const ownerLines = est.rows.length > 1
         ? `<div style="font-size:11px;color:var(--text2);font-family:var(--mono);margin-top:10px">${est.rows.map(r => `${escHtml(typeof getPersonLabel==='function' ? getPersonLabel(r.person) : r.person)}: <b>${n2(r.tax)}</b>`).join(' &nbsp;·&nbsp; ')}</div>` : '';
-      return `<div style="${boxStyle}">
+      return `<details ${boxAttrs}>
         ${title}
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
           ${stat('Sale Value (current)', n2(est.value))}
@@ -2289,7 +2301,7 @@ function renderProperties(){
         ${ownerLines}
         ${cashHtml}
         <div style="font-size:10px;color:var(--text3);font-family:var(--mono);line-height:1.5;margin-top:10px">Estimate if this property alone were sold today: current value${est.sellCosts ? ' less selling costs' : ''} less cost base (purchase price + costs + improvements), 50% discount if held over 12 months, taxed at each owner's marginal rate on top of their estimated income, including gains/losses already realised this year and carried-forward losses. Cash in hand repays the full loan from the sale; your offset balance stays yours and is added separately. ${est.sellCosts ? '' : 'Selling costs aren\'t included — set "Est. Selling Costs %" when you edit this property to include agent/legal fees. '}Not tax advice.</div>
-      </div>`;
+      </details>`;
     })();
 
     return `<div class="fs" style="margin-bottom:16px">
