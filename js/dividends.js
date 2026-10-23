@@ -1099,7 +1099,7 @@ function renderDividends(){
       // Inline edit row
       return `<tr style="background:var(--bg2);outline:2px solid var(--blue)">
         <td><input class="fi" type="date" id="ed-date" value="${d.date}" style="width:118px;padding:3px 5px"></td>
-        <td><input class="fi" type="text" id="ed-sym" value="${d.symbol}" style="width:70px;padding:3px 5px" oninput="this.value=this.value.toUpperCase()"></td>
+        <td><input class="fi" type="text" id="ed-sym" value="${escHtml(d.symbol)}" style="width:70px;padding:3px 5px" oninput="this.value=this.value.toUpperCase()"></td>
         <td><select class="fi" id="ed-type" style="padding:3px 5px;font-size:11px">
           ${TYPES.map(t=>`<option value="${t}"${t===d.type?' selected':''}>${TYPE_LABEL[t]}</option>`).join('')}
         </select></td>

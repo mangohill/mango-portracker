@@ -1324,7 +1324,7 @@ function summarizeCGTEvents(events){
 // ── FIFO vs LIFO SIMULATION (SELL NOW, USING CURRENT PRICE) ───────────
 function simulateMatchingForSymbol(parcelsList, price, method, sellUnits=null, opts={}){
   const cutoff = new Date('2027-06-30');
-  const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date();
+  const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date(localDateStr());
   const list = (parcelsList||[]).map(p=>({ units: p.units, cost: p.cost, date: p.date, source: p.source }));
   let totalAvailable = list.reduce((s,p)=>s+(p.units||0),0);
   let unitsToSell = sellUnits == null ? totalAvailable : Math.min(sellUnits, totalAvailable);
@@ -1382,7 +1382,7 @@ function computeTaxOnLots(lots, opts){
   // opts: { useDiscountBeforeCutoff:true, cpiRate:0, saleDate:'YYYY-MM-DD', priceAtCutoff: number }
   // Returns breakdown: { taxableTotal, taxablePre, taxablePost }
   const cutoff = cgtCutoffDateObj();
-  const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date();
+  const saleDate = opts && opts.saleDate ? new Date(opts.saleDate) : new Date(localDateStr());
   const useDiscountBeforeCutoff = opts && opts.useDiscountBeforeCutoff !== false;
   const priceAtCutoff = opts && (opts.priceAtCutoff != null) ? Number(opts.priceAtCutoff) : null;
   let taxablePre = 0;
@@ -1828,7 +1828,7 @@ function cgtShowMethodDetails(method){
   const methodKey = (method||'FIFO').toUpperCase();
   const lots = methodKey==='LIFO' ? sim.lifo.lots : sim.fifo.lots;
   const opts = sim.opts || {};
-  const saleDate = opts.saleDate ? new Date(opts.saleDate) : new Date();
+  const saleDate = opts.saleDate ? new Date(opts.saleDate) : new Date(localDateStr());
   const marginalRateOverride = (opts.marginalRate != null && !isNaN(opts.marginalRate)) ? opts.marginalRate : null;
   const priceAtCutoff = opts.priceAtCutoff != null ? opts.priceAtCutoff : null;
   const cutoff = cgtCutoffDateObj();

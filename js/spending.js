@@ -286,7 +286,7 @@ function renderSpTxnTable(data, cat, isIn){
 
   $(bodyId).innerHTML = sorted.map(d=>`<tr>
     <td style="color:var(--text3);font-size:12px">${d.date}</td>
-    <td>${d.merchant}</td>
+    <td>${escHtml(d.merchant)}</td>
     <td style="text-align:right;font-family:var(--mono);${isIn?'color:var(--green)':'color:var(--red)'}">${n2(Math.abs(d.amount))}</td>
   </tr>`).join('');
 }
@@ -417,7 +417,7 @@ function parseSpendingCSV(text){
   }
 
   // ── FORMAT C: Try generic with first 3 cols = date, description, amount
-  if(cols[0].includes('date') && cols[2].includes('amount') || cols[1].includes('amount')){
+  if((cols[0]||'').includes('date') && (cols[2]||'').includes('amount') || (cols[1]||'').includes('amount')){
     return parseFormatGeneric(lines, cols);
   }
 

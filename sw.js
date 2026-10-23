@@ -4,7 +4,7 @@
 // Scope: https://mangohill.github.io/mango-portracker/
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'portfolio-tracker-7';
+const CACHE_NAME = 'portfolio-tracker-8';
 const BASE       = '/mango-portracker/';
 
 const PRECACHE_URLS = [
@@ -81,9 +81,7 @@ self.addEventListener('fetch', event => {
     url.searchParams.has('symbols') ||
     url.searchParams.has('maif') ||
     url.searchParams.has('divs') ||
-    url.hostname.includes('github') ||
     url.hostname.includes('yahoo') ||
-    url.hostname.includes('gist') ||
     url.hostname.includes('monash') ||
     url.hostname.includes('cloudflare');
   if (isApi) return;
