@@ -79,8 +79,12 @@ async function backfillBenchmarkHistory(forceSince){
 
   const knownDates = Object.keys(benchmarkHistory).sort();
   let since = forceSince || '1970-01-01';
-  if(!forceSince && knownDates.length){
-    since = _bmAddDays(knownDates[knownDates.length-1], 1); // was off by one day in UTC+10
+  // snapshotBenchmarks() writes TODAY's entry client-side, so "day after the latest known" was
+  // usually tomorrow and the days you were away were never filled. Start from the latest PRIOR day
+  // (inclusive, so a client-side snapshot gets replaced by the Worker's 5pm reading).
+  const priorDates = knownDates.filter(d => d < todayStr);
+  if(!forceSince && priorDates.length){
+    since = priorDates[priorDates.length-1];
   }
 
   let history;

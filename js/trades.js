@@ -196,7 +196,7 @@ function caAutoFillUnits(){
   // just doesn't populate with no indication why.
   const sym = $('ca-from-sym').value.trim().toUpperCase();
   if(!sym) return;
-  const h = calcH().find(x=>x.symbol===sym);
+  const h = calcH($('ca-date').value || undefined).find(x=>x.symbol===sym); // holdings as of the action date
   if(h){
     $('ca-from-units').value = h.units;
     $('ca-from-units').placeholder = h.units + ' (from holdings)';
@@ -225,7 +225,7 @@ function caPreview(){
 
   if(!fromSymRaw){ $('ca-preview').style.display='none'; return; }
 
-  const h = calcH().find(x=>x.symbol===fromSymKey);
+  const h = calcH($('ca-date').value || undefined).find(x=>x.symbol===fromSymKey);
   const costBasis = h ? h.costBasis : 0;
   const newCostBasis = caType==='spinoff' ? costBasis*(alloc/100) : costBasis;
   const remainCost   = caType==='spinoff' ? costBasis*(1-alloc/100) : 0;
@@ -281,7 +281,7 @@ function addCorporateAction(){
   if(!date||!fromSym){ notify('Date and From Symbol are required.','err'); return; }
   if(caType==='worthless'){
     // Write-off: record a $0 sell for all units → crystallises capital loss
-    const h = calcH().find(x=>x.symbol===fromSym);
+    const h = calcH(date).find(x=>x.symbol===fromSym); // units held on the write-off date, not today
     const units = h ? h.units : (parseFloat($('ca-from-units').value)||0);
     if(!units){ notify(`No holdings found for ${fromSym}.`,'err'); return; }
     const writeOff = {
@@ -300,7 +300,7 @@ function addCorporateAction(){
   if(caType==='spinoff'&&(!toUnitsField||!alloc)){ notify('Enter new units and cost basis % for spin-off.','err'); return; }
   if(!toSym&&caType!=='split'){ notify('Enter the new symbol.','err'); return; }
 
-  const h = calcH().find(x=>x.symbol===fromSym);
+  const h = calcH(date).find(x=>x.symbol===fromSym); // holdings as of the action date
   const actualFromUnits = (!isNaN(fromUnits)&&fromUnits>0) ? fromUnits : (h?h.units:0);
   if(!actualFromUnits){ notify(`No holdings found for ${fromSym}. Check symbol or enter units manually.`,'err'); return; }
 

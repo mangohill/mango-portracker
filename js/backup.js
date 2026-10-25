@@ -560,6 +560,12 @@ function buildExportSheets(){
       fy_offset_data_json: JSON.stringify(p.fyOffsetData||{}),
       weekly_rent: p.weeklyRent||0, annual_expenses: p.annualExpenses||0,
       has_manager: p.hasManager||'', owner: p.owner||'', notes: csvSafe(p.notes||''),
+      // Fields that drive CGT / sale estimates — without these a CSV round-trip turns a sold property back
+      // into an unsold one and drops its cost-base improvements.
+      capital_improvements: p.capitalImprovements||0,
+      sold: p.sold ? 'yes' : '', sold_date: p.soldDate||'', sale_price: p.salePrice||0, selling_costs: p.sellingCosts||0,
+      est_sell_cost_pct: p.estSellCostPct||0, main_res_exempt: p.mainResExempt ? 'yes' : '',
+      debt_recycling: p.debtRecycling ? 'yes' : '', dr_symbols: JSON.stringify(p.drSymbols||[]),
     };
   });
 
@@ -728,6 +734,32 @@ function csvSplitLine(line){
   return out;
 }
 
+// ── CSV value normalisers ─────────────────────────────────────────────
+// calcH() and the CGT engine treat ANY trade type that isn't buy/drp/corporate_action as a SELL, so an
+// unrecognised or differently-cased type ("Buy", "purchase") must never be stored as-is.
+function csvNum(v){ const n = parseFloat(String(v == null ? '' : v).replace(/[$,\s]/g,'')); return isNaN(n) ? 0 : n; }
+function csvNormDate(v){ return typeof ndFlex === 'function' ? ndFlex(v) : String(v||'').trim(); }
+function csvNormTradeType(v){
+  const k = String(v||'').trim().toLowerCase().replace(/[\s\-]+/g,'_');
+  const map = { buy:'buy', purchase:'buy', bought:'buy', sell:'sell', sale:'sell', sold:'sell', drp:'drp',
+                corporate_action:'corporate_action', corporateaction:'corporate_action' };
+  return map[k] || '';          // '' = unrecognised → row is rejected
+}
+function csvNormAssetType(v){
+  const k = String(v||'').trim().toLowerCase();
+  const valid = ['asx_stock','etf','lic','reit','crypto','bond','managed','commodity','super'];
+  if(valid.includes(k)) return k;
+  return 'asx_stock';           // includes the legacy/blank 'stock' value
+}
+function csvNormDivType(v){
+  const k = String(v||'dividend').trim().toLowerCase().replace(/[^a-z]/g,'');
+  const valid = ['dividend','distribution','interest','staking','airdrop','drp'];
+  if(valid.includes(k)) return k;
+  if(k.startsWith('distrib')) return 'distribution';
+  if(k.startsWith('interest')) return 'interest';
+  return 'dividend';
+}
+
 // ── Trades CSV import ─────────────────────────────────────────────────
 function csvImportTrades(rows, filename){
   // Accepts the app's own export format (snake_case headers from buildExportSheets)
@@ -739,13 +771,13 @@ function csvImportTrades(rows, filename){
   let added = 0, skipped = 0, errors = 0;
   for(const r of rows){
     const t = {
-      date:      r.date || '',
-      type:      r.type || 'buy',
+      date:      csvNormDate(r.date),
+      type:      csvNormTradeType(r.type),
       symbol:    (r.symbol || '').toUpperCase(),
-      assetType: r.asset_type || r.assettype || 'stock',
-      units:     parseFloat(r.units) || 0,
-      price:     parseFloat(r.price) || 0,
-      fees:      parseFloat(r.fees) || 0,
+      assetType: csvNormAssetType(r.asset_type || r.assettype),
+      units:     csvNum(r.units),
+      price:     csvNum(r.price),
+      fees:      csvNum(r.fees),
       source:    r.source || 'csv',
       notes:     r.notes || '',
       id:        uid(),
@@ -760,7 +792,7 @@ function csvImportTrades(rows, filename){
     // Clean up undefined extras
     ['subtype','fromSymbol','caLabel','splitRatio','allocPct','overrideCostBasis']
       .forEach(k => { if(!t[k]) delete t[k]; });
-    if(!t.date || !t.symbol || !t.units || t.units <= 0){ errors++; continue; }
+    if(!t.date || !t.type || !t.symbol || !t.units || t.units <= 0){ errors++; continue; }
     if(isTradeDuplicate(t)){ skipped++; continue; }
     trades.push(t);
     added++;
@@ -781,10 +813,10 @@ function csvImportDividends(rows, filename){
     if(frkV === '') frkV = null; // blank cell = unknown, NOT 0% franked
     const frkPct = frkV !== null ? Math.min(100,Math.max(0,parseFloat(frkV)||0)) : null;
     const d = {
-      date:   r.date || '',
+      date:   csvNormDate(r.date),
       symbol: (r.symbol || '').toUpperCase(),
-      amount: parseFloat(r.amount) || 0,
-      type:   r.type || 'dividend',
+      amount: csvNum(r.amount),
+      type:   csvNormDivType(r.type),
       notes:  r.notes || '',
       frankingPct: frkV !== null ? frkPct : null,
       id:     uid(),
@@ -835,6 +867,7 @@ function csvImportProperties(rows, filename){
     return {ok:false, msg:`✗ ${filename}: Missing required columns (name, purchase_price).`};
   }
   const g = (r, ...keys) => { for(const k of keys){ if(k in r) return r[k]; } return ''; };
+  const yn = v => /^(y|yes|true|1)$/i.test(String(v||'').trim());
   let added = 0, skipped = 0;
   for(const r of rows){
     const name = (g(r,'name')||'').trim();
@@ -880,6 +913,17 @@ function csvImportProperties(rows, filename){
       hasManager:    g(r,'has_manager','hasmanager') || 'no',
       owner:         g(r,'owner','property_owner') || 'joint',
       notes:         g(r,'notes') || '',
+      capitalImprovements: csvNum(g(r,'capital_improvements','capitalimprovements')),
+      sold:          yn(g(r,'sold')),
+      soldDate:      csvNormDate(g(r,'sold_date','solddate')),
+      salePrice:     csvNum(g(r,'sale_price','saleprice')),
+      sellingCosts:  csvNum(g(r,'selling_costs','sellingcosts')),
+      estSellCostPct: csvNum(g(r,'est_sell_cost_pct','estsellcostpct')),
+      mainResExempt: yn(g(r,'main_res_exempt','mainresexempt')),
+      debtRecycling: yn(g(r,'debt_recycling','debtrecycling')),
+      drSymbols:     (()=>{ const v = g(r,'dr_symbols','drsymbols'); if(!v) return [];
+                            try{ const a = JSON.parse(v); if(Array.isArray(a)) return a; }catch(e){}
+                            return String(v).split(/[,;\s]+/).filter(Boolean); })(),
     };
     // Per-FY historical value/loan/offset maps — same fy_data_json pattern
     // Super's CSV import already uses. Missing/unparseable columns (older

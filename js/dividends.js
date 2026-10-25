@@ -1,11 +1,28 @@
 // ── dividends.js ─────────────────────────────────────────────
 
+// Quote-aware CSV line splitter. A plain split(',') breaks on quoted cells such as "$1,234.50"
+// (the amount would be cut in two and read as 1). Handles "" escapes inside quotes.
+function divSplitCSVLine(line){
+  const out = []; let cur = '', q = false;
+  for(let i = 0; i < line.length; i++){
+    const c = line[i];
+    if(q){
+      if(c === '"'){ if(line[i+1] === '"'){ cur += '"'; i++; } else q = false; }
+      else cur += c;
+    } else if(c === '"') q = true;
+    else if(c === ','){ out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
 function parseBinanceCSV(text, filename){
   const lines = text.split(/\r?\n/);
   if(!lines.length){ notify('Empty file.','err'); return; }
 
   // Detect header
-  const header = lines[0].replace(/^\uFEFF/,'').split(',').map(h=>h.trim().toLowerCase());
+  const header = divSplitCSVLine(lines[0].replace(/^\uFEFF/,'')).map(h=>h.trim().toLowerCase());
   const col = h => header.indexOf(h);
   const iTime   = col('time');
   const iPair   = col('pair');
@@ -25,7 +42,7 @@ function parseBinanceCSV(text, filename){
   for(let i=1; i<lines.length; i++){
     const line = lines[i].trim();
     if(!line) continue;
-    const cols = line.split(',');
+    const cols = divSplitCSVLine(line);
     if(cols.length < header.length) continue;
 
     const pair   = (cols[iPair]||'').trim();
@@ -475,14 +492,14 @@ function parseSelfwealthDivCSV(text, filename){
   // Find header row
   const headerIdx = lines.findIndex(l => l.toLowerCase().includes('transactiondate'));
   if(headerIdx < 0){ $('div-import-status').textContent = 'Could not find header row.'; return; }
-  const headers = lines[headerIdx].split(',').map(h => h.trim().toLowerCase());
+  const headers = divSplitCSVLine(lines[headerIdx]).map(h => h.trim().toLowerCase());
   const gi = n => headers.indexOf(n);
   const iDate = gi('transactiondate'), iComment = gi('comment'),
         iCredit = gi('credit'), iDebit = gi('debit');
 
   const parsed = [];
   for(let i = headerIdx+1; i < lines.length; i++){
-    const cols = lines[i].split(',');
+    const cols = divSplitCSVLine(lines[i]);
     if(cols.length < 3) continue;
     const dateRaw = (cols[iDate]||'').trim();
     const comment = (cols[iComment]||'').trim();
@@ -490,7 +507,7 @@ function parseSelfwealthDivCSV(text, filename){
     const debitS  = (cols[iDebit]||'').trim();
 
     if(!dateRaw || !comment || !creditS || debitS) continue;
-    const amount = parseFloat(creditS);
+    const amount = parseFloat(creditS.replace(/[$,\s]/g,''));
     if(isNaN(amount) || amount <= 0) continue;
     if(SW_SKIP_RE.test(comment)) continue;
     if(/^[A-Z][a-z]+ [A-Z][a-z]+$/.test(comment)) continue; // person name
@@ -517,24 +534,32 @@ function parseDividendCSV(text, filename){
   const lines = text.trim().split('\n').filter(l => l.trim());
   if(lines.length < 2){ $('div-import-status').textContent = 'No data found in CSV.'; return; }
 
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z]/g,''));
+  const headers = divSplitCSVLine(lines[0].replace(/^\uFEFF/,'')).map(h => h.trim().toLowerCase().replace(/[^a-z]/g,''));
   const get = (row, name) => {
     const i = headers.indexOf(name);
     return i >= 0 ? (row[i]||'').trim().replace(/^"|"$/g,'') : '';
   };
 
+  const DIV_TYPES = ['dividend','distribution','interest','staking','airdrop','drp'];
   const parsed = [];
+  let skippedRows = 0;
   for(let i = 1; i < lines.length; i++){
-    const row = lines[i].split(',');
+    const row = divSplitCSVLine(lines[i].replace(/\r$/,''));
     const date   = ndFlex(get(row,'date'));
     const symbol = get(row,'symbol').toUpperCase();
-    const amount = parseFloat(get(row,'amount').replace(/[$,]/g,''));
-    const type   = get(row,'type') || 'dividend';
+    const amount = parseFloat(get(row,'amount').replace(/[$,\s]/g,''));
+    // Normalise the type so 'Dividend' / 'DRP ' still match the lower-case values every tax filter uses
+    const typeRaw = (get(row,'type') || 'dividend').toLowerCase().replace(/[^a-z]/g,'');
+    const type   = DIV_TYPES.includes(typeRaw) ? typeRaw
+                 : typeRaw.startsWith('distrib') ? 'distribution'
+                 : typeRaw.startsWith('interest') ? 'interest'
+                 : 'dividend';
     const notes  = get(row,'notes') || '';
-    if(!date || !symbol || isNaN(amount) || amount <= 0) continue;
+    if(!date || !symbol || isNaN(amount) || amount <= 0){ skippedRows++; continue; }
     parsed.push({date, symbol, amount, type, notes, id: uid()});
   }
   showDividendPreview(parsed, filename);
+  if(skippedRows && typeof notify === 'function') notify(skippedRows + ' row' + (skippedRows===1?'':'s') + ' skipped (unreadable date, symbol or amount)', 'err');
 }
 
 // ── PDF IMPORT (CommSec EOFY Dividend Summary) ────────────────────────
@@ -638,14 +663,21 @@ function parseCommSecDividendText(text){
   return results;
 }
 
+// Normalises a date cell to a real ISO yyyy-mm-dd, or '' if it can't be read.
+// Accepts yyyy-mm-dd, yyyy/mm/dd, dd/mm/yyyy (day-first, AU), d/m/yy, dd-Mon-yyyy and '1 July 2026'.
 function ndFlex(s){
+  s = String(s||'').trim().replace(/^"|"$/g,'');
   if(!s) return '';
-  // Handle dd/mm/yyyy, yyyy-mm-dd, dd-Mon-yyyy
-  if(s.match(/^\d{4}-\d{2}-\d{2}$/)) return s;
-  if(s.match(/^\d{2}\/\d{2}\/\d{4}$/)){
-    const [d,m,y] = s.split('/'); return y+'-'+m+'-'+d;
-  }
-  return s;
+  const MON = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  let y, m, d, mt;
+  if((mt = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/))){ y=+mt[1]; m=+mt[2]; d=+mt[3]; }
+  else if((mt = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/))){ d=+mt[1]; m=+mt[2]; y=+mt[3]; if(y < 100) y += 2000; }
+  else if((mt = s.match(/^(\d{1,2})[\s\-\/]+([A-Za-z]{3,9})[\s\-\/,]+(\d{2,4})/))){ d=+mt[1]; m=MON[mt[2].slice(0,3).toLowerCase()]; y=+mt[3]; if(y < 100) y += 2000; }
+  else return '';
+  if(!m || !d || !y) return '';
+  const dt = new Date(Date.UTC(y, m-1, d));
+  if(dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m-1 || dt.getUTCDate() !== d) return ''; // e.g. 31/02
+  return y + '-' + String(m).padStart(2,'0') + '-' + String(d).padStart(2,'0');
 }
 
 // ── PREVIEW & CONFIRM ─────────────────────────────────────────────────

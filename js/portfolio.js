@@ -116,9 +116,9 @@ function calcH(asOfDate){
     const dateD = a.date.localeCompare(b.date);
     if(dateD!==0) return dateD;
     // Same date: ensure _from subtypes always process before _to
-    const aIsFrom = (a.subtype||'').endsWith('_from') ? -1 : 0;
-    const bIsFrom = (b.subtype||'').endsWith('_from') ? -1 : 0;
-    return aIsFrom - bIsFrom;
+    // _from first, other rows next, sells last: a same-day buy must exist before a sell consumes it
+    const rk = t => (t.subtype||'').endsWith('_from') ? -1 : (t.type==='sell' ? 1 : 0);
+    return rk(a) - rk(b);
   });
   for(const t of sorted){
     const s=t.symbol;
@@ -230,9 +230,9 @@ function computeTradeROIData(){
   const sorted = [...trades].sort((a,b)=>{
     const dateD = a.date.localeCompare(b.date);
     if(dateD!==0) return dateD;
-    const aIsFrom = (a.subtype||'').endsWith('_from') ? -1 : 0;
-    const bIsFrom = (b.subtype||'').endsWith('_from') ? -1 : 0;
-    return aIsFrom - bIsFrom;
+    // _from first, other rows next, sells last: a same-day buy must exist before a sell consumes it
+    const rk = t => (t.subtype||'').endsWith('_from') ? -1 : (t.type==='sell' ? 1 : 0);
+    return rk(a) - rk(b);
   });
   for(const t of sorted){
     const s = t.symbol;
@@ -1039,7 +1039,14 @@ function calcPortfolioChangeUnified(scopeFn){
 // DRP reinvestments (type:'drp') are deliberately excluded: they're not
 // external cash, they're already reflected in the higher unit count.
 function scopedCashFlowTrades(scopeFn){
-  const symbols = new Set(calcH().filter(scopeFn).map(h=>h.symbol));
+  // Every symbol EVER traded that passes the scope — not just what is held today. A position
+  // that was held at the window start and fully sold inside it is in the start value, so its
+  // sale proceeds must be counted as a cash flow too (otherwise the whole position reads as a loss).
+  const latest = {};
+  trades.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))).forEach(t=>{
+    latest[t.symbol] = { symbol:t.symbol, assetType:t.assetType, source:t.source, units:0, costBasis:0 };
+  });
+  const symbols = new Set(Object.values(latest).filter(scopeFn).map(h=>h.symbol));
   return trades.filter(t => (t.type==='buy' || t.type==='sell') && symbols.has(t.symbol));
 }
 

@@ -177,8 +177,8 @@ function calcTax(taxable, fy){
     else if(taxable <= 135000) tax = 4288 + (taxable - 45000) * 0.30;
     else if(taxable <= 190000) tax = 31288 + (taxable - 135000) * 0.37;
     else tax = 51638 + (taxable - 190000) * 0.45;
-  } else if(targetFY === 2024){
-    // FY2023-24
+  } else if(targetFY <= 2024){
+    // FY2023-24 (same bands apply FY2020-21 to FY2022-23; earlier years are approximated)
     if(taxable <= 18200) tax = 0;
     else if(taxable <= 45000) tax = (taxable - 18200) * 0.19;
     else if(taxable <= 120000) tax = 5092 + (taxable - 45000) * 0.325;
@@ -201,8 +201,8 @@ function calcTax(taxable, fy){
 
 // Medicare levy 2%, with the ATO's low-income shade-in applied instead of
 // a hard cliff at the threshold. Below the lower threshold: no levy.
-// Between lower and upper (~1.1x lower): levy phases in at 10c per dollar
-// over the lower threshold. Above upper: full 2% on all taxable income.
+// Between lower and 1.25x lower: levy phases in at 10c per dollar over the
+// lower threshold. Above that: full 2% on all taxable income.
 // NOTE: $26,000 is carried over from the original single-threshold figure
 // already in this file — verify it's the correct FY figure against the
 // ATO's published Medicare levy low-income thresholds for the target year.
@@ -211,10 +211,10 @@ function calcTax(taxable, fy){
 function calcMedicareLevy(taxable){
   taxable = Math.max(0, +taxable || 0);
   const ML_LOWER = 26000;
-  const ML_UPPER = ML_LOWER * 1.1;
-  if(taxable > ML_UPPER) return Math.round(taxable * 0.02 * 100) / 100;
-  if(taxable > ML_LOWER) return Math.round((taxable - ML_LOWER) * 0.10 * 100) / 100;
-  return 0;
+  if(taxable <= ML_LOWER) return 0;
+  // Shade-in: 10c per dollar over the lower threshold until that equals the full 2%
+  // of taxable income (which happens at 1.25x the lower threshold), then flat 2%.
+  return Math.round(Math.min(taxable * 0.02, (taxable - ML_LOWER) * 0.10) * 100) / 100;
 }
 
 // Grossed-up dividend = cash / (1 - 0.30) * frankingPct/100
@@ -272,33 +272,50 @@ function calcHECS(income, hecsDebt, fy){
 // Medicare Levy Surcharge (MLS) — applies if NO private hospital cover
 // Single threshold: $93,000 | Family threshold: $186,000
 // Rate: 1.0% (<$108k), 1.25% (<$144k), 1.5% (>=$144k)
-function calcMLS(income, familyIncome, hasPrivateHealth, dependants){
-  // ATO Medicare Levy Surcharge FY2025/26
+// Thresholds by FY (single / family / tier-1 start / tier-2 start). FY2027 reuses the
+// latest published set until new ones are released. VERIFY against the ATO's MLS page.
+const MLS_THRESHOLDS = {
+  2024: { single:  93000, family: 186000, t1: 108000, t2: 144000 },
+  2025: { single:  97000, family: 194000, t1: 113000, t2: 151000 },
+  2026: { single: 101000, family: 202000, t1: 118000, t2: 158000 },
+};
+function mlsThresholdsFor(fy){
+  const ks = Object.keys(MLS_THRESHOLDS).map(Number).sort((a,b)=>a-b);
+  let k = ks[0];
+  ks.forEach(x => { if(fy >= x) k = x; });
+  return MLS_THRESHOLDS[k];
+}
+function calcMLS(income, familyIncome, hasPrivateHealth, dependants, fy, isFamily){
   if(hasPrivateHealth) return 0;
+  const T = mlsThresholdsFor(+fy || (typeof dateToFY === 'function' ? dateToFY(localDateStr()) : 2026));
 
   const deps = Math.max(0, Math.round(+dependants||0));
-  // Family threshold: $186,000 + $1,500 per child after the first
-  const familyThreshold = 186000 + deps * 1500;  // ATO: $1,500 per dependent child
-  const singleThreshold = 93000;
+  // Family threshold (and each tier) rises by $1,500 for each dependent child AFTER the first
+  const adj = Math.max(0, deps - 1) * 1500;
+  // A couple, or a single parent, is tested against the FAMILY thresholds on combined income —
+  // NOT the single threshold on the individual's own income. (Previously a person earning above
+  // the single threshold was charged even when the household was under the family threshold.)
+  const inFamily = !!isFamily || deps > 0;
+  const famIncome = +familyIncome || +income;
 
-  const famIncome    = +familyIncome || +income;
-  const familyTrig   = famIncome > familyThreshold;  // strictly greater
-  const singleLiable = income > singleThreshold;
+  const liable = inFamily ? famIncome > (T.family + adj) : income > T.single;
+  if(!liable) return 0;
 
-  if(!singleLiable && !familyTrig) return 0;
-
-  // Rate tiers based on individual income
+  // Rate tier: family income vs doubled tier thresholds for families, own income for singles
+  const tierInc = inFamily ? famIncome : income;
+  const t1 = inFamily ? T.t1 * 2 + adj : T.t1;
+  const t2 = inFamily ? T.t2 * 2 + adj : T.t2;
   let rate;
-  if(income > 144000)      rate = 0.015;
-  else if(income > 108000) rate = 0.0125;
-  else                     rate = 0.010;  // includes family-triggered sub-threshold cases
+  if(tierInc > t2)       rate = 0.015;
+  else if(tierInc > t1)  rate = 0.0125;
+  else                   rate = 0.010;
 
   const rawMLS = income * rate;
 
-  // Shading rule — singles only, income $93,001–$97,500:
+  // Shading rule — singles only, just above the threshold:
   // MLS cannot exceed 10% of income above the single threshold
-  if(!familyTrig && income <= 97500){
-    const shadingCap = (income - singleThreshold) * 0.10;
+  if(!inFamily && income <= T.single + 4500){
+    const shadingCap = (income - T.single) * 0.10;
     // Don't round shading result — small amounts near threshold can be < $1
     return Math.min(rawMLS, shadingCap);
   }
@@ -558,6 +575,19 @@ function renderTax(){
   const totalFrank = fyDivs.reduce((s,d)=>s+frankingCredit(+d.amount||0, d.frankingPct||0),0);
 
   // ── Property P&L per person ───────────────────────────────────
+  // Fraction of the viewed FY this property was actually owned (purchase date / sold date).
+  // Rent and loan interest are estimated from today's figures, so they must not be counted
+  // for years before purchase or after sale. Expenses are entered per-FY by the user, so
+  // those are left as typed.
+  function ownedFraction(p){
+    const fyDays = Math.round((fyEnd - fyStart)/86400000) + 1;
+    const from = p.purchaseDate ? new Date(String(p.purchaseDate).slice(0,10)) : null;
+    const to   = (p.sold && p.soldDate) ? new Date(String(p.soldDate).slice(0,10)) : null;
+    const a = (from && from > fyStart) ? from : fyStart;
+    const b = (to && to < fyEnd) ? to : fyEnd;
+    const days = Math.round((b - a)/86400000) + 1;
+    return Math.max(0, Math.min(1, days / fyDays));
+  }
   function propPnL(owner){
     let netRent=0, netExpenses=0, investInterest=0;
     properties.forEach(p=>{
@@ -569,6 +599,8 @@ function renderTax(){
       const isOwner = pOwner===owner || (pOwner==='joint' && JOINT_PERSONS.includes(owner));
       if(!isOwner) return;
       const share = pOwner==='joint' ? 0.5 : 1;
+      const own = ownedFraction(p);
+      if(own <= 0) return;
 
       // Always scan splits for investment-purpose interest — even on PPOR.
       // Investment loan interest (e.g. redraw used to buy shares) is deductible
@@ -582,17 +614,17 @@ function renderTax(){
         else if(purpose === 'rental') rentalInterest += annInt;
         // personal: not deductible — skip
       });
-      investInterest += invInterest * share;
+      investInterest += invInterest * share * own;
 
       // PPOR: no rental income, no rental deductions — stop here.
       if(p.propType === 'ppor') return;
 
-      const annualRent = (p.weeklyRent||0)*52*share;
+      const annualRent = (p.weeklyRent||0)*52*share*own;
       const pRec = rec.props[p.id] || {};
       const expenses = share*(
         (+pRec.rates||0)+(+pRec.insurance||0)+(+pRec.repairs||0)+
         (+pRec.agent||0)+(+pRec.other||0)+(+pRec.depr_bldg||0)+(+pRec.depr_pe||0)
-      ) + rentalInterest * share;
+      ) + rentalInterest * share * own;
 
       netRent     += annualRent;
       netExpenses += expenses;
@@ -635,10 +667,10 @@ function renderTax(){
     // Investment interest (e.g. loan used to buy shares) deducted from dividend income
     const investInterestDeduction = propPnLResult.investInterest || 0;
     const taxableIncome = (salary - sacrifice) + myDiv + myFrank - investInterestDeduction + netPropGain - netPropLoss + myCGT;
-    const grossTax  = calcTax(Math.max(0, taxableIncome));
+    const grossTax  = calcTax(Math.max(0, taxableIncome), fy);
     // Medicare levy (2% w/ shade-in — already baked into calcTax, extracted here for display)
     const medicareLevy = calcMedicareLevy(Math.max(0, taxableIncome));
-    const hecsRep   = calcHECS(Math.max(0, taxableIncome), hecsDebt);
+    const hecsRep   = calcHECS(Math.max(0, taxableIncome), hecsDebt, fy);
     // Division 293: extra 15% tax on concessional contributions if income > $250,000
     // Concessional contributions = employer SG (est. 12% of salary) + salary sacrifice
     // SG rate: FY-aware (11.5% to Jun 2025, 12% from Jul 2025)
@@ -680,9 +712,14 @@ function renderTax(){
       const otherPropResult = propPnL(otherKey);
       const otherRental  = otherPropResult.netPropGain - otherPropResult.netPropLoss;
       const otherRFB     = +rec[otherKey]?.rfb || 0;
-      const otherTI      = (otherSalary - otherSacr) + otherDiv + otherRental + otherRFB;
+      const otherFrank   = _otherDivs.reduce((s,d)=>s+frankingCredit((+d.amount||0)*personDivShare(d,otherKey), d.frankingPct||0),0);
+      const otherInvInt  = otherPropResult.investInterest || 0;
+      const otherCGT     = (cgtByPerson[otherKey] && cgtByPerson[otherKey].netGain) || 0;
+      const otherNetInvLoss = Math.max(0, otherInvInt - (otherDiv + otherFrank));
+      // Same components as this person's own taxable income, so both sides are comparable
+      const otherTI      = (otherSalary - otherSacr) + otherDiv + otherFrank - otherInvInt + otherRental + otherCGT + otherRFB;
       // MLS family income includes RFB and net investment loss for each person
-      familyIncome = (taxableIncome + rfb + totalNetInvLoss) + otherTI;
+      familyIncome = (taxableIncome + rfb + totalNetInvLoss) + otherTI + otherNetInvLoss;
     } else {
       // No spouse to combine with — family income reduces to own income, so
       // calcMLS's family-threshold branch effectively never applies and
@@ -690,7 +727,7 @@ function renderTax(){
       familyIncome = taxableIncome + rfb + totalNetInvLoss;
     }
     const deps         = isCoupled ? +(rec.dependants||0) : 0;
-    const mls          = calcMLS(taxableIncome, familyIncome, hasPrivH, deps);
+    const mls          = calcMLS(taxableIncome, familyIncome, hasPrivH, deps, fy, isCoupled);
     const totalLiability = grossTax + hecsRep + mls + div293;
     const netTax    = Math.max(0, totalLiability - withheld - payg - myFrank);
     const refund    = Math.max(0, withheld + payg + myFrank - totalLiability);
@@ -861,7 +898,7 @@ function renderTax(){
           <div style="grid-column:1/-1">
             <label class="fl">HECS-HELP Debt (current balance)
               ${(+pRec.hecs>0&&+pRec.salary>0)?
-                `<span style="color:var(--neg);font-family:var(--mono);font-size:10px;margin-left:8px">est. repayment ${n2(calcHECS(+pRec.salary,+pRec.hecs))}/yr</span>`:
+                `<span style="color:var(--neg);font-family:var(--mono);font-size:10px;margin-left:8px">est. repayment ${n2(calcHECS(+pRec.salary,+pRec.hecs,fy))}/yr</span>`:
                 `<span style="color:var(--text3);font-size:10px;margin-left:8px">enter salary + balance to estimate</span>`}
             </label>
             <input type="text" inputmode="text" class="fi math-tax-inp" style="padding:4px 8px"

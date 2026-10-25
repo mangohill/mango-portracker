@@ -233,18 +233,21 @@ function calcSuperPreview(){
   };
   const empCC_cur  = getC('empCC_cur'),  perCC_cur  = getC('perCC_cur');
   const empCC_prev = getC('empCC_prev'), perCC_prev = getC('perCC_prev');
+  const ncc_cur = getC('ncc_cur'), sgc_cur = getC('sgc_cur'), ncc_prev = getC('ncc_prev'), sgc_prev = getC('sgc_prev');
 
-  function calcROI(startBal, endBal, empCC, perCC){
+  function calcROI(startBal, endBal, empCC, perCC, ncc, sgc){
     if(!startBal || !endBal) return null;
-    const afterTaxCC = ((empCC||0) + (perCC||0)) * 0.85;
+    // Concessional (employer, salary-sacrifice/personal-deductible, SGC) contributions arrive after 15% contributions tax;
+    // non-concessional ones arrive untaxed. Either way they are money in, not investment gain.
+    const afterTaxCC = ((empCC||0) + (perCC||0) + (sgc||0)) * 0.85 + (ncc||0);
     const gain       = endBal - startBal - afterTaxCC;
     const avgBal     = (startBal + endBal) / 2;
     const roi        = avgBal > 0 ? (gain / avgBal) * 100 : null;
     return { gain, roi, afterTaxCC };
   }
 
-  const roi_cur  = prevBal  ? calcROI(prevBal,  curBal,  empCC_cur,  perCC_cur)  : null;
-  const roi_prev = prev2Bal ? calcROI(prev2Bal, prevBal, empCC_prev, perCC_prev) : null;
+  const roi_cur  = prevBal  ? calcROI(prevBal,  curBal,  empCC_cur,  perCC_cur,  ncc_cur,  sgc_cur)  : null;
+  const roi_prev = prev2Bal ? calcROI(prev2Bal, prevBal, empCC_prev, perCC_prev, ncc_prev, sgc_prev) : null;
 
   const clr = v => v === null ? 'neu' : v >= 0 ? 'pos' : 'neg';
   const fmt = (v, prefix='$') => v === null ? '—' : (v>=0?'+':'')+prefix+n2(v);
@@ -478,18 +481,24 @@ function checkSuperFYRollover(){
         // being silently mislabelled as the new (empty) current year.
         if(!a.contrib) a.contrib = {};
         const c = a.contrib;
-        const hadCur = c.empCC_cur != null || c.perCC_cur != null || c.ncc_cur != null;
+        const hadCur = c.empCC_cur != null || c.perCC_cur != null || c.ncc_cur != null || c.sgc_cur != null;
         if(hadCur){
           c.empCC_prev = c.empCC_cur || 0;
           c.perCC_prev = c.perCC_cur || 0;
           c.ncc_prev   = c.ncc_cur   || 0;
-          delete c.empCC_cur; delete c.perCC_cur; delete c.ncc_cur;
+          c.sgc_prev   = c.sgc_cur   || 0;
+          delete c.empCC_cur; delete c.perCC_cur; delete c.ncc_cur; delete c.sgc_cur;
+          changed = true;
+        } else if(c.empCC_prev != null || c.perCC_prev != null || c.ncc_prev != null || c.sgc_prev != null){
+          // Nothing was entered for the year that just ended, so whatever sits in "previous year" is now
+          // two years old — clear it rather than leave it mislabelled as last year's contributions.
+          delete c.empCC_prev; delete c.perCC_prev; delete c.ncc_prev; delete c.sgc_prev;
           changed = true;
         }
       });
       if(changed){
         saveSuperAccounts();
-        if(typeof notify === 'function') notify('Super balances & contributions rolled over to FY'+CUR_FY+' ✓','ok');
+        if(typeof notify === 'function') notify('Super balances & contributions rolled over to FY'+CUR_FY+' ✓ — check the FY'+PREV_FY+' 30 June balance is right (it was captured when you first opened the app after 1 July)','ok');
       }
     }
     localStorage.setItem('pt_super_last_fy', CUR_FY);
@@ -512,9 +521,11 @@ function renderSuperAccounts(){
   const PREV2_FY= CUR_FY - 2;
   const COLORS  = ['#3b82f6','#10b981','#f59e0b','#ef4444','#a855f7','#ec4899','#14b8a6'];
 
-  function calcROI(startBal, endBal, empCC, perCC){
+  function calcROI(startBal, endBal, empCC, perCC, ncc, sgc){
     if(!startBal || !endBal) return null;
-    const afterTaxCC = ((empCC||0) + (perCC||0)) * 0.85;
+    // Concessional (employer, salary-sacrifice/personal-deductible, SGC) contributions arrive after 15% contributions tax;
+    // non-concessional ones arrive untaxed. Either way they are money in, not investment gain.
+    const afterTaxCC = ((empCC||0) + (perCC||0) + (sgc||0)) * 0.85 + (ncc||0);
     const gain       = endBal - startBal - afterTaxCC;
     const avgBal     = (startBal + endBal) / 2;
     const roi        = avgBal > 0 ? (gain / avgBal) * 100 : null;
@@ -553,8 +564,8 @@ function renderSuperAccounts(){
     const ncc_prev   = +contrib.ncc_prev   || 0;
     const sgc_prev   = +contrib.sgc_prev   || 0;
 
-    const roi_cur  = prevBal  !== null ? calcROI(prevBal,  curBal,  empCC_cur,  perCC_cur)  : null;
-    const roi_prev = prev2Bal !== null ? calcROI(prev2Bal, prevBal, empCC_prev, perCC_prev) : null;
+    const roi_cur  = prevBal  !== null ? calcROI(prevBal,  curBal,  empCC_cur,  perCC_cur,  ncc_cur,  sgc_cur)  : null;
+    const roi_prev = prev2Bal !== null ? calcROI(prev2Bal, prevBal, empCC_prev, perCC_prev, ncc_prev, sgc_prev) : null;
 
     const fmtROI  = r => r === null ? '—'
       : `<span class="${r.roi>=0?'pos':'neg'}">${r.roi>=0?'+':''}${r.roi.toFixed(2)}%</span>`;
@@ -1395,7 +1406,8 @@ function propMetrics(p){
     const eff  = Math.max(0, bal - off);
     const moInt= +(eff*(rate/100)/12).toFixed(2);
     const saved= +(off*(rate/100)/12).toFixed(2);
-    const autoR= ltype==='io' ? moInt : calcMonthlyPI(eff, rate, term);
+    // Minimum repayment is set on the FULL loan balance; an offset only reduces the interest charged.
+    const autoR= ltype==='io' ? moInt : calcMonthlyPI(bal, rate, term);
     monthlyInterest += moInt;
     interestSaved   += saved;
     annualInterest  += moInt*12;
@@ -1418,8 +1430,9 @@ function propMetrics(p){
   const totalOffset   = splits.reduce((s,sp)=>s+(+sp.offset||0),0);
   const effectiveLoan = Math.max(0, loanCur - totalOffset);
   const equity        = cval - loanCur;
-  const gainRaw       = cval - pprice - pcosts;
-  const gainPct       = (pprice+pcosts)>0?(gainRaw/(pprice+pcosts))*100:0;
+  const pImprove      = +p.capitalImprovements || 0; // part of the CGT cost base, so part of the gain calc
+  const gainRaw       = cval - pprice - pcosts - pImprove;
+  const gainPct       = (pprice+pcosts+pImprove)>0?(gainRaw/(pprice+pcosts+pImprove))*100:0;
   const lvr           = cval>0?(loanCur/cval)*100:0;
   const annualRent    = rent*52;
   const annualNetRent = annualRent - expenses - annualInterest;
@@ -2208,7 +2221,7 @@ function renderProperties(){
                 const rate = +sp.rate||0;
                 const eff  = Math.max(0, bal-off);
                 const moInt= +(eff*(rate/100)/12).toFixed(2);
-                const autoR= sp.ltype==='io' ? moInt : calcMonthlyPI(eff,rate,+sp.term||0);
+                const autoR= sp.ltype==='io' ? moInt : calcMonthlyPI(bal,rate,+sp.term||0); // repayment is on the full balance, not net of offset
                 const rep  = +(+sp.repay||autoR).toFixed(2);
                 return `<tr style="border-bottom:1px solid var(--border)">
                   <td style="padding:5px 8px 5px 0;font-weight:600">${sp.label||'Split'}</td>

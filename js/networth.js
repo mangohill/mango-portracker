@@ -473,22 +473,23 @@ function nwEstimateCGTIfSold(){
       if(price == null){ if(!unpriced.includes(sym)) unpriced.push(sym); return; }
       const gain = p.units * price - p.cost;
       const heldDays = Math.floor((today - new Date(p.date)) / 86400000);
-      add(stock, owner, gain, heldDays > 365);
-      add(segBuckets[kindOf(sym)], owner, gain, heldDays > 365);
+      const isLong = cgtIsLongTerm(p.date, today); // same calendar-date rule as the CGT tab
+      add(stock, owner, gain, isLong);
+      add(segBuckets[kindOf(sym)], owner, gain, isLong);
     });
   });
 
   // Investment properties (unsold, not the main residence)
   const propDetail = [], propSkipped = [];
   (typeof properties !== 'undefined' && typeof propMetrics === 'function' ? properties : [])
-    .filter(p => !p.sold && p.propType !== 'ppor')
+    .filter(p => !p.sold && p.propType !== 'ppor' && !p.mainResExempt) // mainResExempt matches the property card (no CGT)
     .forEach(p => {
       if(!(+p.purchasePrice > 0) || !p.purchaseDate){ propSkipped.push(p.name); return; }
       const value = propMetrics(p).cval;
       const costBase = (+p.purchasePrice||0) + (+p.purchaseCosts||0) + (+p.capitalImprovements||0);
       const sellCosts = cgtPropertySellingCosts(p, value); // Est. Selling Costs % on the property, if set
       const gain = value - sellCosts - costBase;
-      const long = (today - new Date(p.purchaseDate)) / 86400000 > 365;
+      const long = cgtIsLongTerm(p.purchaseDate, today);
       const owner = p.owner || 'lumia';
       add(prop, owner, gain, long);
       const pb = bucket(); add(pb, owner, gain, long);

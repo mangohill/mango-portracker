@@ -359,10 +359,13 @@ async function backfillPortfolioHistory(forceSince){
   // If upgrading, pull from earliest missing-prices day; else from day after last snapshot
   let since = forceSince || '1970-01-01';
   if(!forceSince){
-    if(!upgrading && knownDates.length){
-      const dayAfterLast = new Date(knownDates[knownDates.length-1]+'T00:00:00');
-      dayAfterLast.setDate(dayAfterLast.getDate()+1);
-      since = localDateStr(dayAfterLast);
+    // snapshotPortfolioValue() writes TODAY's entry on every render, so the latest known date is almost
+    // always today — starting "after the latest" meant starting tomorrow and the days you were away
+    // were never pulled. Start from the latest PRIOR day instead (inclusive, so that day's client-side
+    // snapshot is also replaced by the Worker's authoritative 5pm prices).
+    const priorDates = knownDates.filter(d => d < todayStr);
+    if(!upgrading && priorDates.length){
+      since = priorDates[priorDates.length-1];
     } else if(upgrading){
       const missing = knownDates.filter(d=>{
         const s = pfSnapshots[d];

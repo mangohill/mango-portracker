@@ -836,10 +836,14 @@ function confirmAllDRP(){
 }
 
 function getSymbolAssetType(sym){
-  // Get assetType from most recent buy trade for this symbol
-  const t = trades.filter(x => x.symbol===sym && (x.type==='buy'||x.type==='drp'))
-                  .sort((a,b) => b.date.localeCompare(a.date))[0];
-  return t ? t.assetType : 'stock';
+  // Get assetType from the most recent buy/DRP trade for this symbol. Dividends are stored under the
+  // plain symbol while trades may carry a broker suffix (DHHF vs DHHF:AU), so fall back to matching on
+  // the underlying symbol. Default is 'asx_stock' — the app has no plain 'stock' asset type.
+  const isBuy = x => x.type==='buy' || x.type==='drp';
+  const newest = arr => arr.sort((a,b) => b.date.localeCompare(a.date))[0];
+  let t = newest(trades.filter(x => x.symbol===sym && isBuy(x)));
+  if(!t){ const base = priceSymbol(sym); t = newest(trades.filter(x => priceSymbol(x.symbol)===base && isBuy(x))); }
+  return t ? t.assetType : 'asx_stock';
 }
 
 

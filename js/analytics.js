@@ -381,8 +381,11 @@ function renderAnalytics(){
   // --- Summary cards ---
   const totalCost = holdings.reduce((s,h)=>s+h.costBasis,0);
   const totalVal  = holdings.reduce((s,h)=>s+(prices[priceSymbol(h.symbol)]?prices[priceSymbol(h.symbol)]*h.units:0),0);
-  const totalPnl  = totalVal - totalCost;
-  const pnlPct    = totalCost>0?(totalPnl/totalCost)*100:0;
+  // P&L is measured over PRICED holdings only. An unpriced holding contributes $0 to totalVal, so
+  // leaving its cost in the subtraction showed the whole position as a loss whenever a price was missing.
+  const pricedCost = holdings.reduce((s,h)=>s+(prices[priceSymbol(h.symbol)]?h.costBasis:0),0);
+  const totalPnl  = totalVal - pricedCost;
+  const pnlPct    = pricedCost>0?(totalPnl/pricedCost)*100:0;
   const totalDiv  = dividends.reduce((s,d)=>s+(+d.amount||0),0);
   const totalFees = trades.reduce((s,t)=>s+(+t.fees||0),0);
   const totalBuys = trades.filter(t=>t.type==='buy').reduce((s,t)=>s+(+t.units * +t.price),0);
@@ -521,9 +524,9 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
   const tradesChrono = [...trades].sort((a,b)=>{
     const dateD = a.date.localeCompare(b.date);
     if(dateD!==0) return dateD;
-    const aIsFrom = (a.subtype||'').endsWith('_from') ? -1 : 0;
-    const bIsFrom = (b.subtype||'').endsWith('_from') ? -1 : 0;
-    return aIsFrom - bIsFrom;
+    // _from first, sells last: a same-day buy must exist before a sell consumes it
+    const rk = t => (t.subtype||'').endsWith('_from') ? -1 : (t.type==='sell' ? 1 : 0);
+    return rk(a) - rk(b);
   });
 
   const datasets = groups.map((g,i)=>{
@@ -545,6 +548,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
       // and in by-symbol view a merger's to-side got $0 cost because the
       // from-symbol wasn't in that group's map.
       const costMap = {};
+      let realised = 0; // running realised P&L (proceeds - cost removed) from sells up to this month
       for(const t of monthTrades){
         const s=t.symbol;
         if(!costMap[s]) costMap[s]={units:0,costBasis:0};
@@ -553,6 +557,13 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
         } else if(t.type==='corporate_action'){
           applyCorporateAction(costMap, s, t);
         } else if(t.type==='sell'){
+          // Realised gain/loss on the units actually held at the time of the sale
+          const heldU = costMap[s].units, sellU = Math.min(+t.units||0, Math.max(0, heldU));
+          if(sellU > 0 && heldU > 0 && +t.units > 0){
+            const removed = costMap[s].costBasis * (sellU/heldU);
+            const proceeds = ((+t.units * +t.price) - (+t.fees||0)) * (sellU/+t.units);
+            realised += proceeds - removed;
+          }
           const r=costMap[s].units>0?+t.units/costMap[s].units:0;
           costMap[s].costBasis-=costMap[s].costBasis*r;
           costMap[s].units-=+t.units;
@@ -576,7 +587,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
       }
       if(chartType==='value') return +val.toFixed(2);
 
-      // Cumulative P&L includes dividend income received to date (cash
+      // Cumulative P&L = unrealised (value - cost) + realised gains from sells + dividend income received to date (cash
       // dividends only — DRP is excluded since it's already reflected
       // above via the extra reinvested units, not double-counted here).
       // A capital-only P&L understates real performance for income assets.
@@ -591,7 +602,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
       const divsToDate = dividends
         .filter(d => d.type!=='drp' && d.date<=lookupDate && groupSyms.has(normSym(d.symbol)))
         .reduce((s,d)=>s+(+d.amount||0), 0);
-      return +(val - totalCost + divsToDate).toFixed(2); // pnl (total return, incl. dividends)
+      return +(val - totalCost + divsToDate + realised).toFixed(2); // pnl (total return: unrealised + realised + dividends)
     });
 
     return {

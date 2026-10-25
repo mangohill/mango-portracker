@@ -93,6 +93,27 @@ function deleteAmitAdjustment(id){
   saveAmitAdjustments();
 }
 
+// ── 12-MONTH CGT DISCOUNT TEST ──────────────────────────────────────────
+// Calendar-date based (not a day count, which flips with leap years): an asset is long-term
+// only when the sale date is AFTER the first anniversary of the acquisition date. This is the
+// conservative reading (sale ON the anniversary is treated as short-term). If you want the
+// anniversary itself to qualify, change `>` to `>=` here — every long/short decision in the app
+// goes through these two helpers.
+function cgtLongTermFrom(buy){
+  const b = (buy instanceof Date) ? new Date(buy.getTime()) : new Date(String(buy).slice(0,10) + 'T00:00:00Z');
+  if(isNaN(b)) return null;
+  b.setUTCFullYear(b.getUTCFullYear() + 1);
+  b.setUTCDate(b.getUTCDate() + 1);           // first day on which it counts as long-term
+  return b;
+}
+function cgtIsLongTerm(buy, sale){
+  const from = cgtLongTermFrom(buy);
+  if(!from) return false;
+  const s = (sale instanceof Date) ? sale : new Date(String(sale).slice(0,10) + 'T00:00:00Z');
+  if(isNaN(s)) return false;
+  return s >= from;
+}
+
 function getCGTLossCarryIn(){
   try{ return JSON.parse(localStorage.getItem('pt_cgt_loss_carry_in')||'{}'); }catch(e){ return {}; }
 }
@@ -128,9 +149,9 @@ function buildDisposals(){
     if(a._kind==='amit' && b._kind!=='amit') return 1; // adjustment applies at end of that day
     if(b._kind==='amit' && a._kind!=='amit') return -1;
     if(a._kind==='trade' && b._kind==='trade'){
-      const aFrom = (a.subtype||'').endsWith('_from') ? -1 : 0;
-      const bFrom = (b.subtype||'').endsWith('_from') ? -1 : 0;
-      return aFrom - bFrom;
+      // _from first, then everything else, then sells (a same-day buy must exist before a sell consumes it)
+      const rank = t => (t.subtype||'').endsWith('_from') ? -1 : (t.type==='sell' ? 1 : 0);
+      return rank(a) - rank(b);
     }
     return 0;
   });
@@ -175,7 +196,7 @@ function buildDisposals(){
         const take = Math.min(p.units, unitsToSell);
         const takeCost = p.cost * (take / p.units);
         const heldDays = (new Date(saleDate) - new Date(p.date)) / 86400000;
-        const longTerm = heldDays > 365;
+        const longTerm = cgtIsLongTerm(p.date, saleDate);
         const lotProceeds = proceeds * (take / (+t.units || 1));
         lots.push({ units:take, cost:takeCost, buyDate:p.date, longTerm, heldDays:Math.round(heldDays),
                      proceeds:lotProceeds, gain:+(lotProceeds - takeCost).toFixed(4) });
@@ -265,7 +286,7 @@ function buildPropertyDisposals(){
       return {
         id:p.id, name:p.name, owner:p.owner||'lumia', soldDate:p.soldDate,
         exempt:false, costBase, proceeds, gain:+(proceeds-costBase).toFixed(2),
-        longTerm: heldDays > 365, heldDays:Math.round(heldDays),
+        longTerm: cgtIsLongTerm(p.purchaseDate||p.soldDate, p.soldDate), heldDays:Math.round(heldDays),
       };
     });
 }
@@ -493,7 +514,7 @@ let cgtFifoCollapsed = true;
 
 // Flags open parcels still short-term but due to cross the 365-day CGT
 // discount threshold within `withinDays`. Mirrors buildDisposals()'s own
-// `heldDays > 365` test exactly, so the countdown never disagrees with
+// cgtIsLongTerm() test exactly, so the countdown never disagrees with
 // what an actual sale would compute.
 //
 // CUTOFF-AWARE (2026-27 Federal Budget reform, CGT_CUTOFF_DATE = 30 June
@@ -517,10 +538,11 @@ function computeDiscountCountdown(openParcels, withinDays){
     list.forEach(p=>{
       if(p.units <= 0.000001) return;
       const heldDays = Math.floor((today - new Date(p.date)) / 86400000);
-      if(heldDays < 0 || heldDays > 365) return; // already eligible or not a valid date
-      const daysLeft = 366 - heldDays; // smallest heldDays that satisfies >365
+      if(heldDays < 0 || cgtIsLongTerm(p.date, today)) return; // already eligible or not a valid date
+      const eligible = cgtLongTermFrom(p.date);                 // first day it counts as long-term
+      if(!eligible) return;
+      const daysLeft = Math.round((eligible - today) / 86400000);
       if(daysLeft > 0 && daysLeft <= withinDays){
-        const eligible = new Date(today.getTime() + daysLeft*86400000);
         const eligibleDateStr = eligible.toISOString().slice(0,10);
         rows.push({
           symbol: sym, units: p.units, buyDate: p.date, daysLeft, eligibleDateStr,
@@ -1342,7 +1364,7 @@ function simulateMatchingForSymbol(parcelsList, price, method, sellUnits=null, o
     const costPortion = p.cost * (take / (p.units || take));
     const heldDays = (saleDate - new Date(p.date)) / 86400000;
     const gain = proceeds - costPortion;
-    lots.push({ units: take, buyDate: p.date, cost: costPortion, proceeds, gain, heldDays: Math.round(heldDays) });
+    lots.push({ units: take, buyDate: p.date, cost: costPortion, proceeds, gain, heldDays: Math.round(heldDays), longTerm: cgtIsLongTerm(p.date, saleDate) });
     p.units -= take;
     p.cost -= costPortion;
     remaining -= take;
@@ -1391,7 +1413,7 @@ function computeTaxOnLots(lots, opts){
   // If sale is on or before cutoff, treat all as pre-cutoff
   if(saleDate <= cutoff){
     for(const l of lots){
-      const longTerm = l.heldDays > 365;
+      const longTerm = (l.longTerm != null) ? l.longTerm : l.heldDays > 365;
       const val = (longTerm && l.gain > 0 && useDiscountBeforeCutoff) ? l.gain * 0.5 : l.gain;
       taxablePre += val;
     }
@@ -1585,7 +1607,8 @@ function cgtRunSimulation(){
         if(annualRent - expenses >= 0) netPropGain += (annualRent - expenses); else netPropLoss += (expenses - annualRent);
       });
 
-      const taxableIncome = salaryNet + myDivs + myFrank - investInterestDeduction + netPropGain - netPropLoss + myCGT;
+      // Last FY's net capital gain is a one-off, so it is not carried into the base income estimate.
+      const taxableIncome = salaryNet + myDivs + myFrank - investInterestDeduction + netPropGain - netPropLoss;
       income = taxableIncome || 0;
       // If the user left the income input empty, auto-fill it and show a note
       try{
@@ -1643,18 +1666,18 @@ function cgtRunSimulation(){
       taxablePost = +taxablePost || 0;
       const beforeTax = calcTax(Math.max(0, baseIncome));
       const beforeHECS = calcHECS(Math.max(0, baseIncome), hecsDebt);
-      const beforeMLS = calcMLS(Math.max(0, baseIncome), Math.max(0, familyIncome), hasPH, deps);
+      const beforeMLS = calcMLS(Math.max(0, baseIncome), Math.max(0, familyIncome), hasPH, deps, undefined, otherIncome > 0);
 
       // Apply pre portion first, then post portion so we can isolate post incremental tax
       const afterPreIncome = Math.max(0, baseIncome + taxablePre);
       const afterPreTax = calcTax(afterPreIncome);
       const afterPreHECS = calcHECS(afterPreIncome, hecsDebt);
-      const afterPreMLS = calcMLS(afterPreIncome, Math.max(0, familyIncome + taxablePre), hasPH, deps);
+      const afterPreMLS = calcMLS(afterPreIncome, Math.max(0, familyIncome + taxablePre), hasPH, deps, undefined, otherIncome > 0);
 
       const afterFullIncome = Math.max(0, baseIncome + taxablePre + taxablePost);
       const afterFullTax = calcTax(afterFullIncome);
       const afterFullHECS = calcHECS(afterFullIncome, hecsDebt);
-      const afterFullMLS = calcMLS(afterFullIncome, Math.max(0, familyIncome + taxablePre + taxablePost), hasPH, deps);
+      const afterFullMLS = calcMLS(afterFullIncome, Math.max(0, familyIncome + taxablePre + taxablePost), hasPH, deps, undefined, otherIncome > 0);
 
       // Increments attributable to pre and post portions
       const preInc = (afterPreTax + afterPreHECS + afterPreMLS) - (beforeTax + beforeHECS + beforeMLS);
@@ -1844,7 +1867,7 @@ function cgtShowMethodDetails(method){
     const boughtBeforeCutoff = buyDate ? (buyDate < new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate()+1)) : false;
 
     if(!isPost){
-      const longTerm = l.heldDays > 365;
+      const longTerm = (l.longTerm != null) ? l.longTerm : l.heldDays > 365;
       if(longTerm && l.gain>0){ taxable = l.gain * 0.5; calcText = `50% discount on ${n2(l.gain)} → ${n2(taxable)}`; }
       else { taxable = l.gain; calcText = `No discount → ${n2(taxable)}`; }
 
@@ -2182,7 +2205,8 @@ function cgtEstimateBaseIncome(person){
       if(annualRent - expenses >= 0) netPropGain += (annualRent - expenses); else netPropLoss += (expenses - annualRent);
     });
 
-    return salaryNet + myDivs + myFrank - investInterestDeduction + netPropGain - netPropLoss + myCGT;
+    // Last FY's net capital gain is a one-off, so it is not carried into the base income estimate.
+    return salaryNet + myDivs + myFrank - investInterestDeduction + netPropGain - netPropLoss;
   }catch(e){ return null; }
 }
 
@@ -2270,7 +2294,7 @@ function cgtEstimatePropertySale(p, ctx){
   const sellCosts = cgtPropertySellingCosts(p, value);
   const gain = value - sellCosts - costBase;
   const heldDays = Math.floor((new Date(localDateStr()) - new Date(p.purchaseDate)) / 86400000);
-  const long = heldDays > 365;
+  const long = cgtIsLongTerm(p.purchaseDate, localDateStr());
   const owner = p.owner || 'lumia';
   const rows = [];
   let totalTax = 0;
