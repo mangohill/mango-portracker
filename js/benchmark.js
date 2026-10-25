@@ -87,12 +87,23 @@ async function backfillBenchmarkHistory(forceSince){
     since = priorDates[priorDates.length-1];
   }
 
-  let history;
+  let history, workerV2 = false;
   try{
     const r = await fetch(`${workerURL}?priceHistory=1&since=${since}`);
     if(!r.ok) return;
+    workerV2 = +(r.headers.get('X-Worker-Version') || 0) >= 2;
     history = await r.json();
   }catch(e){ console.warn('Benchmark backfill fetch failed:', e); return; }
+
+  // One-time clean-up after the Worker upgrade (see backfillPortfolioHistory): drop pre-daily-window
+  // days the fixed Worker no longer reports — they came from mis-dated weekly/monthly bars.
+  if(forceSince && workerV2 && localStorage.getItem('pt_bm_rebuilt_v2') !== '1'){
+    const WDS = (typeof WORKER_DAILY_SINCE !== 'undefined') ? WORKER_DAILY_SINCE : '2025-07-01';
+    if(Object.keys(history).filter(d => d < WDS).length >= 20){
+      Object.keys(benchmarkHistory).forEach(d => { if(d >= forceSince && d < WDS && !(d in history)) delete benchmarkHistory[d]; });
+      localStorage.setItem('pt_bm_rebuilt_v2', '1');
+    }
+  }
 
   let filled = 0;
   for(const dateKey of Object.keys(history)){

@@ -330,6 +330,7 @@ async function syncHoldingsToWorker(){
 // day, and reconstruct real historical portfolio values from them — using
 // the actual holdings as of each date (not today's holdings), so this is a
 // genuine mark-to-market history rather than an approximation.
+const WORKER_DAILY_SINCE = '2025-07-01'; // keep in sync with DAILY_SINCE in the Worker
 async function backfillPortfolioHistory(forceSince){
   const workerURL = getWorkerURL();
   if(!workerURL) return;
@@ -375,12 +376,30 @@ async function backfillPortfolioHistory(forceSince){
     }
   }
 
-  let history;
+  let history, workerV2 = false;
   try{
     const r = await fetch(`${workerURL}?priceHistory=1&since=${since}`);
     if(!r.ok) return;
+    workerV2 = +(r.headers.get('X-Worker-Version') || 0) >= 2; // fixed Worker (exchange-timezone dates, daily bars)
     history = await r.json();
   }catch(e){ console.warn('backfillPortfolioHistory fetch failed:', e); return; }
+
+  // One-time clean-up after upgrading the Worker. Its older versions stored weekly points (dated the
+  // Sunday before the week, priced at the week's CLOSE) and month-end dated points (priced at a
+  // later month's close). A backfill only overwrites days the Worker returns, so those wrong local
+  // days would otherwise stay forever. Runs once, only on a manual (Settings) backfill against the
+  // fixed Worker, and only drops days before the Worker's daily window that it no longer reports.
+  if(forceSince && workerV2 && localStorage.getItem('pt_hist_rebuilt_v2') !== '1'){
+    const hDates = Object.keys(history);
+    if(hDates.filter(d => d < WORKER_DAILY_SINCE).length >= 20){   // guard: only if the rebuild really came back
+      let purged = 0;
+      Object.keys(pfSnapshots).forEach(d => {
+        if(d >= forceSince && d < WORKER_DAILY_SINCE && !(d in history)){ delete pfSnapshots[d]; purged++; }
+      });
+      localStorage.setItem('pt_hist_rebuilt_v2', '1');
+      if(purged) console.info('[history] removed', purged, 'stale pre-' + WORKER_DAILY_SINCE + ' days after Worker upgrade');
+    }
+  }
   if(upgrading && !forceSince) localStorage.setItem('pt_pf_upgrade_date', todayStr);
 
   const unlistedSyms = new Set(['MAIF','MAAT']);
