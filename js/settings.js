@@ -207,7 +207,7 @@ async function runBackfill(){
   if(!workerURL){ notify('Set your Cloudflare Worker URL first.','err'); return; }
   const resolution = $('bf-resolution').value;
   const since = backfillStartDate();
-  const limit = 5; // small slice per call — the Worker now fetches each symbol in several 3-year daily windows, so fewer symbols per call keeps it under Cloudflare's subrequest cap
+  const limit = 3; // small slice per call — the Worker now fetches each symbol in several 3-year daily windows, so fewer symbols per call keeps it under Cloudflare's subrequest cap
 
   const btn = $('bf-run-btn'), barWrap = $('bf-bar-wrap'), bar = $('bf-bar'), status = $('bf-status');
   btn.disabled = true; btn.textContent = 'RUNNING…';
