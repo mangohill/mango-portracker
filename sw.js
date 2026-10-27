@@ -1,10 +1,10 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Portfolio Tracker — Service Worker
+﻿// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Portfolio Tracker â€” Service Worker
 // Strategy: Cache-first, background update
 // Scope: https://mangohill.github.io/mango-portracker/
-// ─────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-const CACHE_NAME = 'portfolio-tracker-3';
+const CACHE_NAME = 'portfolio-tracker-25';
 const BASE       = '/mango-portracker/';
 
 const PRECACHE_URLS = [
@@ -81,14 +81,16 @@ self.addEventListener('fetch', event => {
     url.searchParams.has('symbols') ||
     url.searchParams.has('maif') ||
     url.searchParams.has('divs') ||
+    url.hostname.includes('github') ||
     url.hostname.includes('yahoo') ||
+    url.hostname.includes('gist') ||
     url.hostname.includes('monash') ||
     url.hostname.includes('cloudflare');
   if (isApi) return;
   if (url.pathname.endsWith('/version.json')) return;
   if(isNF(event.request.url)){
     event.respondWith(fetch(event.request,{cache:'no-cache'}).then(res=>{
-      // Clone synchronously — inside the async .then the body may already be consumed by the page,
+      // Clone synchronously â€” inside the async .then the body may already be consumed by the page,
       // which throws and silently skips the cache update the offline fallback depends on.
       if(res&&res.ok){ const copy=res.clone(); caches.open(CACHE_NAME).then(cache=>cache.put(event.request,copy)).catch(()=>{}); }
       return res;

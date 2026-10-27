@@ -53,13 +53,7 @@ function renderSpFYBar(){
   const bar = $('sp-fy-bar');
   if(!bar) return;
   bar.innerHTML = fys.map(fy=>
-    `<span class="badge" onclick="setSpFY(${fy})"
-      style="cursor:pointer;padding:4px 12px;border-radius:12px;font-family:var(--mono);font-size:11px;
-      background:${spFY===fy?'var(--blue)':'var(--surface2)'};
-      color:${spFY===fy?'#fff':'var(--text2)'};
-      border:1px solid ${spFY===fy?'var(--blue)':'var(--border2)'};transition:all .15s">
-      FY${fy}
-    </span>`
+    `<button class="fpill${spFY===fy?' active':''}" onclick="setSpFY(${fy})">FY${fy}</button>`
   ).join('');
 }
 
@@ -90,11 +84,11 @@ function renderSpending(){
   const net = totalIn - totalOut;
 
   $('sp-cards').innerHTML = [
-    {l:'Total Paid (Credit Card)', v:'$'+totalSpent.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), s:'neg', sub:'FY'+spFY+' card payments made', big:true},
-    {l:'Total Categorised Spend',  v:'$'+totalOut.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), s:'neg', sub:'All money out'},
-    {l:'Money In (Refunds etc.)',   v:'$'+totalIn.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}),  s:'pos', sub:'Refunds + credits'},
-    {l:'Net Spend',                 v:'$'+(Math.abs(net)).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), s:net>=0?'pos':'neg', sub:net>=0?'Net ahead':'Net out'},
-  ].map(c=>`<div class="card" style="${c.big?'border-color:var(--blue);background:rgba(61,156,240,0.06)':''}">
+    {l:'Total Paid (Credit Card)', v:'$'+totalSpent.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), s:'neg', sub:'FY'+spFY+' card payments made', big:true, tint:'var(--debt-red)'},
+    {l:'Total Categorised Spend',  v:'$'+totalOut.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), s:'neg', sub:'All money out', tint:'var(--debt-coral)'},
+    {l:'Money In (Refunds etc.)',   v:'$'+totalIn.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}),  s:'pos', sub:'Refunds + credits', tint:'var(--cat-income)'},
+    {l:'Net Spend',                 v:'$'+(Math.abs(net)).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), s:net>=0?'pos':'neg', sub:net>=0?'Net ahead':'Net out', tint:(net>=0?'var(--asset-teal)':'var(--debt-brick)')},
+  ].map(c=>`<div class="card" style="${cardTint(c.tint)}">
     <div class="card-label">${c.l}</div>
     <div class="card-value ${c.s}" style="${c.big?'font-size:22px':''}">${c.v}</div>
     <div class="card-sub">${c.sub}</div>

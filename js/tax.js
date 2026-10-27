@@ -820,10 +820,10 @@ function renderTax(){
   </style>
   <!-- FY selector -->
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
-    <div style="font-family:var(--mono);font-size:13px;font-weight:600">🧾 TAX ESTIMATE</div>
+    <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--text2)">Tax Estimate</div>
     <select class="fsm" onchange="taxFY=+this.value;renderTax()">${fyOpts}</select>
     <span style="font-size:11px;color:var(--text3)">Australian tax law · Estimates only · Not financial advice</span>
-    <button class="btn" style="margin-left:auto" onclick="generateEofyPack(${fy})">📦 EOFY Pack</button>
+    <button class="btn" style="margin-left:auto" onclick="generateEofyPack(${fy})">EOFY Pack</button>
   </div>
 
   <!-- Side by side income inputs (two people at a time) -->
@@ -962,7 +962,7 @@ function renderTax(){
 
   <!-- Family / Dependants -->
   <div class="fs" style="margin-bottom:18px">
-    <div class="fst">👨‍👩‍👧 Family Details — ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} &amp; ${escHtml(getPersonLabel(JOINT_PERSONS[1]))}</div>
+    <div class="fst">Family Details — ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} &amp; ${escHtml(getPersonLabel(JOINT_PERSONS[1]))}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div>
         <label class="fl">Dependant Children
@@ -985,14 +985,14 @@ function renderTax(){
 
   <!-- Property expense inputs -->
   <div class="fs" style="margin-bottom:18px">
-    <div class="fst">🏠 Property Expenses — FY${fy}</div>
+    <div class="fst">Property Expenses — FY${fy}</div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Enter full annual amounts. Joint properties are split 50/50 automatically.</div>
     ${propInputs}
   </div>
 
   <!-- Tax summary table -->
   <div class="fs" style="margin-bottom:18px">
-    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span>📊 Tax Summary — FY${fy}</span>${pager}</div>
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span>Tax Summary — FY${fy}</span>${pager}</div>
     <div style="overflow-x:auto">
     <table class="tx-tbl" style="width:100%;border-collapse:collapse">
       <thead><tr>
@@ -1025,7 +1025,7 @@ function renderTax(){
         ${row('Rental Loss (negative gearing)', colPersons.map(p=>taxByPerson[p].netPropLoss>0?'-'+n2(taxByPerson[p].netPropLoss):'—'),'neg')}
         ${row('Net Capital Gain (after 50% disc)', colPersons.map(p=>n2(taxByPerson[p].myCGT)),'',cgt.totalLoss>0?'capital losses: -'+n2(cgt.totalLoss):'')}
         <tr><td colspan="${colPersons.length+1}" style="padding:2px 8px 8px">
-          <span style="font-size:11px;color:var(--blue);cursor:pointer" onclick="switchTab('cgt',$('tab-cgt'))">
+          <span style="font-size:11px;color:#8fe6d2;cursor:pointer" onclick="switchTab('cgt',$('tab-cgt'))">
             ↳ View full Capital Gains report (per-parcel detail, any FY) →
           </span>
         </td></tr>

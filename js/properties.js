@@ -389,12 +389,11 @@ function renderSuperCards(){
   const _now    = new Date();
   const CUR_FY  = _now.getMonth() >= 6 ? _now.getFullYear()+1 : _now.getFullYear();
   const PREV_FY = CUR_FY - 1;  // most recently completed FY
-  const COLORS  = ['#3b82f6','#10b981','#f59e0b','#ef4444','#a855f7','#ec4899','#14b8a6'];
 
   // Helper: get balance for an account at end of a given FY (or null)
   const fyBal = (a, fy) => (a.fyData && a.fyData[fy]) ? +a.fyData[fy] : null;
 
-  let balLabel, balVal, balSub, prevLabel, prevVal, growthVal, growthPct, accentColor;
+  let balLabel, balVal, balSub, prevLabel, prevVal, growthVal, growthPct, growthNum = null;
 
   if(suCardView === 0){
     // ── Combined view ──
@@ -402,6 +401,7 @@ function renderSuperCards(){
     const totalPrev = superAccounts.reduce((s,a) => s + (fyBal(a, PREV_FY)||0), 0);
     const growth    = totalPrev > 0 ? totalBal - totalPrev : null;
     const gPct      = growth !== null && totalPrev > 0 ? (growth/totalPrev)*100 : null;
+    growthNum       = growth;
     const n         = superAccounts.length;
     balLabel  = 'Total Balance';
     balVal    = n2(totalBal);
@@ -410,8 +410,6 @@ function renderSuperCards(){
     prevVal   = totalPrev > 0 ? n2(totalPrev) : '—';
     growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth) : '—';
     growthPct = gPct   !== null ? (gPct>=0?'+':'')   + gPct.toFixed(1)+'%' : '';
-    accentColor = null;
-    el.style.outline = '';
   } else {
     // ── Single account view ──
     const a    = superAccounts[suCardView - 1];
@@ -419,8 +417,7 @@ function renderSuperCards(){
     const prev = fyBal(a, PREV_FY);
     const growth = prev !== null ? bal - prev : null;
     const gPct   = growth !== null && prev > 0 ? (growth/prev)*100 : null;
-    const _a = superAccounts[suCardView-1];
-    accentColor  = (_a && _a.color) ? _a.color : COLORS[(suCardView-1) % COLORS.length];
+    growthNum    = growth;
     balLabel  = a.name;
     balVal    = n2(bal);
     balSub    = 'click to cycle ↻';
@@ -428,11 +425,15 @@ function renderSuperCards(){
     prevVal   = prev !== null ? n2(prev) : '—';
     growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth) : '—';
     growthPct = gPct   !== null ? (gPct>=0?'+':'')   + gPct.toFixed(1)+'%' : '';
-    el.style.outline = '2px solid ' + accentColor;
-    el.style.borderRadius = '7px';
   }
 
-  const growthClass = growthVal.startsWith('+') ? 'pos' : growthVal.startsWith('-') ? 'neg' : 'neu';
+  const growthClass = growthNum == null ? 'neu' : growthNum > 0 ? 'pos' : growthNum < 0 ? 'neg' : 'neu';
+  // Super balances use the category colours (purple total, blue prior FY);
+  // growth flips red when the balance has fallen.
+  const growthTint = growthClass === 'neg' ? 'var(--debt-red)'
+                    : growthClass === 'pos' ? 'var(--asset-lime)'
+                    : 'var(--neutral-slate)';
+  const tints = ['var(--cat-super)', 'var(--cat-portfolio)', growthTint];
 
   el.innerHTML = [
     { l: balLabel,              v: balVal,   s: 'neu',        sub: balSub,
@@ -441,15 +442,13 @@ function renderSuperCards(){
       onclick: 'cycleSuperCardView()' },
     { l: 'Growth since FY' + PREV_FY, v: growthVal, s: growthClass, sub: growthPct,
       onclick: 'cycleSuperCardView()' },
-  ].map(c =>
-    `<div class="card" onclick="${c.onclick}" style="cursor:pointer">
+  ].map((c, i) =>
+    `<div class="card" onclick="${c.onclick}" style="cursor:pointer;${cardTint(tints[i])}">
       <div class="card-label">${c.l}</div>
       <div class="card-value ${c.s}">${c.v}</div>
       <div class="card-sub">${c.sub}</div>
     </div>`
   ).join('');
-
-  if(suCardView === 0){ el.style.outline = ''; el.style.borderRadius = ''; }
 }
 
 function cycleSuperCardView(){
@@ -1324,9 +1323,9 @@ function renderSplitRows(splits){
           <input class="fi sp-offset" type="number" value="${sp.offset||''}" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
         <div><label class="fl" style="font-size:10px">Loan Purpose <span style="font-size:9px;color:var(--text3)">(tax)</span></label>
           <select class="fi sp-purpose" style="padding:3px 7px" oninput="calcPropPreview()">
-            <option value="rental"     ${(!sp.purpose||sp.purpose==='rental')    ?'selected':''}>🏠 Rental</option>
-            <option value="investment" ${sp.purpose==='investment'?'selected':''}>📈 Investment</option>
-            <option value="personal"   ${sp.purpose==='personal'  ?'selected':''}>👤 Personal</option>
+            <option value="rental"     ${(!sp.purpose||sp.purpose==='rental')    ?'selected':''}>Rental</option>
+            <option value="investment" ${sp.purpose==='investment'?'selected':''}>Investment</option>
+            <option value="personal"   ${sp.purpose==='personal'  ?'selected':''}>Personal</option>
           </select></div>
       </div>
     </div>`).join('');
@@ -1363,9 +1362,9 @@ function addLoanSplit(){
           <input class="fi sp-offset" type="number" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
         <div><label class="fl" style="font-size:10px">Loan Purpose <span style="font-size:9px;color:var(--text3)">(tax)</span></label>
           <select class="fi sp-purpose" style="padding:3px 7px" oninput="calcPropPreview()">
-            <option value="rental">🏠 Rental</option>
-            <option value="investment">📈 Investment</option>
-            <option value="personal">👤 Personal</option>
+            <option value="rental">Rental</option>
+            <option value="investment">Investment</option>
+            <option value="personal">Personal</option>
           </select></div>
       </div>
     </div>`;
@@ -2284,15 +2283,17 @@ function renderProperties(){
         : est.status === 'exempt' ? 'None (main residence)' : '—';
       const cashHtml = `<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
         <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">CASH IN HAND AFTER SALE</div>
-        <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px">
-          ${row('Sale value', n2(value))}
-          ${row('Less: selling costs' + (sellCostPct ? ' (' + sellCostPct + '%)' : ''), sellCosts > 0 ? '−' + n2(sellCosts) : '—')}
-          ${row('Less: loan payout', loan > 0 ? '−' + n2(loan) : '—')}
-          ${row('Less: est. CGT', taxCell)}
-          ${row('Net cash from sale' + (taxKnown ? '' : ' (before CGT)'), n2(netCash), { bold: true, top: true, color: netCash >= 0 ? 'var(--green)' : 'var(--red)' })}
-          ${row('Plus: offset balance (your own cash)', offset > 0 ? '+' + n2(offset) : '—')}
-          ${row('Total cash after sale', n2(totalCash), { bold: true, top: true, color: totalCash >= 0 ? 'var(--green)' : 'var(--red)' })}
-        </table>
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+          <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px">
+            ${row('Sale value', n2(value))}
+            ${row('Less: selling costs' + (sellCostPct ? ' (' + sellCostPct + '%)' : ''), sellCosts > 0 ? '−' + n2(sellCosts) : '—')}
+            ${row('Less: loan payout', loan > 0 ? '−' + n2(loan) : '—')}
+            ${row('Less: est. CGT', taxCell)}
+            ${row('Net cash from sale' + (taxKnown ? '' : ' (before CGT)'), n2(netCash), { bold: true, top: true, color: netCash >= 0 ? 'var(--green)' : 'var(--red)' })}
+            ${row('Plus: offset balance (your own cash)', offset > 0 ? '+' + n2(offset) : '—')}
+            ${row('Total cash after sale', n2(totalCash), { bold: true, top: true, color: totalCash >= 0 ? 'var(--green)' : 'var(--red)' })}
+          </table>
+        </div>
         ${netCash < 0 ? note('Negative: the sale price wouldn\'t cover the loan and costs — you\'d need to find the shortfall' + (offset > 0 ? ', which your offset balance may help cover.' : '.'), '8px') : ''}
       </div>`;
 
@@ -2332,8 +2333,8 @@ function renderProperties(){
           </div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn" onclick="editProperty(this)" data-id="${p.id}">✏ EDIT</button>
-          <button class="btn btn-r" onclick="deleteProperty(this)" data-id="${p.id}">✕ DELETE</button>
+          <button class="btn" onclick="editProperty(this)" data-id="${p.id}">Edit</button>
+          <button class="btn btn-r" onclick="deleteProperty(this)" data-id="${p.id}">Delete</button>
         </div>
       </div>
 
@@ -2370,8 +2371,8 @@ function renderProperties(){
             ${stat('Annual Rent',      n2(m.annualRent), 'pos')}
             ${stat('Annual Expenses',  n2(+p.annualExpenses||0), 'neg')}
             ${stat('Annual Interest',  n2(m.annualInterest), 'neg')}
-            ${m.investmentAnnualInterest>0 ? stat('\u2514 Investment (📈 deductible)', n2(m.investmentAnnualInterest), 'neg') : ''}
-            ${m.personalAnnualInterest>0   ? stat('\u2514 Personal (👤 not deductible)', n2(m.personalAnnualInterest), 'neu') : ''}
+            ${m.investmentAnnualInterest>0 ? stat('\u2514 Investment (deductible)', n2(m.investmentAnnualInterest), 'neg') : ''}
+            ${m.personalAnnualInterest>0   ? stat('\u2514 Personal (not deductible)', n2(m.personalAnnualInterest), 'neu') : ''}
             ${stat('Net Annual Income',n2(m.annualNetRent), clr(m.annualNetRent))}
             ${stat('Gross Yield',      m.grossYield.toFixed(2)+'%', m.grossYield>0?'pos':'neu')}
             ${stat('Net Yield',        m.netYield.toFixed(2)+'%',   clr(m.netYield))}
@@ -2381,7 +2382,7 @@ function renderProperties(){
           <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">DEBT RECYCLING</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
             ${stat('Effective DR Balance', n2(m.drEffectiveBalance))}
-            ${stat('Annual Interest (📈 deductible)', n2(m.drAnnualInterest), 'neg')}
+            ${stat('Annual Interest (deductible)', n2(m.drAnnualInterest), 'neg')}
             ${stat(fyLabel(drDivs.curFY)+' Dividend Income',  n2(drDivs.curFYIncome),  'pos')}
             ${stat(fyLabel(drDivs.prevFY)+' Dividend Income', n2(drDivs.prevFYIncome), 'pos')}
             ${stat('Net Cash Flow ('+fyLabel(drDivs.curFY)+')', n2(drDivs.curFYIncome-m.drAnnualInterest), clr(drDivs.curFYIncome-m.drAnnualInterest))}
@@ -2420,7 +2421,7 @@ function renderProperties(){
             ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(plainSymbol(s))).join(', ') : '—')}
           </div>
         </div>`:`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;display:flex;align-items:center;justify-content:center">
-          <div style="text-align:center;color:var(--text3);font-family:var(--mono);font-size:12px">🏠<br>Primary Residence<br>No rental income</div>
+          <div style="text-align:center;color:var(--text3);font-family:var(--mono);font-size:12px">Primary Residence<br>No rental income</div>
         </div>`)}
       </div>
 
@@ -2458,21 +2459,24 @@ function renderPropCards(){
   const repayLabel = propRepayAnnual ? 'Annual Repayments' : 'Total Repayments';
   const repaySub   = propRepayAnnual ? 'Per year ↻' : 'Per month ↻';
 
+  const gainTint = totalGain >= 0 ? 'var(--asset-teal)' : 'var(--debt-red)';
   const cards = [
-    {l:'Property Value',  v:n2(totalVal),    s:'neu',            sub:heldProperties.length+' propert'+(heldProperties.length===1?'y':'ies'), fn:''},
-    {l:'Total Equity',    v:n2(totalEquity), s:clr(totalEquity), sub:'Value − loan balance',   fn:''},
-    {l:debtLabel,         v:n2(debtVal),     s:'neg',            sub:debtSub,                  fn:'togglePropDebt()'},
-    {l:'Unrealised Gain', v:n2(totalGain),   s:clr(totalGain),   sub:'vs purchase price',      fn:''},
-    {l:rentLabel,         v:n2(rentVal),     s:'pos',            sub:rentSub,                  fn:'togglePropRent()'},
-    {l:repayLabel,        v:n2(repayVal),    s:'neg',            sub:repaySub,                 fn:'togglePropRepay()'},
+    {l:'Property Value',  v:n2(totalVal),    s:'neu',            sub:heldProperties.length+' propert'+(heldProperties.length===1?'y':'ies'), fn:'', tint:'var(--cat-property)'},
+    {l:'Total Equity',    v:n2(totalEquity), s:clr(totalEquity), sub:'Value − loan balance',   fn:'', tint:'var(--asset-forest)'},
+    {l:debtLabel,         v:n2(debtVal),     s:'neg',            sub:debtSub,                  fn:'togglePropDebt()', tint:'var(--debt-red)'},
+    {l:'Unrealised Gain', v:n2(totalGain),   s:clr(totalGain),   sub:'vs purchase price',      fn:'', tint:gainTint},
+    {l:rentLabel,         v:n2(rentVal),     s:'pos',            sub:rentSub,                  fn:'togglePropRent()', tint:'var(--cat-income)'},
+    {l:repayLabel,        v:n2(repayVal),    s:'neg',            sub:repaySub,                 fn:'togglePropRepay()', tint:'var(--debt-coral)'},
   ];
-  $('pw-cards').innerHTML = cards.map(c=>
-    `<div class="card"${c.fn?` onclick="${c.fn}" style="cursor:pointer" title="Click to toggle"`:''}>
+  $('pw-cards').innerHTML = cards.map(c=>{
+    const click = c.fn ? ` onclick="${c.fn}" title="Click to toggle"` : '';
+    const style = (c.fn ? 'cursor:pointer;' : '') + cardTint(c.tint);
+    return `<div class="card"${click} style="${style}">
       <div class="card-label">${c.l}</div>
       <div class="card-value ${c.s}">${c.v}</div>
       <div class="card-sub">${c.sub}</div>
-    </div>`
-  ).join('');
+    </div>`;
+  }).join('');
 }
 function togglePropDebt(){
   propDebtNet = !propDebtNet;

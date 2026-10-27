@@ -4,11 +4,15 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' https:; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self' https://api.github.com https://raw.githubusercontent.com https://gist.githubusercontent.com https://api.coingecko.com https://*.workers.dev https://*.cloudflare.com https://query1.finance.yahoo.com https://www.monashinvestors.com; img-src 'self' data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Personal investment portfolio tracker — stocks, ETFs, crypto, property, and superannuation.">
 <title>Portfolio Tracker</title>
 
 <!-- PWA / Add to Home Screen support -->
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#121316">
+<meta name="theme-color" content="#0a0b0e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,32 +27,64 @@
 <body>
 
 <div class="header">
-  <div class="logo"><div class="logo-dot" id="logo-dot"></div>PORTFOLIO TRACKER</div>
+  <div class="logo">
+    <svg class="logo-mark" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+      <rect x="1.4" y="11" width="3.6" height="7" rx="1.2" fill="#39414d"/>
+      <rect x="8.2" y="7" width="3.6" height="11" rx="1.2" fill="#6b7481"/>
+      <rect x="15" y="2.5" width="3.6" height="15.5" rx="1.2" fill="#2fc4a4"/>
+    </svg>
+    <span class="logo-text">Portfolio<span class="logo-text-dim">Tracker</span></span>
+    <div class="logo-dot" id="logo-dot"></div>
+  </div>
   <div class="hdr-r">
-    <button class="btn" onclick="refreshPrices()">↻ PRICES</button><span id="price-refresh-status" style="font-size:11px;font-family:var(--mono);color:var(--text3);white-space:nowrap"></span>
-    <button class="btn" onclick="syncPush()" id="hdr-sync-push" title="Push data to GitHub Gist">☁ PUSH</button>
-    <button class="btn" onclick="syncPull()" id="hdr-sync-pull" title="Pull data from GitHub Gist">⬇ PULL</button>
-    <span id="hdr-sync-status" style="font-family:var(--mono);font-size:10px;color:var(--text3);white-space:nowrap"></span>
-    <button class="btn btn-r" onclick="clearAll()">✕ CLEAR ALL</button>
+    <button class="btn btn-accent" onclick="refreshPrices()" title="Refresh live prices">Prices</button><span id="price-refresh-status" style="font-size:10px;font-family:var(--mono);color:var(--text3);white-space:nowrap;padding:0 6px"></span>
+    <div class="hdr-sync" role="group" aria-label="Cloud sync">
+      <button class="btn" onclick="syncPush()" id="hdr-sync-push" title="Push data to GitHub Gist">
+        <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M12 13v8"/>
+          <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
+          <path d="m8 17 4-4 4 4"/>
+        </svg>
+        Push
+      </button>
+      <button class="btn" onclick="syncPull()" id="hdr-sync-pull" title="Pull data from GitHub Gist">
+        <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M12 13v8"/>
+          <path d="m8 17 4 4 4-4"/>
+          <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
+        </svg>
+        Pull
+      </button>
+    </div>
+    <span id="hdr-sync-status" style="font-family:var(--mono);font-size:10px;color:var(--text3);white-space:nowrap;padding:0 6px"></span>
+    <button class="btn btn-r" onclick="clearAll()" title="Clear all local data">Clear all</button>
   </div>
 </div>
 
 <div class="tabs">
-  <div class="tab active" onclick="switchTab('portfolio',this)">PORTFOLIO</div>
-  <div class="tab" onclick="switchTab('trades',this)">TRADES</div>
-  <div class="tab" onclick="switchTab('analytics',this)">📈 ANALYTICS</div>
-  <div class="tab" onclick="switchTab('holdings2',this)">🏦 HOLDINGS</div>
-  <div class="tab" onclick="switchTab('dividends',this)">💰 DIVIDENDS</div>
-  <div class="tab" onclick="switchTab('property',this)">🏠 PROPERTY</div>
-  <div class="tab" onclick="switchTab('super',this)">🏦 SUPER</div>
-  <div class="tab" onclick="switchTab('spending',this)">💳 SPENDING</div>
-  <div class="tab" onclick="switchTab('tax',this)">🧾 TAX</div>
-  <div class="tab" id="tab-cgt" onclick="switchTab('cgt',this)">📉 CAPITAL GAINS</div>
-  <div class="tab" onclick="switchTab('networth',this)">🏛️ NET WORTH</div>
-  <div class="tab" onclick="switchTab('settings',this)">⚙ SETTINGS</div>
+  <div class="tab active" onclick="switchTab('portfolio',this)">Portfolio</div>
+  <div class="tab" onclick="switchTab('trades',this)">Trades</div>
+  <div class="tab" onclick="switchTab('analytics',this)">Analytics</div>
+  <div class="tab" onclick="switchTab('holdings2',this)">Holdings</div>
+  <div class="tab" onclick="switchTab('dividends',this)">Dividends</div>
+  <div class="tab" onclick="switchTab('property',this)">Property</div>
+  <div class="tab" onclick="switchTab('super',this)">Super</div>
+  <div class="tab" onclick="switchTab('spending',this)">Spending</div>
+  <div class="tab" onclick="switchTab('tax',this)">Tax</div>
+  <div class="tab" id="tab-cgt" onclick="switchTab('cgt',this)">Capital Gains</div>
+  <div class="tab" onclick="switchTab('networth',this)">Net Worth</div>
+  <div class="tab" onclick="switchTab('settings',this)">Settings</div>
 </div>
 
 <div class="main">
+
+<div class="page-head">
+  <div>
+    <h1 class="page-title" id="page-title">Portfolio</h1>
+    <p class="page-sub" id="page-sub">Every open position, valued in AUD.</p>
+  </div>
+  <span class="page-meta">AUD · Base currency</span>
+</div>
 
 <!-- PORTFOLIO -->
 <div class="panel active" id="panel-portfolio">
@@ -60,11 +96,11 @@
     <div class="card"><div class="card-label">Total Trades</div><div class="card-value neu" id="ctrd">0</div><div class="card-sub" id="cpt">Prices not loaded</div></div>
   </div>
   <div class="tw" id="pf-change-wrap" style="display:none">
-    <div class="th" id="pf-change-th" onclick="cyclePfChangeMode()" style="cursor:pointer" title="Tap to switch: Value Change → Time-Weighted → Money-Weighted">
-      <span class="tt">PORTFOLIO CHANGE <span id="pf-change-mode-badge" style="font-family:var(--mono);font-size:10px;color:var(--gold);text-transform:none;letter-spacing:0;margin-left:6px">· Value Change</span> <span style="font-size:9px;color:var(--text3);text-transform:none;letter-spacing:0">↻ tap to switch</span></span>
-      <span id="pf-change-sub" style="font-family:var(--mono);font-size:10px;color:var(--text3)"></span>
+    <div class="th" id="pf-change-th" onclick="cyclePfChangeMode()" style="cursor:pointer" title="Switch view: Value Change → Time-Weighted → Money-Weighted">
+      <span class="tt">Portfolio Change <span id="pf-change-mode-badge">Value Change</span></span>
+      <span id="pf-change-sub"></span>
     </div>
-    <div id="pf-change-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px;padding:16px 18px"></div>
+    <div id="pf-change-row" class="pf-change-row"></div>
   </div>
   <div id="price-alerts-wrap" class="fs" style="display:none;margin-bottom:16px"></div>
   <div id="concentration-alerts-wrap" class="fs" style="display:none;margin-bottom:16px"></div>
@@ -87,7 +123,7 @@
         <th data-pri="7">Cur Price</th><th data-pri="1">Mkt Value</th><th data-pri="2">Cost Basis</th><th data-pri="9">P&amp;L $</th><th data-pri="3">P&amp;L %</th><th data-pri="10">Source</th>
       </tr></thead><tbody id="hb"></tbody><tfoot id="hb-foot"></tfoot></table>
     </div>
-    <div class="empty" id="he"><div class="empty-icon">📊</div>No holdings yet — add trades or import a CSV.</div>
+    <div class="empty" id="he"><div class="empty-icon"></div>No holdings yet — add trades or import a CSV.</div>
   </div>
 </div>
 
@@ -96,7 +132,7 @@
 
   <div class="fs" style="margin-bottom:12px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('import')">
-      <span>📥 Import Trades CSV</span>
+      <span>Import Trades CSV</span>
       <span id="sec-toggle-import" style="font-size:18px;color:var(--blue);font-family:var(--mono);line-height:1">−</span>
     </div>
     <div id="sec-body-import" style="margin-top:14px">
@@ -112,7 +148,7 @@
   </div>
   <div class="dz" id="dz" onclick="document.getElementById('cf').click()"
     ondragover="dzO(event)" ondragleave="dzL()" ondrop="dzD(event)">
-    <div class="dz-icon">📂</div>
+    <div class="dz-icon"></div>
     <div class="dz-txt">DROP CSV HERE or click to browse</div>
     <div class="dz-sub">Auto-detects format from filename and column headers</div>
     <input type="file" id="cf" accept=".csv" style="display:none" onchange="onSel(event)">
@@ -123,8 +159,8 @@
       <th>Date</th><th>Side</th><th>Symbol</th><th>Type</th><th>Units</th><th>Price</th><th>Fees</th><th>Source</th><th>Notes</th>
     </tr></thead><tbody id="ipb"></tbody></table></div>
     <div style="display:flex;gap:12px;margin-top:14px">
-      <button class="btn btn-g" onclick="confirmImp()">✓ IMPORT ALL</button>
-      <button class="btn btn-r" onclick="cancelImp()">✕ CANCEL</button>
+      <button class="btn btn-g" onclick="confirmImp()">IMPORT ALL</button>
+      <button class="btn btn-r" onclick="cancelImp()">CANCEL</button>
     </div>
   </div>
 
@@ -133,7 +169,7 @@
   </div>
   <div class="fs" style="margin-bottom:12px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('manual')">
-      <span>✏️ Manual Trade Entry</span>
+      <span>Manual Trade Entry</span>
       <span id="sec-toggle-manual" style="font-size:18px;color:var(--text3);font-family:var(--mono);line-height:1">+</span>
     </div>
     <div id="sec-body-manual" style="margin-top:14px;display:none">
@@ -165,7 +201,7 @@
 
   <div class="fs" style="margin-bottom:12px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('swap')">
-      <span>🔁 Crypto Swap</span>
+      <span>Crypto Swap</span>
       <span id="sec-toggle-swap" style="font-size:18px;color:var(--text3);font-family:var(--mono);line-height:1">+</span>
     </div>
     <div id="sec-body-swap" style="display:none;margin-top:14px">
@@ -205,7 +241,7 @@
     </div>
 
     <div id="sw-preview" style="background:var(--bg2);border:1px solid var(--bo);border-radius:8px;padding:12px 16px;margin:12px 0;font-size:12px;display:none">
-      <div style="font-weight:700;color:var(--text1);margin-bottom:6px">📋 Preview</div>
+      <div style="font-weight:700;color:var(--text1);margin-bottom:6px">Preview</div>
       <div id="sw-preview-text" style="color:var(--text2);line-height:1.8"></div>
     </div>
 
@@ -220,7 +256,7 @@
 
   <div class="fs" style="margin-bottom:12px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('ca')">
-      <span>🔀 Corporate Action</span>
+      <span>Corporate Action</span>
       <span id="sec-toggle-ca" style="font-size:18px;color:var(--text3);font-family:var(--mono);line-height:1">+</span>
     </div>
     <div id="sec-body-ca" style="display:none;margin-top:14px">
@@ -231,11 +267,11 @@
 
     <!-- Action type selector -->
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px" id="ca-type-pills">
-      <button class="ca-pill active" onclick="setCaType('merger')">🔀 Merger / Conversion</button>
-      <button class="ca-pill" onclick="setCaType('split')">✂️ Stock Split</button>
-      <button class="ca-pill" onclick="setCaType('rename')">🏷️ Ticker Rename</button>
-      <button class="ca-pill" onclick="setCaType('spinoff')">🌱 Spin-off</button>
-      <button class="ca-pill" onclick="setCaType('worthless')">💀 Write-off (Worthless)</button>
+      <button class="ca-pill active" onclick="setCaType('merger')">Merger / Conversion</button>
+      <button class="ca-pill" onclick="setCaType('split')">Stock Split</button>
+      <button class="ca-pill" onclick="setCaType('rename')">Ticker Rename</button>
+      <button class="ca-pill" onclick="setCaType('spinoff')">Spin-off</button>
+      <button class="ca-pill" onclick="setCaType('worthless')">Write-off (Worthless)</button>
     </div>
 
     <div class="fg" id="ca-form">
@@ -280,7 +316,7 @@
 
     <!-- Preview -->
     <div id="ca-preview" style="background:var(--bg2);border:1px solid var(--bo);border-radius:8px;padding:12px 16px;margin:12px 0;font-size:12px;display:none">
-      <div style="font-weight:700;color:var(--text1);margin-bottom:6px">📋 Preview</div>
+      <div style="font-weight:700;color:var(--text1);margin-bottom:6px">Preview</div>
       <div id="ca-preview-text" style="color:var(--text2);line-height:1.8"></div>
     </div>
 
@@ -293,7 +329,7 @@
   </div>
   <div class="fs" style="margin-bottom:12px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('recent')">
-      <span>🕐 Recent Manual Entries</span>
+      <span>Recent Manual Entries</span>
       <span id="sec-toggle-recent" style="font-size:18px;color:var(--text3);font-family:var(--mono);line-height:1">+</span>
     </div>
     <div id="sec-body-recent" style="display:none;margin-top:14px">
@@ -301,7 +337,7 @@
     <div class="ovx"><table><thead><tr>
       <th>Date</th><th>Side</th><th>Symbol</th><th>Units</th><th>Price</th><th>Net Total</th><th></th>
     </tr></thead><tbody id="rb"></tbody></table></div>
-    <div class="empty" id="re"><div class="empty-icon">✏️</div>No manual entries yet.</div>
+    <div class="empty" id="re"><div class="empty-icon"></div>No manual entries yet.</div>
   
     </div>
   </div>
@@ -309,16 +345,15 @@
   <!-- Trades table -->
   <div class="fs">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('tradetbl')">
-      <span>📋 All Trades (<span id="tc">0</span>)</span>
+      <span>All Trades (<span id="tc">0</span>)</span>
       <span id="sec-toggle-tradetbl" style="font-size:18px;color:var(--blue);font-family:var(--mono);line-height:1">−</span>
     </div>
     <div id="sec-body-tradetbl" style="margin-top:14px">
 
   <div class="tw">
-    <div class="th">
-      <span class="tt">ALL TRADES</span>
+    <div class="th" style="justify-content:flex-end">
       <div class="fr">
-        <button class="btn" onclick="retypeSymbolPrompt()" title="Bulk retype all trades for a symbol" style="font-size:11px;padding:4px 10px">⟳ Retype Symbol</button>
+        <button class="btn" onclick="retypeSymbolPrompt()" title="Bulk retype all trades for a symbol" style="font-size:11px;padding:4px 10px">Retype Symbol</button>
         <input class="fsm" placeholder="Symbol…" id="ts" oninput="renderT()" onchange="renderT()">
         <select class="fsm" id="tsi" onchange="renderT()"><option value="">All Types</option><option value="buy">Buy</option><option value="sell">Sell</option><option value="drp">DRP</option><option value="corporate_action">Corp Action</option></select>
         <select class="fsm" id="to-own" onchange="renderT()"><option value="">All Owners</option></select>
@@ -331,7 +366,7 @@
         <th>Units</th><th>Price</th><th>Gross</th><th>Fees</th><th>Net</th><th>Source</th><th>Notes</th><th></th>
       </tr></thead><tbody id="tb"></tbody><tfoot id="t-foot"></tfoot></table>
     </div>
-    <div class="empty" id="te"><div class="empty-icon">📋</div>No trades yet.</div>
+    <div class="empty" id="te"><div class="empty-icon"></div>No trades yet.</div>
   </div>
 
     </div>
@@ -486,7 +521,7 @@
         <tfoot id="hd-foot"></tfoot>
       </table>
     </div>
-    <div class="empty" id="hd-empty"><div class="empty-icon">🏦</div>No holdings yet.</div>
+    <div class="empty" id="hd-empty"><div class="empty-icon"></div>No holdings yet.</div>
   </div>
 </div>
 
@@ -501,8 +536,8 @@
   <div class="fs" style="margin-bottom:18px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
       <span>Record Dividend / Distribution &amp; DRP Entry</span>
-      <label class="btn btn-g" style="cursor:pointer;font-size:11px;padding:5px 12px;margin:0" title="Import CommSec EOFY PDF, registry DRP/dividend statement, or CSV (date, symbol, amount, type, notes)">
-        📄 Upload PDF / CSV
+      <label class="btn" style="cursor:pointer;font-size:11px;padding:5px 10px;margin:0" title="Import CommSec EOFY PDF, registry DRP/dividend statement, or CSV (date, symbol, amount, type, notes)">
+        Upload PDF / CSV
         <input type="file" id="div-import-file" accept=".csv,.pdf" multiple style="display:none" onchange="importDividendFile(this)">
       </label>
     </div>
@@ -516,8 +551,8 @@
           <tbody id="div-import-tbody"></tbody></table>
         </div>
       </div>
-      <button class="btn btn-g" onclick="confirmDividendImport()">✓ IMPORT ALL NEW</button>
-      <button class="btn" style="margin-left:8px" onclick="cancelDividendImport()">✕ CANCEL</button>
+      <button class="btn btn-g" onclick="confirmDividendImport()">IMPORT ALL NEW</button>
+      <button class="btn" style="margin-left:8px" onclick="cancelDividendImport()">CANCEL</button>
     </div>
     <div class="fg">
       <div class="fgi"><label class="fl">Date</label><input class="fi" type="date" id="dv-date"></div>
@@ -572,7 +607,7 @@
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
       <button class="btn btn-g" id="dv-save-btn" onclick="addDividend()">ADD DIVIDEND</button>
       <button class="btn" onclick="dvClear()">CLEAR</button>
-      <button class="btn" onclick="checkAndProcessDividends()" title="Check expected dividends from Yahoo Finance + process DRP for enabled symbols" style="background:var(--blue-dim,rgba(59,130,246,0.15));color:var(--blue,#3b82f6);border-color:var(--blue,#3b82f6)">🔍 Check &amp; Process Dividends</button>
+      <button class="btn btn-accent" onclick="checkAndProcessDividends()" title="Check expected dividends from Yahoo Finance + process DRP for enabled symbols">Check &amp; Process Dividends</button>
 
     </div>
 
@@ -624,7 +659,7 @@
         <th>Date</th><th>Symbol</th><th>Type</th><th>Amount (AUD)</th><th>Notes</th><th></th>
       </tr></thead><tbody id="dv-body"></tbody><tfoot id="dv-foot"></tfoot></table>
     </div>
-    <div class="empty" id="dv-empty"><div class="empty-icon">💰</div>No dividends recorded yet.</div>
+    <div class="empty" id="dv-empty"><div class="empty-icon"></div>No dividends recorded yet.</div>
   </div>
 </div>
 
@@ -655,7 +690,7 @@
       <div class="fgi"><label class="fl">Purchase Price (AUD)</label><input class="fi" type="number" id="pf-pprice" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Purchase Costs (stamp duty, legal…)</label><input class="fi" type="number" id="pf-pcosts" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Capital Improvements (cumulative, AUD)
-        <span style="font-size:10px;color:var(--text3)"> — renovations, additions</span>
+        <span style="font-size:10px;color:var(--text3)">— renovations, additions</span>
       </label><input class="fi" type="number" id="pf-improvements" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Current Estimated Value (AUD)</label><input class="fi" type="number" id="pf-cval" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi" style="grid-column:1/-1">
@@ -677,7 +712,7 @@
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px">
           <input type="checkbox" id="pf-dr" onchange="togglePropDRFields();calcPropPreview()">
           <span class="fl" style="margin-bottom:0">Debt Recycling</span>
-          <span style="font-size:10px;color:var(--text3)">— this loan (📈 Investment-purpose splits) funds share investments</span>
+          <span style="font-size:10px;color:var(--text3)">— this loan ( Investment-purpose splits) funds share investments</span>
         </label>
         <div id="pf-dr-fields" style="display:none;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:5px;margin-bottom:4px">
           <label class="fl" style="margin-bottom:8px;display:block">Linked Stocks / ETFs (currently held)</label>
@@ -687,7 +722,7 @@
       </div>
       <div class="fgi"><label class="fl">Weekly Rent Income (AUD)</label><input class="fi" type="number" id="pf-rent" placeholder="0 if PPOR" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Annual Property Expenses (AUD)
-        <span style="font-size:10px;color:var(--text3)"> — auto-filled from Tax tab</span>
+        <span style="font-size:10px;color:var(--text3)">— auto-filled from Tax tab</span>
       </label><input class="fi" type="text" inputmode="text" id="pf-expenses" placeholder="rates, insurance, mgmt… or +/-" onfocus="mathInpInit(this)" oninput="mathInpInput(this)" onkeydown="if(event.key==='Enter'||event.key==='Tab'){event.preventDefault();mathInpCommit(this,v=>{this.value=v;calcPropPreview();});}" onkeyup="if(event.key==='Escape'){this.value=this.dataset.prior||'';;mathInpHint(this);}" onblur="mathInpHint(this);calcPropPreview();"></div>
       <div class="fgi"><label class="fl">Property Manager?</label>
         <select class="fi" id="pf-mgr"><option value="no">Self-managed</option><option value="yes">Property Manager</option></select>
@@ -766,7 +801,7 @@
           <input class="fi" type="number" id="su-balance" placeholder="0" step="any" min="0" oninput="renderSuperChart()"></div>
         <div class="fgi"><label class="fl">Line Colour on Chart</label>
           <div style="display:flex;align-items:center;gap:8px">
-            <input type="color" id="su-color" value="#3b82f6" style="width:44px;height:32px;padding:2px;border:1px solid var(--border);border-radius:4px;background:var(--bg);cursor:pointer" oninput="renderSuperChart();if($('su-color-label'))$('su-color-label').textContent=this.value">
+            <input type="color" id="su-color" value="#3b82f6" style="width:44px;height:32px;padding:2px;border:1px solid var(--border);border-radius:4px;background:transparent;cursor:pointer" oninput="renderSuperChart();if($('su-color-label'))$('su-color-label').textContent=this.value">
             <span style="font-family:var(--mono);font-size:11px;color:var(--text3)" id="su-color-label">#3b82f6</span>
           </div></div>
       </div>
@@ -797,7 +832,7 @@
       </div>
       <!-- Carry-forward CC inputs -->
       <div style="margin-top:16px;padding:12px;background:rgba(99,102,241,0.06);border-radius:8px;border:1px solid rgba(99,102,241,0.2)">
-        <div style="font-family:var(--mono);font-size:11px;color:#818cf8;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">⟳ Carry-Forward — Unused Concessional Contributions</div>
+        <div style="font-family:var(--mono);font-size:11px;color:#818cf8;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Carry-Forward — Unused Concessional Contributions</div>
         <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5">Enter the <b style="color:var(--text2)">unused concessional contributions cap</b> for each year exactly as shown on your ATO online services (MyGov → Tax → Super → Carry-forward).<br>Leave blank = $0 carry-forward for that year.</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-bottom:8px">
           <div><label class="fl" style="font-size:10px"><span id="su-bal-prev-label">Super Balance at 30 Jun FY2025</span>
@@ -820,7 +855,7 @@
 
       <!-- Non-Concessional Bring-Forward tracking -->
       <div style="margin-top:16px;padding:12px;background:rgba(16,185,129,0.06);border-radius:8px;border:1px solid rgba(16,185,129,0.2)">
-        <div style="font-family:var(--mono);font-size:11px;color:var(--green);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">⟳ Non-Concessional Bring-Forward (optional)</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--green);letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px">Non-Concessional Bring-Forward (optional)</div>
         <div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5">If you've triggered a 2- or 3-year bring-forward period, enter when it started and your total super balance just before it, to track the locked-in cap across the whole period.<br>Leave blank if you haven't triggered a bring-forward period.</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-bottom:10px">
           <div><label class="fl" style="font-size:10px">Bring-forward triggered in FY</label>
@@ -883,17 +918,17 @@
     <input class="fi" type="text" id="sp-search" placeholder="Search merchant..." oninput="renderSpending()"
       style="width:180px;font-size:12px;padding:5px 10px">
     <label class="btn btn-g" style="cursor:pointer" title="Import credit card CSV">
-      ⬆ IMPORT CSV
+       IMPORT CSV
       <input type="file" accept=".csv" style="display:none" onchange="importSpendingCSV(this)">
     </label>
-    <button class="btn btn-r" onclick="clearSpendingData()" title="Clear all spending data">🗑 CLEAR</button>
+    <button class="btn btn-r" onclick="clearSpendingData()" title="Clear all spending data">CLEAR</button>
   </div>
   <div id="sp-import-status" style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:10px;display:none"></div>
 
   <!-- Money Out -->
   <div class="fs" style="margin-bottom:16px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
-      <span>💸 Money Out</span>
+      <span>Money Out</span>
       <span id="sp-out-total" style="font-family:var(--mono);font-size:13px;color:var(--red)"></span>
     </div>
 
@@ -916,7 +951,7 @@
   <!-- Money In -->
   <div class="fs">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
-      <span>💚 Money In</span>
+      <span>Money In</span>
       <span id="sp-in-total" style="font-family:var(--mono);font-size:13px;color:var(--green)"></span>
     </div>
     <div id="sp-in-list" style="margin-bottom:14px"></div>
@@ -945,7 +980,7 @@
 
   <!-- Cloudflare Worker setup -->
   <div class="fs" style="margin-bottom:16px">
-    <div class="fst">💾 Backup &amp; Restore</div>
+    <div class="fst">Backup &amp; Restore</div>
     <div id="backup-reminder" style="display:none;font-size:12px;font-weight:600;margin-bottom:14px;padding:8px 10px;border-radius:6px;background:var(--surface2)"></div>
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px">
@@ -954,14 +989,14 @@
       <div style="flex:1;min-width:220px">
         <div style="font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">EXPORT</div>
         <div style="display:flex;flex-direction:column;gap:7px">
-          <button class="btn btn-g" onclick="backupExport()" style="padding:8px;text-align:left">
-            ⬇ Download Backup <span style="color:var(--text3);font-size:10px">.json</span>
+          <button class="btn" onclick="backupExport()" style="padding:8px;justify-content:space-between">
+            Download Backup <span style="color:var(--text3);font-size:10px">.json</span>
           </button>
-          <button class="btn btn-g" onclick="exportXLSX()" style="padding:8px;text-align:left">
-            📊 Export Spreadsheet <span style="color:var(--text3);font-size:10px">.xlsx</span>
+          <button class="btn" onclick="exportXLSX()" style="padding:8px;justify-content:space-between">
+            Export Spreadsheet <span style="color:var(--text3);font-size:10px">.xlsx</span>
           </button>
-          <button class="btn btn-g" onclick="exportCSVZip()" style="padding:8px;text-align:left">
-            📄 Export All CSV <span style="color:var(--text3);font-size:10px">individual .csv files</span>
+          <button class="btn" onclick="exportCSVZip()" style="padding:8px;justify-content:space-between">
+            Export All CSV <span style="color:var(--text3);font-size:10px">individual .csv files</span>
           </button>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:8px;line-height:1.5">
@@ -974,31 +1009,31 @@
         <div style="font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.08em;margin-bottom:8px">RESTORE / IMPORT</div>
         <div style="display:flex;flex-direction:column;gap:7px">
           <label class="btn btn-r" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
-            ⬆ Restore from Backup <span style="color:var(--text3);font-size:10px">.json</span>
+             Restore from Backup <span style="color:var(--text3);font-size:10px">.json</span>
             <input type="file" accept=".json" style="display:none" onchange="backupImport(this)">
           </label>
           <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
-            📈 Import Trades CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+             Import Trades CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
             <input type="file" accept=".csv" style="display:none" onchange="csvImport('trades',this)">
           </label>
           <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
-            💰 Import Dividends CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+             Import Dividends CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
             <input type="file" accept=".csv" style="display:none" onchange="csvImport('dividends',this)">
           </label>
           <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
-            📄 Import Dividend/DRP PDF <span style="color:var(--text3);font-size:10px">auto-parses statement</span>
+             Import Dividend/DRP PDF <span style="color:var(--text3);font-size:10px">auto-parses statement</span>
             <input type="file" accept=".pdf" multiple style="display:none" onchange="importDividendPDF(this)">
           </label>
           <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
-            🏠 Import Properties CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+             Import Properties CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
             <input type="file" accept=".csv" style="display:none" onchange="csvImport('properties',this)">
           </label>
           <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
-            🏦 Import Super CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+             Import Super CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
             <input type="file" accept=".csv" style="display:none" onchange="csvImport('super',this)">
           </label>
           <label class="btn" style="padding:8px;cursor:pointer;display:block;text-align:left;box-sizing:border-box">
-            💳 Import Spending CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
+             Import Spending CSV <span style="color:var(--text3);font-size:10px">skips dupes</span>
             <input type="file" accept=".csv" style="display:none" onchange="csvImport('spending',this)">
           </label>
         </div>
@@ -1012,11 +1047,11 @@
 
     <!-- Restore preview modal -->
     <div id="backup-preview" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:8px">
-      <div style="font-family:var(--mono);font-size:12px;color:var(--gold);font-weight:700;margin-bottom:12px">📋 RESTORE PREVIEW</div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--gold);font-weight:700;margin-bottom:12px">RESTORE PREVIEW</div>
       <div id="backup-preview-body" style="font-size:12px;line-height:2;margin-bottom:14px"></div>
       <div style="display:flex;gap:10px">
-        <button class="btn btn-r" id="backup-confirm-btn" onclick="backupConfirm()" style="padding:7px 20px">✓ Yes, Restore Now</button>
-        <button class="btn" onclick="backupCancel()" style="padding:7px 16px">✗ Cancel</button>
+        <button class="btn btn-r" id="backup-confirm-btn" onclick="backupConfirm()" style="padding:7px 20px">Yes, Restore Now</button>
+        <button class="btn" onclick="backupCancel()" style="padding:7px 16px">Cancel</button>
       </div>
     </div>
 
@@ -1025,7 +1060,7 @@
 
   <div class="fs" style="margin-bottom:18px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleSection('pa')">
-      <span>🔔 Price Drop / Rise Alerts <span id="sec-toggle-pa" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></span>
+      <span>Price Drop / Rise Alerts <span id="sec-toggle-pa" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></span>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--text2);cursor:pointer" onclick="event.stopPropagation()">
         <input type="checkbox" id="pa-enabled" onchange="savePriceAlertSettings()">
         Enabled
@@ -1036,7 +1071,7 @@
       Flags a holding on the main Portfolio page when its current price moves past your own threshold: <b style="color:var(--red)">Drop</b> = below your highest-ever buy price (a signal it might be worth averaging down), <b style="color:var(--green)">Rise</b> = above your lowest-ever buy price (a take-profit prompt). Leave either field blank to only watch the other direction. Based only on deliberate Buy trades (DRP/corporate actions aren't counted as a buy decision). Each holding gets its own thresholds — crypto typically swings far more than an LIC, so one shared number rarely fits both.
     </div>
     <div id="pa-disabled-hint" style="display:none;font-size:12px;color:var(--gold);background:var(--gold-dim);border:1px solid var(--gold);border-radius:6px;padding:7px 10px;margin-bottom:12px">
-      ⚠ Turn on "Enabled" above to activate these alerts — your selections below are saved but currently inactive.
+       Turn on "Enabled" above to activate these alerts — your selections below are saved but currently inactive.
     </div>
     <div id="pa-monitor-wrap">
       <div style="display:flex;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--text3);padding:0 0 6px;border-bottom:1px solid var(--border2)">
@@ -1049,7 +1084,7 @@
 
   <div class="fs" style="margin-bottom:18px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" onclick="toggleSection('conc')">
-      <span>⚖ Concentration Alerts <span id="sec-toggle-conc" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></span>
+      <span>Concentration Alerts <span id="sec-toggle-conc" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></span>
       <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--text2);cursor:pointer" onclick="event.stopPropagation()">
         <input type="checkbox" id="ca-enabled" onchange="saveConcentrationAlertSettings()">
         Enabled
@@ -1060,7 +1095,7 @@
       Flags a holding on the main Portfolio page once its live market value grows past a set % of your total portfolio — a signal a single position has gotten large enough that its own moves meaningfully swing your whole net worth.
     </div>
     <div id="ca-disabled-hint" style="display:none;font-size:12px;color:var(--gold);background:var(--gold-dim);border:1px solid var(--gold);border-radius:6px;padding:7px 10px;margin-bottom:12px">
-      ⚠ Turn on "Enabled" above to activate these alerts — your selections below are saved but currently inactive.
+       Turn on "Enabled" above to activate these alerts — your selections below are saved but currently inactive.
     </div>
     <div id="ca-monitor-wrap">
       <div style="display:flex;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--text3);padding:0 0 6px;border-bottom:1px solid var(--border2)">
@@ -1073,16 +1108,16 @@
 
   <!-- Data Integrity Check -->
   <div class="fs" style="margin-bottom:18px">
-    <div class="fst">🩺 Data Integrity Check</div>
+    <div class="fst">Data Integrity Check</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Scans for duplicate trades, negative-unit holdings, dividends on symbols never traded, and missing prices. Read-only — changes nothing on its own.</div>
-    <button class="btn" onclick="runIntegrityCheck()">🩺 Run Check</button>
+    <button class="btn" onclick="runIntegrityCheck()">Run Check</button>
     <div id="integrity-results" style="margin-top:12px"></div>
   </div>
 
   <div class="fs" style="margin-bottom:18px">
-    <div class="fst">☁ Cloud Sync — GitHub Gist</div>
-    <div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:5px;padding:8px 12px;margin-bottom:12px;font-size:11px;color:var(--text3)">
-      ⚠ Sync only works when opened via <b style="color:var(--blue)">https://mangohill.github.io/mango-portracker/</b> — not from a downloaded/local file. Safari on iPad blocks network requests from local files.
+    <div class="fst">Cloud Sync — GitHub Gist</div>
+    <div style="background:var(--teal-soft);border:1px solid rgba(47,196,164,.22);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:11px;color:var(--text2)">
+       Sync only works when opened via <b style="color:#8fe6d2">https://mangohill.github.io/mango-portracker/</b> — not from a downloaded/local file. Safari on iPad blocks network requests from local files.
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
       <div><label class="fl">GitHub Token <span style="font-size:10px;color:var(--text3)">(gist scope only)</span></label>
@@ -1097,12 +1132,12 @@
       <input class="fi" type="text" id="sync-gist-id" placeholder="Auto-filled after first push" style="font-family:var(--mono);font-size:12px">
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      <button class="btn btn-g" onclick="syncPush()" style="min-width:130px">☁ Push to Gist</button>
-      <button class="btn" onclick="syncPull()" style="min-width:130px">⬇ Pull from Gist</button>
+      <button class="btn btn-g" onclick="syncPush()" style="min-width:130px">Push to Gist</button>
+      <button class="btn" onclick="syncPull()" style="min-width:130px">Pull from Gist</button>
       <span id="sync-status" style="font-family:var(--mono);font-size:11px;color:var(--text3)">Not synced</span>
     </div>
     <div id="sync-conflict" style="display:none;background:var(--bg);border:1px solid var(--gold);border-radius:5px;padding:12px;margin-bottom:10px">
-      <div style="font-family:var(--mono);font-size:12px;color:var(--gold);margin-bottom:10px">⚠ Conflict — which version do you want to keep?</div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--gold);margin-bottom:10px">Conflict — which version do you want to keep?</div>
       <div id="sync-conflict-info" style="font-size:11px;color:var(--text3);margin-bottom:10px"></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button class="btn btn-g" onclick="syncResolve('local')">Keep This Device</button>
@@ -1115,7 +1150,7 @@
   
 
   <div class="fs">
-    <div class="fst">⚡ Auto Prices — Cloudflare Worker Setup (Free, 5 min)</div>
+    <div class="fst">Auto Prices — Cloudflare Worker Setup (Free, 5 min)</div>
     <p style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:16px">
       Deploy a free Cloudflare Worker to proxy Yahoo Finance — bypasses CORS from your browser.<br>
       Cloudflare free plan: <strong style="color:var(--text)">100,000 requests/day</strong>. No credit card needed.
@@ -1143,7 +1178,7 @@
   </div>
 
   <div class="fs">
-    <div class="fst">📈 Backfill Historical Prices</div>
+    <div class="fst">Backfill Historical Prices</div>
     <p style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-bottom:16px">
       One-off (re-runnable) job that fills in past prices for your held symbols, so Portfolio Change can show 5D/1M/1Y/etc, not just 1D.<br>
       Daily prices from <strong style="color:var(--text)">1 Jul 2025</strong> to now; <span id="bf-res-label">fortnightly</span> from <strong style="color:var(--text)">1 Jan 2018</strong> (or from your oldest trade, if that's earlier) to 30 Jun 2025 — keeps the worker's storage small while staying accurate. Safe to re-run any time; it only adds to what's already stored.
@@ -1181,8 +1216,8 @@
           onkeydown="if(event.key==='Enter')setManualPrice();">
       </div>
       <button class="btn btn-g" onclick="setManualPrice()" style="align-self:flex-end">SET PRICE</button>
-      <button class="btn" onclick="fetchAndSetMAIF()" title="Fetch latest MAIF buy price from Monash" style="align-self:flex-end;background:var(--gold);color:#000;font-weight:700">⟳ MAIF</button>
-      <button class="btn" onclick="setCoinGeckoId()" title="Manually map a crypto symbol to its CoinGecko coin id — use this if auto-resolve picks the wrong coin or can't find a match" style="align-self:flex-end">🔗 SET COINGECKO ID</button>
+      <button class="btn btn-accent" onclick="fetchAndSetMAIF()" title="Fetch latest MAIF buy price from Monash" style="align-self:flex-end">MAIF</button>
+      <button class="btn" onclick="setCoinGeckoId()" title="Manually map a crypto symbol to its CoinGecko coin id — use this if auto-resolve picks the wrong coin or can't find a match" style="align-self:flex-end">SET COINGECKO ID</button>
       
     </div>
     <textarea class="fi" id="mp-bulk" rows="5" placeholder="DHHF 39.50&#10;NDQ 45.20&#10;WQG 1.62&#10;MAAT 1.08" style="width:100%;resize:vertical;margin-bottom:10px"></textarea>
@@ -1200,7 +1235,7 @@
       <table><thead><tr><th>Symbol</th><th>Price (AUD)</th><th>Type</th><th></th></tr></thead>
       <tbody id="prices-body"></tbody></table>
     </div>
-    <div class="empty" id="prices-empty"><div class="empty-icon">💰</div>No prices cached yet.</div>
+    <div class="empty" id="prices-empty"><div class="empty-icon"></div>No prices cached yet.</div>
     </div>
   </div>
 
@@ -1211,13 +1246,13 @@
 
   <!-- Stock Ownership -->
   <div class="fs" style="margin-top:18px">
-    <div class="fst" style="cursor:pointer" onclick="toggleSection('ownership')">👤 Stock Ownership <span id="sec-toggle-ownership" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></div>
+    <div class="fst" style="cursor:pointer" onclick="toggleSection('ownership')">Stock Ownership <span id="sec-toggle-ownership" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></div>
     <div id="sec-body-ownership" style="display:none">
     <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
       Assign each stock/ETF to a person. Affects dividend attribution and tax estimates.
       Changes take effect immediately in Holdings, Dividends, and Tax tabs.<br>
       <span style="color:var(--gold)">DRP toggle</span> — enable per symbol to include in DRP processing.
-      Process DRP from the <strong style="color:var(--text)">Dividends tab → 🔍 Check &amp; Process Dividends</strong>.
+      Process DRP from the <strong style="color:var(--text)">Dividends tab →  Check &amp; Process Dividends</strong>.
     </div>
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <button class="btn" onclick="promptAddPerson()" style="font-size:12px">+ Add Person</button>

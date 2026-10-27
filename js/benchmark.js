@@ -352,9 +352,9 @@ function renderBenchmarkSection(){
     const stwSeries = stwOk ? rebase(stwRaw) : null;
     const btcSeries = btcOk ? rebase(btcRaw) : null;
 
-    const datasets = [{ label:'Portfolio', data:pfSeries, borderColor:'#8b5cf6', backgroundColor:'transparent', pointRadius:0, tension:0.2 }];
-    if(stwSeries) datasets.push({ label:'ASX 200 (STW)', data:stwSeries, borderColor:'#22d3ee', backgroundColor:'transparent', pointRadius:0, tension:0.2 });
-    if(btcSeries) datasets.push({ label:'BTC', data:btcSeries, borderColor:'#fbbf24', backgroundColor:'transparent', pointRadius:0, tension:0.2 });
+    const datasets = [{ label:'Portfolio', data:pfSeries, borderColor:'#2fc4a4', backgroundColor:'transparent', borderWidth:2, pointRadius:0, pointHoverRadius:3, pointHitRadius:12, tension:0.25 }];
+    if(stwSeries) datasets.push({ label:'ASX 200 (STW)', data:stwSeries, borderColor:'#5b9df0', backgroundColor:'transparent', borderWidth:2, pointRadius:0, pointHoverRadius:3, pointHitRadius:12, tension:0.25 });
+    if(btcSeries) datasets.push({ label:'BTC', data:btcSeries, borderColor:'#e0b25c', backgroundColor:'transparent', borderWidth:2, pointRadius:0, pointHoverRadius:3, pointHitRadius:12, tension:0.25 });
 
     if(_bmChart){
       _bmChart.data.labels = winDates;
@@ -366,12 +366,13 @@ function renderBenchmarkSection(){
         data:{ labels:winDates, datasets },
         options:{
           responsive:true, maintainAspectRatio:false,
-          plugins:{ legend:{ labels:{ color:'#a5a8ae', font:{size:11} } } },
+          interaction:{ mode:'index', intersect:false },
+          plugins:{ legend:{ labels:{ color:'#a8b0bc', font:{size:10.5}, boxWidth:8, boxHeight:8, usePointStyle:true } } },
           scales:{
             // No min/max set on either axis, so both auto-rescale to
             // whatever is actually visible in the current window.
-            x:{ ticks:{ color:'#65686f', maxTicksLimit:8 }, grid:{ color:'rgba(255,255,255,0.04)' } },
-            y:{ ticks:{ color:'#65686f', callback:v=>v.toFixed(0) }, grid:{ color:'rgba(255,255,255,0.04)' } },
+            x:{ ticks:{ color:'#79828f', maxTicksLimit:8 }, grid:{ color:'rgba(255,255,255,.04)' } },
+            y:{ ticks:{ color:'#79828f', callback:v=>v.toFixed(0) }, grid:{ color:'rgba(255,255,255,.04)' } },
           },
         },
       });

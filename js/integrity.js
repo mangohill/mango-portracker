@@ -57,7 +57,7 @@ function runIntegrityCheck(){
   const total = issues.dup.length + issues.negUnits.length + issues.orphanDiv.length + issues.missingPrice.length;
 
   if(total === 0){
-    out.innerHTML = `<div style="color:var(--green);font-size:13px;font-weight:600">✅ No issues found</div>`;
+    out.innerHTML = `<div style="color:var(--green);font-size:13px;font-weight:600">No issues found</div>`;
     return;
   }
 

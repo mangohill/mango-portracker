@@ -370,7 +370,7 @@ function renderPriceDropAlerts(){
   if(!alerts.length){ wrap.style.display='none'; wrap.innerHTML=''; return; }
   wrap.style.display='';
   wrap.innerHTML = `
-    <div class="fst" style="color:var(--gold)">🔔 PRICE ALERTS</div>
+    <div class="fst" style="color:var(--gold)">Price Alerts</div>
     <div style="display:flex;flex-direction:column;gap:2px">
       ${alerts.map(a=>{
         const isDrop = a.direction==='drop';
@@ -424,7 +424,7 @@ function renderConcentrationAlerts(){
   if(!alerts.length){ wrap.style.display='none'; wrap.innerHTML=''; return; }
   wrap.style.display='';
   wrap.innerHTML = `
-    <div class="fst" style="color:var(--gold)">⚖ CONCENTRATION ALERTS</div>
+    <div class="fst" style="color:var(--gold)">Concentration Alerts</div>
     <div style="display:flex;flex-direction:column;gap:2px">
       ${alerts.map(a=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
@@ -640,6 +640,23 @@ function renderH(){
 
   // Filter-active highlight removed per user preference (was: blue outline on cardsEl).
   const cardsEl = $('portfolio-cards');
+
+  // Category card tints: portfolio blue, invested capital green, gains lime/red
+  // by sign, counts/activity slate/violet. Shared with the other dashboards.
+  const pfCards = cardsEl ? cardsEl.querySelectorAll('.card') : [];
+  if(pfCards.length >= 5){
+    const pnlTint = tpl == null ? 'var(--neutral-slate)'
+                  : tpl >= 0  ? 'var(--asset-lime)'
+                  :             'var(--debt-red)';
+    const tints = [
+      'var(--cat-portfolio)',  // Market Value — investment portfolio
+      'var(--asset-forest)',   // Cost Basis — invested capital
+      pnlTint,                 // Unrealised P&L — green/red by sign
+      'var(--neutral-slate)',  // Positions — neutral count
+      'var(--neutral-violet)', // Total Trades — activity
+    ];
+    pfCards.forEach((card, i) => { if(tints[i]) card.setAttribute('style', cardTint(tints[i])); });
+  }
 
   if($('cv')) animateValue($('cv'), tv || null, {format:v=>n2(v)});
   if($('cc')) animateValue($('cc'), tc, {format:v=>n2(v)});
@@ -1424,7 +1441,7 @@ function renderPortfolioChange(scopeFn, isFiltered){
 
   const mode = PF_CHANGE_MODES[pfChangeMode];
   const badge = $('pf-change-mode-badge');
-  if(badge){ badge.textContent = '· ' + mode.label; badge.title = mode.hint; }
+  if(badge){ badge.textContent = mode.label; badge.title = mode.hint; }
   const th = $('pf-change-th');
   if(th) th.title = mode.hint + '  (tap to switch: ' + PF_CHANGE_MODES.map(m=>m.label).join(' → ') + ')';
 
@@ -1440,7 +1457,7 @@ function renderPortfolioChange(scopeFn, isFiltered){
     const modeHint = mode.key==='value' ? 'Mark-to-market · ' + base + ' · ALL = cost vs market'
       : mode.key==='twr' ? 'Time-weighted (strategy return) · ' + base
       : "Money-weighted (your money's return, period IRR) · " + base;
-    sub.textContent = (isFiltered ? 'Filtered · ' : '') + modeHint + ' · click header to switch';
+    sub.textContent = (isFiltered ? 'Filtered · ' : '') + modeHint + ' · Click header to switch';
   }
 
   let result;
@@ -1726,8 +1743,6 @@ function renderT(){
       return html;
     }
 
-    const btnStyle = 'cursor:pointer;background:#1a2f4a;color:#38c6ff;border:1px solid #38c6ff;border-radius:4px;padding:3px 10px;font-size:11px;margin-right:4px';
-
     // Corporate action row — special display
     if(t.type==='corporate_action'){
       const sub = t.subtype||'';
@@ -1772,7 +1787,7 @@ function renderT(){
       + '<td style="text-align:right" class="' + roiC + '">' + roiCell + '</td>'
       + '<td style="color:var(--text3);font-size:10px">' + (t.source||'') + '</td>'
       + '<td style="white-space:nowrap;padding:4px 8px">'
-      + '<button style="' + btnStyle + '" onclick="doEditTrade(' + ri + ')">&#9998; EDIT</button>'
+      + '<button class="edit-trade-btn" data-ri="' + ri + '">Edit</button>'
       + '<button class="del-btn" onclick="delT(' + idxMap[t.id] + ')">&#10005;</button>'
       + '</td>'
       + '</tr>';

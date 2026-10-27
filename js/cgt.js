@@ -600,7 +600,7 @@ function renderCGT(){
 
   const unusedLossesBanner = unusedLossesHtml.length ? `
     <div class="fs" style="border-color:var(--cyan);margin-bottom:16px">
-      <div class="fst" style="color:var(--cyan)">💡 UNUSED CAPITAL LOSSES</div>
+      <div class="fst" style="color:var(--cyan)">Unused Capital Losses</div>
       ${unusedLossesHtml.map(u=>`<div style="font-family:var(--mono);font-size:12px;margin-bottom:4px">
         <b>${getPersonLabel(u.person)}</b> has <b>${n2(u.amount)}</b> in capital losses carried forward from FY${u.fy}
         with nothing to offset it against since — available to reduce a future capital gain.
@@ -636,7 +636,7 @@ function renderCGT(){
   const harvestCandidates = computeTaxLossHarvestCandidates(6);
   const harvestBanner = harvestCandidates.length ? `
     <div class="fs" style="border-color:var(--red);margin-bottom:16px">
-      <div class="fst" style="color:var(--red);cursor:pointer" onclick="toggleSection('harvest')">📉 TAX-LOSS HARVESTING — BIGGEST UNREALIZED LOSSES <span id="sec-toggle-harvest" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></div>
+      <div class="fst" style="color:var(--red);cursor:pointer" onclick="toggleSection('harvest')">Tax-Loss Harvesting — Biggest Unrealized Losses <span id="sec-toggle-harvest" style="font-size:16px;color:var(--text3);font-family:var(--mono);line-height:1;font-weight:300">+</span></div>
       <div id="sec-body-harvest" style="display:none;margin-top:8px">
       <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Currently-held positions worth the most below their cost base — a starting point to review before EOFY, not advice to sell.</div>
       ${harvestCandidates.map(h=>`<div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;padding:3px 0">
@@ -661,7 +661,7 @@ function renderCGT(){
     const r = (result[person]||{})[cgtFY];
     if(!r) return '';
     return `
-    <div class="card">
+    <div class="card" style="${cardTint(getPersonColour(person))}">
       <div class="card-label">${getPersonLabel(person)} — NET CAPITAL GAIN</div>
       <div class="card-value ${clr(r.netCapitalGain)}">${n2(r.netCapitalGain)}</div>
       <div class="card-sub">
@@ -675,7 +675,7 @@ function renderCGT(){
   const amitWarnings = amitLog.filter(a=>dateToFY(a.date)===cgtFY);
   const amitWarningHtml = amitWarnings.length ? `
     <div class="fs" style="border-color:var(--gold);margin-bottom:16px">
-      <div class="fst" style="color:var(--gold)">⚠ AMIT ADJUSTMENT CAPPED</div>
+      <div class="fst" style="color:var(--gold)">AMIT Adjustment Capped</div>
       ${amitWarnings.map(a=>`<div style="font-family:var(--mono);font-size:12px;margin-bottom:6px">
         <b>${escHtml(a.symbol)}</b> ${a.date} — entered adjustment ${n2(a.amount)}, but ${n2(a.capped)}
         of it would have pushed cost base below $0. That excess wasn't applied — the ATO treats an
@@ -809,7 +809,7 @@ function renderCGT(){
   // Pending PDF-parsed entries awaiting review/confirmation
   const pdfPendingHtml = (amitPdfPending.length) ? `
     <div class="fs" style="border-color:var(--gold);margin-bottom:14px">
-      <div class="fst" style="color:var(--gold)">📄 PARSED FROM PDF — REVIEW BEFORE ADDING</div>
+      <div class="fst" style="color:var(--gold)">Parsed From PDF — Review Before Adding</div>
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-bottom:10px">
         Auto-extracted from the statement text — double-check the symbol, date and amount
         against the PDF before adding (parsing can misread unusual layouts). Edit any field directly.
@@ -840,7 +840,7 @@ function renderCGT(){
     ${harvestBanner}
 
     <div class="fs" style="border-color:var(--border2);margin-bottom:16px">
-      <div class="fst">📉 CAPITAL GAINS — ASSUMPTIONS</div>
+      <div class="fst">Capital Gains — Assumptions</div>
       <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.7">
                 Estimates only — not tax advice. Confirm with your accountant.<br><br>
         <b>Core rules:</b> FIFO parcel matching · corporate actions treated as CGT-free rollovers (cost base + acquisition date carry over) ·

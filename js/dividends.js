@@ -905,17 +905,18 @@ function renderDivCards(){
 
   $('div-cards').innerHTML = [
     { key:null,       l:'Total Income',         v:n2(dividends.reduce((s,d)=>s+(+d.amount||0),0)), s:'pos',
-      sub:'Cash · All time · Grossed-up: '+n2(grossUpTotal(dividends)) },
+      sub:'Cash · All time · Grossed-up: '+n2(grossUpTotal(dividends)), tint:'var(--asset-teal)' },
 
-    { key:'thisFY',   l:divCardMode.thisFY===0?'This Financial Year':'Previous Financial Year', v:n2(fyTotal), s:'pos', sub:modeLabel(divCardMode.thisFY), hint:divCardMode.thisFY===0?'▸ click for prev FY':'▸ click for current FY' },
+    { key:'thisFY',   l:divCardMode.thisFY===0?'This Financial Year':'Previous Financial Year', v:n2(fyTotal), s:'pos', sub:modeLabel(divCardMode.thisFY), hint:divCardMode.thisFY===0?'▸ click for prev FY':'▸ click for current FY', tint:'var(--cat-income)' },
     { key:'yield',    l:'Portfolio Yield',       v:yieldPct.toFixed(2)+'% cash',  s:'pos',
-      sub:'Grossed-up: '+yieldGross.toFixed(2)+'% · '+modeLabel(divCardMode.yield), hint:modeHint(divCardMode.yield) },
+      sub:'Grossed-up: '+yieldGross.toFixed(2)+'% · '+modeLabel(divCardMode.yield), hint:modeHint(divCardMode.yield), tint:'var(--asset-lime)' },
 
-    { key:'topPayer', l:'Top Payer',             v:topSym?topSym[0]:'—',         s:'neu', sub:(topSym?n2(topSym[1]):'—')+' · '+modeLabel(divCardMode.topPayer), hint:modeHint(divCardMode.topPayer) },
-    { key:'payments', l:'Payments',              v:pmDivs.length,                s:'neu', sub:modeLabel(divCardMode.payments), hint:modeHint(divCardMode.payments) },
+    { key:'topPayer', l:'Top Payer',             v:topSym?topSym[0]:'—',         s:'neu', sub:(topSym?n2(topSym[1]):'—')+' · '+modeLabel(divCardMode.topPayer), hint:modeHint(divCardMode.topPayer), tint:'var(--neutral-violet)' },
+    { key:'payments', l:'Payments',              v:pmDivs.length,                s:'neu', sub:modeLabel(divCardMode.payments), hint:modeHint(divCardMode.payments), tint:'var(--neutral-blue)' },
   ].map(c=>{
-    const clickable = c.key ? `onclick="cycleDivCard('${c.key}')" style="${CARD_STYLE}"` : '';
-    return `<div class="card" ${clickable}>
+    const clickable = c.key ? `onclick="cycleDivCard('${c.key}')"` : '';
+    const style = (c.key ? CARD_STYLE : '') + cardTint(c.tint);
+    return `<div class="card" ${clickable} style="${style}">
       <div class="card-label">${c.l}</div>
       <div class="card-value ${c.s}">${c.v}</div>
       <div class="card-sub">${c.sub}</div>
@@ -940,15 +941,15 @@ function renderDivCharts(){
     type:'bar',
     data:{ labels:fyLabels.length?fyLabels:['No data'], datasets:[{
       label:'Cash Dividend (AUD)', data:fyData.length?fyData:[0],
-      backgroundColor:'rgba(41,255,160,0.6)', borderColor:'#29ffa0', borderWidth:1
+      backgroundColor:'rgba(47,196,164,.40)', borderColor:'#2fc4a4', borderWidth:1, borderRadius:2
     },{
       label:'Grossed-up (incl. Franking Credits)', data:fyDataGross.length?fyDataGross:[0],
-      backgroundColor:'rgba(96,165,250,0.35)', borderColor:'#60a5fa', borderWidth:1,
+      backgroundColor:'rgba(91,157,240,.28)', borderColor:'#5b9df0', borderWidth:1, borderRadius:2,
       borderDash:[4,3]
     }]},
     options:{ responsive:true, maintainAspectRatio:false,
-      scales:{ x:{ticks:{color:'#4a5568'}}, y:{ticks:{color:'#4a5568',callback:v=>'$'+v.toLocaleString()}, grid:{color:'#1c2b23'}} },
-      plugins:{legend:{labels:{color:'#8899aa'}}}
+      scales:{ x:{ticks:{color:'#79828f'},grid:{display:false}}, y:{ticks:{color:'#79828f',callback:v=>'$'+v.toLocaleString()}, grid:{color:'rgba(255,255,255,.04)'}} },
+      plugins:{legend:{labels:{color:'#a8b0bc',boxWidth:8,boxHeight:8,usePointStyle:true}}}
     }
   });
 
@@ -961,10 +962,10 @@ function renderDivCharts(){
     type:'doughnut',
     data:{ labels:symLabels.length?symLabels:['No data'], datasets:[{
       data:symData.length?symData:[1],
-      backgroundColor:PALETTE, borderColor:'#0e1512', borderWidth:2
+      backgroundColor:PALETTE, borderColor:'#101318', borderWidth:2
     }]},
     options:{ responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{position:'bottom',labels:{color:'#8899aa',font:{size:10}}},
+      plugins:{ legend:{position:'bottom',labels:{color:'#a8b0bc',font:{size:10},boxWidth:8,boxHeight:8,usePointStyle:true}},
         tooltip:{ callbacks:{ label:ctx=>' '+ctx.label+': $'+ctx.parsed.toLocaleString('en-AU',{minimumFractionDigits:2}) } }
       }
     }
@@ -988,12 +989,8 @@ function renderFYBar(){
   const fys = [...new Set(dividends.map(d => dateToFY(d.date)))].sort((a,b)=>b-a);
   const pill = (label, val) => {
     const active = dvFYFilter === val;
-    return `<button onclick="dvFYFilter='${val}';renderFYBar();renderDividends()"
-      style="padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;
-             border:1px solid ${active?'var(--gold)':'var(--bo)'};
-             background:${active?'var(--gold)':'var(--bg2)'};
-             color:${active?'#0a0f1e':'var(--text2)'};
-             transition:all 0.15s">${label}</button>`;
+    return `<button class="fpill${active?' active':''}"
+      onclick="dvFYFilter='${val}';renderFYBar();renderDividends()">${label}</button>`;
   };
   bar.innerHTML = pill('ALL','ALL') + fys.map(fy => pill(fyLabel(fy), String(fy))).join('');
 }
@@ -1124,7 +1121,6 @@ function renderDividends(){
 
   const TYPES = ['dividend','distribution','drp','interest','staking','airdrop'];
   const TYPE_LABEL = {dividend:'Dividend',distribution:'Distribution',interest:'Interest',staking:'Staking',airdrop:'Airdrop',drp:'DRP'};
-  const EDIT_BTN = `cursor:pointer;background:#1a2f4a;color:#38c6ff;border:1px solid #38c6ff;border-radius:4px;padding:3px 8px;font-size:11px;margin-right:4px`;
 
   $('dv-body').innerHTML = filtered.map(d=>{
     if(editingDivId != null && String(editingDivId) === String(d.id)){
@@ -1154,7 +1150,7 @@ function renderDividends(){
       <td style="text-align:right;color:var(--text3);font-size:11px">${d.frankingPct!=null?d.frankingPct+"%":"—"}</td>
       <td style="color:var(--text3);font-size:11px">${escHtml(d.notes||'')}</td>
       <td style="white-space:nowrap;padding:4px 6px">
-        <button style="${EDIT_BTN}" onclick="doEditDiv('${d.id}')">&#9998; EDIT</button>
+        <button class="edit-div-btn" onclick="doEditDiv('${d.id}')">Edit</button>
         <button class="del-btn" onclick="delDiv(${idxMap[d.id]})">&#10005;</button>
       </td>
     </tr>`;

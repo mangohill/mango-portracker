@@ -1,9 +1,36 @@
 // ── prices.js ─────────────────────────────────────────────
 
+// Page-level heading shown above each tab. Kept here so switchTab stays the
+// single place that changes the active view.
+const PAGE_META = {
+  portfolio:  { t:'Portfolio',     s:'Every open position, valued in AUD.' },
+  trades:     { t:'Trades',        s:'Import broker files or record transactions by hand.' },
+  analytics:  { t:'Analytics',     s:'Performance, allocation and long-term trends.' },
+  holdings2:  { t:'Holdings',      s:'Detailed position metrics and allocation.' },
+  dividends:  { t:'Dividends',     s:'Income history, franking credits and DRP.' },
+  property:   { t:'Property',      s:'Property equity, loans and rental performance.' },
+  super:      { t:'Super',         s:'Balances, contributions and carry-forward caps.' },
+  spending:   { t:'Spending',      s:'Money in and out, by category and financial year.' },
+  tax:        { t:'Tax',           s:'Income, deductions and estimated obligations.' },
+  cgt:        { t:'Capital Gains', s:'Realised disposals and CGT estimates.' },
+  networth:   { t:'Net Worth',     s:'Assets and liabilities across your whole balance sheet.' },
+  settings:   { t:'Settings',      s:'Data, pricing, alerts and cloud sync.' },
+};
+function updatePageHeader(name){
+  const meta = PAGE_META[name];
+  if(!meta) return;
+  const title = document.getElementById('page-title');
+  const sub = document.getElementById('page-sub');
+  if(title) title.textContent = meta.t;
+  if(sub) sub.textContent = meta.s;
+  document.title = meta.t + ' · Portfolio Tracker';
+}
+
 function switchTab(name,el){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   $('panel-'+name).classList.add('active'); el.classList.add('active');
+  updatePageHeader(name);
   // Reset all sort states on tab switch
   for(const k in SORT_STATE) delete SORT_STATE[k];
   if(name==='portfolio') renderH();

@@ -35,6 +35,15 @@ function csvSafe(v){
   return s;
 }
 
+// Full-card tint for summary badges. `c` is any CSS colour, usually one of the
+// semantic vars (--teal, --violet, --green, ...). The actual wash is defined in
+// app.css from --c, so the hover state can intensify the same gradient rather
+// than fighting an inline background. Browsers without color-mix keep the
+// plain .card fallback.
+function cardTint(c){
+  return `--c:${c};`;
+}
+
 // ── STOCK OWNERSHIP HELPERS ───────────────────────────────────────
 function getAllPersons(){
   return ['lumia','chilli',...extraPersons];

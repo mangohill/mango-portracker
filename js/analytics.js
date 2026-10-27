@@ -258,15 +258,27 @@ function cssVar(name, fallback){
   return v || fallback;
 }
 Chart.defaults.color = cssVar('--text3', '#9a9ea6');
-Chart.defaults.borderColor = cssVar('--border', '#26282c');
+Chart.defaults.borderColor = cssVar('--chart-grid', 'rgba(255,255,255,.05)');
 if(typeof Chart !== 'undefined' && Chart.defaults && Chart.defaults.font){
   Chart.defaults.font.family = "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
-  Chart.defaults.font.size = 11;
+  Chart.defaults.font.size = 10.5;
+}
+if(typeof Chart !== 'undefined' && Chart.defaults && Chart.defaults.plugins){
+  Chart.defaults.plugins.legend.labels.boxWidth = 8;
+  Chart.defaults.plugins.legend.labels.boxHeight = 8;
+  Chart.defaults.plugins.legend.labels.usePointStyle = true;
+  Chart.defaults.plugins.tooltip.backgroundColor = cssVar('--surface3', '#1b2029');
+  Chart.defaults.plugins.tooltip.borderColor = cssVar('--border2', '#2c333f');
+  Chart.defaults.plugins.tooltip.borderWidth = 1;
+  Chart.defaults.plugins.tooltip.titleColor = cssVar('--text', '#eef1f5');
+  Chart.defaults.plugins.tooltip.bodyColor = cssVar('--text2', '#a8b0bc');
+  Chart.defaults.plugins.tooltip.padding = 10;
+  Chart.defaults.plugins.tooltip.cornerRadius = 8;
+  Chart.defaults.plugins.tooltip.boxPadding = 4;
 }
 
-// Matches the app's current vibrant accent set (violet/pink/cyan/amber)
-// plus the badge hues, instead of the old theme's neon green/blue/orange.
-const PALETTE = ['#8b5cf6','#22d3ee','#fbbf24','#ec4899','#34d399','#60a5fa','#fb923c','#a78bfa','#f472b6','#2dd4bf'];
+// Muted, editorial series colours — teal → blue → amber → rose → violet.
+const PALETTE = ['#2fc4a4','#5b9df0','#e0b25c','#e07a90','#9b8ce0','#55bdd6','#d98a5b','#7f8ea3','#8fbf6a','#c77dbb'];
 
 // ── DATE HELPERS ──────────────────────────────────────────────────────
 function filterByPeriod(arr, period){
@@ -399,16 +411,20 @@ function renderAnalytics(){
   const filtSells = filtTrades.filter(t=>t.type==='sell').reduce((s,t)=>s+(+t.units * +t.price),0);
   const filtBuys  = filtTrades.filter(t=>t.type==='buy').reduce((s,t)=>s+(+t.units * +t.price),0);
 
-  $('an-cards').innerHTML = [
-    {l:'Total Return',    v:n2(totalPnl+filtDiv),  s:(totalPnl+filtDiv>=0?'pos':'neg'), sub:`P&L + Divs · ${pLabel}`},
-    {l:'Unrealised P&L',  v:n2(totalPnl),          s:clr(totalPnl),                    sub:nP(pnlPct)+' · all time'},
-    {l:'Dividend Income', v:n2(filtDiv),            s:'pos',
-      sub:`Cash · ${filtDivs.length} payments · ${pLabel} · Grossed-up: ${n2(grossUpTotal(filtDivs))}`},
+  const totalReturn = totalPnl + filtDiv;
+  const returnTint  = totalReturn >= 0 ? 'var(--asset-teal)' : 'var(--debt-red)';
+  const pnlTint     = totalPnl   >= 0 ? 'var(--asset-lime)' : 'var(--debt-red)';
 
-    {l:'Total Invested',  v:n2(totalCost),          s:'neu',                            sub:'Cost basis · all time'},
-    {l:'Total Fees Paid', v:n2(filtFees),           s:'neg',                            sub:`Brokerage · ${pLabel}`},
-    {l:'Realised (Sells)',v:n2(filtSells),          s:'neu',                            sub:`Gross sells · ${pLabel}`},
-  ].map(c=>`<div class="card"><div class="card-label">${c.l}</div><div class="card-value ${c.s}">${c.v}</div><div class="card-sub">${c.sub}</div></div>`).join('');
+  $('an-cards').innerHTML = [
+    {l:'Total Return',    v:n2(totalReturn),       s:(totalReturn>=0?'pos':'neg'),     sub:`P&L + Divs · ${pLabel}`, tint:returnTint},
+    {l:'Unrealised P&L',  v:n2(totalPnl),          s:clr(totalPnl),                    sub:nP(pnlPct)+' · all time', tint:pnlTint},
+    {l:'Dividend Income', v:n2(filtDiv),            s:'pos',
+      sub:`Cash · ${filtDivs.length} payments · ${pLabel} · Grossed-up: ${n2(grossUpTotal(filtDivs))}`, tint:'var(--cat-income)'},
+
+    {l:'Total Invested',  v:n2(totalCost),          s:'neu',                            sub:'Cost basis · all time', tint:'var(--cat-portfolio)'},
+    {l:'Total Fees Paid', v:n2(filtFees),           s:'neg',                            sub:`Brokerage · ${pLabel}`, tint:'var(--debt-coral)'},
+    {l:'Realised (Sells)',v:n2(filtSells),          s:'neu',                            sub:`Gross sells · ${pLabel}`, tint:'var(--neutral-violet)'},
+  ].map(c=>`<div class="card" style="${cardTint(c.tint)}"><div class="card-label">${c.l}</div><div class="card-value ${c.s}">${c.v}</div><div class="card-sub">${c.sub}</div></div>`).join('');
 
   // --- Main chart ---
   renderMainChart(filtered, groupBy, chartType, holdings, period);
@@ -475,12 +491,12 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
     mkChart('an-main-chart',{
       type:'bar',
       data:{ labels, datasets:[
-        {label:'Buy',  data:labels.map(k=>+monthly[k].buy.toFixed(2)),  backgroundColor:'rgba(34,197,94,0.55)', borderColor:cssVar('--green','#22c55e'), borderWidth:1, borderRadius:3},
-        {label:'Sell', data:labels.map(k=>+monthly[k].sell.toFixed(2)), backgroundColor:'rgba(240,72,63,0.55)', borderColor:cssVar('--red','#f0483f'),  borderWidth:1, borderRadius:3},
+        {label:'Buy',  data:labels.map(k=>+monthly[k].buy.toFixed(2)),  backgroundColor:'rgba(74,222,128,.32)', borderColor:cssVar('--green','#4ade80'), borderWidth:1, borderRadius:2},
+        {label:'Sell', data:labels.map(k=>+monthly[k].sell.toFixed(2)), backgroundColor:'rgba(240,113,120,.32)', borderColor:cssVar('--red','#f07178'),  borderWidth:1, borderRadius:2},
       ]},
       options:{ responsive:true, maintainAspectRatio:false, scales:{
-        x:{ticks:{color:cssVar('--text3','#65686f')}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')}},
-        y:{ticks:{color:cssVar('--text3','#65686f'), callback:v=>'$'+v.toLocaleString()}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')}}
+        x:{ticks:{color:cssVar('--text3','#65686f')}, grid:{color:cssVar('--chart-grid','rgba(255,255,255,.05)')}},
+        y:{ticks:{color:cssVar('--text3','#65686f'), callback:v=>'$'+v.toLocaleString()}, grid:{color:cssVar('--chart-grid','rgba(255,255,255,.05)')}}
       }, plugins:{legend:{labels:{color:cssVar('--text2','#9a9ea6')}}} }
     });
     return;
@@ -651,12 +667,12 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
     options:{ responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
       scales:{
-        x:{ ticks:{color:cssVar('--text3','#65686f'), maxTicksLimit:12}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')} },
-        y:{ ticks:{color:cssVar('--text3','#65686f'), callback:v=>'$'+v.toLocaleString()}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')} }
+        x:{ ticks:{color:cssVar('--text3','#65686f'), maxTicksLimit:12}, grid:{color:cssVar('--chart-grid','rgba(255,255,255,.05)')} },
+        y:{ ticks:{color:cssVar('--text3','#65686f'), callback:v=>'$'+v.toLocaleString()}, grid:{color:cssVar('--chart-grid','rgba(255,255,255,.05)')} }
       },
       plugins:{ legend:{display:false},
         tooltip:{
-          backgroundColor: cssVar('--surface2','#1e2024'),
+          backgroundColor: cssVar('--surface3','#1b2029'),
           borderColor: cssVar('--border2','#33363b'), borderWidth:1,
           titleColor: cssVar('--text','#f2f3f5'), bodyColor: cssVar('--text2','#9ca0a8'),
           padding:10, boxPadding:4,
@@ -726,13 +742,13 @@ function renderAllocChart(holdings){
   });
   const labels = Object.keys(byType);
   const data   = labels.map(k=>+byType[k].toFixed(2));
-  const colors = {crypto:'#fbbf24', stock:'#22d3ee', etf:'#a78bfa'};
+  const colors = {crypto:'#e0b25c', stock:'#5b9df0', etf:'#9b8ce0'};
   mkChart('an-alloc-chart',{
     type:'doughnut',
     data:{ labels, datasets:[{data, backgroundColor:labels.map(l=>colors[l]||PALETTE[0]), borderColor:cssVar('--surface','#151619'), borderWidth:2}] },
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{position:'bottom', labels:{color:cssVar('--text2','#9a9ea6'),font:{size:11}}},
-        tooltip:{ backgroundColor:cssVar('--surface2','#1e2024'), borderColor:cssVar('--border2','#33363b'), borderWidth:1, titleColor:cssVar('--text','#f2f3f5'), bodyColor:cssVar('--text2','#9ca0a8'),
+        tooltip:{ backgroundColor:cssVar('--surface3','#1b2029'), borderColor:cssVar('--border2','#33363b'), borderWidth:1, titleColor:cssVar('--text','#f2f3f5'), bodyColor:cssVar('--text2','#9ca0a8'),
           callbacks:{ label:ctx=>' '+ctx.label+': $'+ctx.parsed.toLocaleString('en-AU',{minimumFractionDigits:2}) } }
       }
     }
@@ -752,13 +768,13 @@ function renderAnnualChart(){
   mkChart('an-annual-chart',{
     type:'bar',
     data:{ labels:years, datasets:[
-      {label:'Cumulative Invested', data:invested, backgroundColor:'rgba(139,92,246,0.45)', borderColor:cssVar('--violet','#8b5cf6'), borderWidth:1, borderRadius:3, yAxisID:'y'},
-      {label:'Dividends (year)',    data:divByYear, backgroundColor:'rgba(34,197,94,0.55)', borderColor:cssVar('--green','#22c55e'), borderWidth:1, borderRadius:3, yAxisID:'y'},
+      {label:'Cumulative Invested', data:invested, backgroundColor:'rgba(91,157,240,.30)', borderColor:cssVar('--blue','#5b9df0'), borderWidth:1, borderRadius:3, yAxisID:'y'},
+      {label:'Dividends (year)',    data:divByYear, backgroundColor:'rgba(74,222,128,.30)', borderColor:cssVar('--green','#4ade80'), borderWidth:1, borderRadius:3, yAxisID:'y'},
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       scales:{
-        x:{ticks:{color:cssVar('--text3','#65686f')}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')}},
-        y:{ticks:{color:cssVar('--text3','#65686f'), callback:v=>'$'+v.toLocaleString()}, grid:{color:cssVar('--border','rgba(255,255,255,0.04)')}}
+        x:{ticks:{color:cssVar('--text3','#65686f')}, grid:{color:cssVar('--chart-grid','rgba(255,255,255,.05)')}},
+        y:{ticks:{color:cssVar('--text3','#65686f'), callback:v=>'$'+v.toLocaleString()}, grid:{color:cssVar('--chart-grid','rgba(255,255,255,.05)')}}
       },
       plugins:{legend:{labels:{color:cssVar('--text2','#9a9ea6')}}}
     }
@@ -778,14 +794,7 @@ function renderPerformers(holdings){
     const allTypes = ['all', ...types];
     pillsEl.innerHTML = allTypes.map(t => {
       const active = anPerfFilter === t;
-      return `<button onclick="anPerfFilter='${t}';renderAnalytics()"
-        style="padding:3px 12px;border-radius:20px;font-size:11px;
-               font-family:var(--mono);cursor:pointer;
-               border:1px solid ${active?'var(--blue)':'var(--border)'};
-               background:${active?'rgba(59,130,246,0.15)':'transparent'};
-               color:${active?'var(--blue)':'var(--text3)'};
-               transition:all .15s">
-        ${AT_LABEL[t]||t}</button>`;
+      return `<button class="fpill${active?' active':''}" onclick="anPerfFilter='${t}';renderAnalytics()">${AT_LABEL[t]||t}</button>`;
     }).join('');
   }
 
@@ -957,7 +966,7 @@ function renderHD(){
         color:${getPersonColour(getSymbolOwner(h.symbol))}">
         <select class="owner-select" data-owner-sym="${escHtml(h.symbol)}"
           style="background:transparent;border:none;color:inherit;font-size:10px;
-                 padding:0;cursor:pointer;font-family:var(--mono);max-width:80px"
+                 padding:0;cursor:pointer;font-family:var(--mono);max-width:108px"
           onchange="changeSymbolOwner('${escHtml(h.symbol)}',this.value)">
           ${buildOwnerOptions(getSymbolOwner(h.symbol))}
         </select>

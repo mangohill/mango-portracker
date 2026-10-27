@@ -706,7 +706,7 @@ function renderDRPPanel(){
 
   panel.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-      <div class="fst" style="margin:0">📈 DRP Processing</div>
+      <div class="fst" style="margin:0">DRP Processing</div>
       <button class="btn btn-r" onclick="const dp=$('drp-tab-panel');if(dp){dp.style.display='none';dp.innerHTML='';}">✕ Close</button>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px">

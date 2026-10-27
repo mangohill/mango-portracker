@@ -108,7 +108,7 @@ function generateEofyPack(fy){
   @media print{ .printbar{display:none;} }
   .empty{color:#999;font-style:italic;}
 </style></head><body>
-  <div class="printbar"><button onclick="window.print()">🖨️ Print / Save as PDF</button></div>
+  <div class="printbar"><button onclick="window.print()">Print / Save as PDF</button></div>
   <h1>EOFY Pack — FY${fy}</h1>
   <div class="sub">${fy-1}–${String(fy).slice(2)} financial year · Generated ${today}</div>
 
