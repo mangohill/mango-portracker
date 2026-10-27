@@ -311,12 +311,12 @@ function renderAnnualSnapshots(){
   // the rest reachable by scrolling inside the wrapper, rather than the
   // page growing a row per year of history — the header stays pinned via
   // position:sticky so the column labels don't scroll away with it.
-  const theadCell = label => `<th style="text-align:right;padding:4px 8px;position:sticky;top:0;background:var(--surface2)">${label}</th>`;
+  const theadCell = label => `<th style="text-align:right;padding:4px 8px;position:sticky;top:0;background:var(--surface);z-index:10">${label}</th>`;
   el.innerHTML = `
     <div style="max-height:192px;overflow-y:auto;overflow-x:auto;border:1px solid var(--border);border-radius:6px">
     <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px">
       <thead><tr style="color:var(--text3);border-bottom:1px solid var(--border);font-size:10px">
-        <th style="text-align:left;padding:4px 8px;position:sticky;top:0;background:var(--surface2)">FY (30 JUN)</th>
+        <th style="text-align:left;padding:4px 8px;position:sticky;top:0;background:var(--surface);z-index:10">FY (30 JUN)</th>
         ${theadCell('NET WORTH')}
         ${theadCell('PORTFOLIO')}
         ${theadCell('PROPERTY')}
