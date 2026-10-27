@@ -1080,10 +1080,36 @@ function renderDividends(){
     getAllPersons().concat(['joint']).map(p=>`<option value="${p}" ${p===_dvOwnerCur?'selected':''}>${getPersonLabel(p)}</option>`).join('');
   const ownerF = _dvOwnerCur;
 
+  // Rebuild dv-source broker/source filter. Dividends don't store a broker of their own,
+  // so it's derived from the trades for the same underlying symbol (trades can carry a
+  // broker suffix like DHHF:AU while dividends are stored plain as DHHF — same
+  // normalisation integrity.js uses). A symbol traded through several brokers matches
+  // each of them. Options only list brokers that match at least one dividend.
+  const _dvNorm = s => typeof priceSymbol === 'function' ? priceSymbol(s) : s;
+  const _dvBrokersBySym = {};
+  (typeof trades !== 'undefined' ? trades : []).forEach(t=>{
+    if(!t.source) return;
+    (_dvBrokersBySym[_dvNorm(t.symbol)] = _dvBrokersBySym[_dvNorm(t.symbol)] || new Set()).add(t.source);
+  });
+  const _dvSourceSel = $('dv-source');
+  let _dvSourceCur = _dvSourceSel ? _dvSourceSel.value : '';
+  if(_dvSourceSel){
+    const _inUse = [...new Set(dividends.flatMap(d => [...(_dvBrokersBySym[_dvNorm(d.symbol)] || [])]))].sort();
+    if(_dvSourceCur && !_inUse.includes(_dvSourceCur)) _dvSourceCur = ''; // selected broker no longer applies
+    const _labels = getAllBrokers();
+    _dvSourceSel.innerHTML = '<option value="">All Sources</option>' +
+      _inUse.map(b=>{
+        const label = (_labels.find(x=>x.value===b)||{}).label || b;
+        return `<option value="${b}" ${b===_dvSourceCur?'selected':''}>${label}</option>`;
+      }).join('');
+  }
+  const sourceF = _dvSourceCur;
+
   let filtered = [...dividends].filter(d=>{
     if(search && !d.symbol.toLowerCase().includes(search)) return false;
     if(typeF && d.type!==typeF) return false;
     if(ownerF && getSymbolOwner(d.symbol)!==ownerF) return false;
+    if(sourceF && !(_dvBrokersBySym[_dvNorm(d.symbol)] || new Set()).has(sourceF)) return false;
     if(dvFYFilter !== 'ALL'){
       const fy = dateToFY(d.date);
       if(String(fy) !== dvFYFilter) return false;
@@ -1157,7 +1183,7 @@ function renderDividends(){
   }).join('');
 
   // Filtered total footer — shown when search/filter/FY is active
-  const hasFilter = search || typeF || ownerF || dvFYFilter !== 'ALL';
+  const hasFilter = search || typeF || ownerF || sourceF || dvFYFilter !== 'ALL';
   const filteredTotal = filtered.reduce((s,d)=>s+(+d.amount||0),0);
   const filteredCount = filtered.length;
   const foot = $('dv-foot');
