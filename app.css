@@ -185,6 +185,10 @@ a:hover{text-decoration:underline;text-underline-offset:2px;}
   border-color:rgba(240,113,120,.45);color:#ffb4b9;background:rgba(240,113,120,.08);
 }
 
+/* Compact header icon buttons - keep Push/Pull as a related pair */
+.hdr-sync{display:flex;gap:4px;flex-shrink:0;}
+.btn-ico{width:11px;height:11px;flex-shrink:0;opacity:.75;}
+
 /* Header actions read as quiet text controls, not chunky buttons */
 .header .btn{
   background:transparent;border-color:transparent;
@@ -260,6 +264,7 @@ a:hover{text-decoration:underline;text-underline-offset:2px;}
   border-color:color-mix(in srgb,var(--c,var(--border)) 34%,var(--border));
   padding:16px 18px 15px;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
+  overflow:hidden;
   transition:border-color .18s,transform .18s cubic-bezier(.22,1,.36,1),box-shadow .18s;
 }
 /* The wash lives on a pseudo-element so opacity can animate smoothly;
@@ -299,6 +304,7 @@ a:hover{text-decoration:underline;text-underline-offset:2px;}
   font-family:var(--sans);font-size:25px;font-weight:600;
   letter-spacing:-.02em;line-height:1.15;
   font-variant-numeric:tabular-nums;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
 }
 .card-sub{
   font-family:var(--sans);font-size:11px;color:var(--text3);

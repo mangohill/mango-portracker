@@ -1132,8 +1132,22 @@
       <input class="fi" type="text" id="sync-gist-id" placeholder="Auto-filled after first push" style="font-family:var(--mono);font-size:12px">
     </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      <button class="btn btn-g" onclick="syncPush()" style="min-width:130px">Push to Gist</button>
-      <button class="btn" onclick="syncPull()" style="min-width:130px">Pull from Gist</button>
+      <button class="btn btn-g" onclick="syncPush()" style="min-width:130px" title="Push data to GitHub Gist">
+        <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M12 13v8"/>
+          <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
+          <path d="m8 17 4-4 4 4"/>
+        </svg>
+        Push to Gist
+      </button>
+      <button class="btn" onclick="syncPull()" style="min-width:130px" title="Pull data from GitHub Gist">
+        <svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path d="M12 13v8"/>
+          <path d="m8 17 4 4 4-4"/>
+          <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
+        </svg>
+        Pull from Gist
+      </button>
       <span id="sync-status" style="font-family:var(--mono);font-size:11px;color:var(--text3)">Not synced</span>
     </div>
     <div id="sync-conflict" style="display:none;background:var(--bg);border:1px solid var(--gold);border-radius:5px;padding:12px;margin-bottom:10px">
