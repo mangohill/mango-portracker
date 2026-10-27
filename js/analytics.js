@@ -416,14 +416,14 @@ function renderAnalytics(){
   const pnlTint     = totalPnl   >= 0 ? 'var(--asset-lime)' : 'var(--debt-red)';
 
   $('an-cards').innerHTML = [
-    {l:'Total Return',    v:n2(totalReturn),       s:(totalReturn>=0?'pos':'neg'),     sub:`P&L + Divs · ${pLabel}`, tint:returnTint},
-    {l:'Unrealised P&L',  v:n2(totalPnl),          s:clr(totalPnl),                    sub:nP(pnlPct)+' · all time', tint:pnlTint},
-    {l:'Dividend Income', v:n2(filtDiv),            s:'pos',
+    {l:'Total Return',    v:n2(totalReturn,0),      s:(totalReturn>=0?'pos':'neg'),     sub:`P&L + Divs · ${pLabel}`, tint:returnTint},
+    {l:'Unrealised P&L',  v:n2(totalPnl,0),         s:clr(totalPnl),                    sub:nP(pnlPct)+' · all time', tint:pnlTint},
+    {l:'Dividend Income', v:n2(filtDiv,0),          s:'pos',
       sub:`Cash · ${filtDivs.length} payments · ${pLabel} · Grossed-up: ${n2(grossUpTotal(filtDivs))}`, tint:'var(--cat-income)'},
 
-    {l:'Total Invested',  v:n2(totalCost),          s:'neu',                            sub:'Cost basis · all time', tint:'var(--cat-portfolio)'},
-    {l:'Total Fees Paid', v:n2(filtFees),           s:'neg',                            sub:`Brokerage · ${pLabel}`, tint:'var(--debt-coral)'},
-    {l:'Realised (Sells)',v:n2(filtSells),          s:'neu',                            sub:`Gross sells · ${pLabel}`, tint:'var(--neutral-violet)'},
+    {l:'Total Invested',  v:n2(totalCost,0),         s:'neu',                            sub:'Cost basis · all time', tint:'var(--cat-portfolio)'},
+    {l:'Total Fees Paid', v:n2(filtFees,0),          s:'neg',                            sub:`Brokerage · ${pLabel}`, tint:'var(--debt-coral)'},
+    {l:'Realised (Sells)',v:n2(filtSells,0),         s:'neu',                            sub:`Gross sells · ${pLabel}`, tint:'var(--neutral-violet)'},
   ].map(c=>`<div class="card" style="${cardTint(c.tint)}"><div class="card-label">${c.l}</div><div class="card-value ${c.s}">${c.v}</div><div class="card-sub">${c.sub}</div></div>`).join('');
 
   // --- Main chart ---

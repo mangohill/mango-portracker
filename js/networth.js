@@ -1002,12 +1002,12 @@ function renderNetWorth(){
 
   panel.innerHTML = `
     <div class="cards" id="nw-cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
-      <div class="card" role="button" tabindex="0" title="Click for after-tax net worth" style="cursor:pointer;${nwTint(NW_COLORS.networth)}" onclick="nwShowAfterTax()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();nwShowAfterTax();}"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth)}</div><div class="card-sub">Portfolio + Property + Cash + Super − Loan</div><div class="card-sub" style="color:#8fe6d2">Click for after-tax view ›</div></div>
-      <div class="card" style="${nwTint(NW_COLORS.portfolio)}"><div class="card-label">Portfolio</div><div class="card-value neu">${n2(portfolioVal)}</div><div class="card-sub">Market value</div></div>
-      <div class="card" style="${nwTint(NW_COLORS.property)}"><div class="card-label">Property Value</div><div class="card-value neu">${n2(propertyVal)}</div><div class="card-sub">Current value, gross</div></div>
-      <div class="card" style="${nwTint(NW_COLORS.cash)}"><div class="card-label">Offset Cash</div><div class="card-value neu">${n2(offsetCash)}</div><div class="card-sub">Offset account balances</div></div>
-      <div class="card" style="${nwTint(NW_COLORS.super)}"><div class="card-label">Super</div><div class="card-value neu">${n2(superBal)}</div><div class="card-sub">All accounts</div></div>
-      <div class="card" style="${nwTint(NW_COLORS.loan)}"><div class="card-label">Loan</div><div class="card-value neu">${n2(loanBal)}</div><div class="card-sub">Total loan balance</div></div>
+      <div class="card" role="button" tabindex="0" title="Click for after-tax net worth" style="cursor:pointer;${nwTint(NW_COLORS.networth)}" onclick="nwShowAfterTax()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();nwShowAfterTax();}"><div class="card-label">Net Worth</div><div class="card-value neu">${n2(netWorth,0)}</div><div class="card-sub">Portfolio + Property + Cash + Super − Loan</div><div class="card-sub" style="color:#8fe6d2">Click for after-tax view ›</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.portfolio)}"><div class="card-label">Portfolio</div><div class="card-value neu">${n2(portfolioVal,0)}</div><div class="card-sub">Market value</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.property)}"><div class="card-label">Property Value</div><div class="card-value neu">${n2(propertyVal,0)}</div><div class="card-sub">Current value, gross</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.cash)}"><div class="card-label">Offset Cash</div><div class="card-value neu">${n2(offsetCash,0)}</div><div class="card-sub">Offset account balances</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.super)}"><div class="card-label">Super</div><div class="card-value neu">${n2(superBal,0)}</div><div class="card-sub">All accounts</div></div>
+      <div class="card" style="${nwTint(NW_COLORS.loan)}"><div class="card-label">Loan</div><div class="card-value neu">${n2(loanBal,0)}</div><div class="card-sub">Total loan balance</div></div>
     </div>
 
     <div class="tw" style="margin-bottom:18px">
@@ -1028,10 +1028,10 @@ function renderNetWorth(){
           <div class="fgi"><span class="fl">Target retire-early age</span><input class="fi" id="nw-fire-re-age" type="number" step="1" placeholder="e.g. 50" value="${reAge ?? ''}" onchange="nwSaveFireInputs()"></div>
         </div>
         <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">
-          <div class="card" style="${nwTint('var(--asset-teal)')}"><div class="card-label">FIRE Number</div><div class="card-value neu">${n2(fireNumber)}</div><div class="card-sub">25× annual spend</div></div>
+          <div class="card" style="${nwTint('var(--asset-teal)')}"><div class="card-label">FIRE Number</div><div class="card-value neu">${n2(fireNumber,0)}</div><div class="card-sub">25× annual spend</div></div>
           <div class="card" style="${nwTint('var(--cat-super)')}"><div class="card-label">Time to FIRE</div><div class="card-value ${reached?'pos':'neu'}">${fireLabel}</div><div class="card-sub">Liquid balance + contributions</div></div>
-          <div class="card" style="${nwTint('var(--cat-portfolio)')}"><div class="card-label">Liquid Starting Balance</div><div class="card-value neu">${n2(liquidStart)}</div><div class="card-sub">Portfolio only — Super locked until retired at 60+</div></div>
-          <div class="card" style="${nwTint(propertyCF>=0?'var(--cat-income)':'var(--debt-red)')}"><div class="card-label">Net Rental Income</div><div class="card-value ${propertyCF>=0?'pos':'neg'}">${propertyCF>=0?'+':''}${n2(propertyCF)}/yr</div><div class="card-sub">Sum of each rental's Net Annual Income</div></div>
+          <div class="card" style="${nwTint('var(--cat-portfolio)')}"><div class="card-label">Liquid Starting Balance</div><div class="card-value neu">${n2(liquidStart,0)}</div><div class="card-sub">Portfolio only — Super locked until retired at 60+</div></div>
+          <div class="card" style="${nwTint(propertyCF>=0?'var(--cat-income)':'var(--debt-red)')}"><div class="card-label">Net Rental Income</div><div class="card-value ${propertyCF>=0?'pos':'neg'}">${propertyCF>=0?'+':''}${n2(propertyCF,0)}/yr</div><div class="card-sub">Sum of each rental's Net Annual Income</div></div>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-bottom:14px">Property equity (${n2(propertyEq)}) and offset cash (${n2(offsetCash)}) aren't counted in the liquid balance above — it can't be drawn down like an investment. Instead, its Net Rental Income (same figure shown per-property in the Property tab — rent minus expenses minus interest, excluding your own home) ${propertyCF>=0?'is currently boosting':'is currently reducing'} your yearly contribution by ${n2(Math.abs(propertyCF))}.</div>
         <div style="height:220px"><canvas id="nw-fire-chart"></canvas></div>
@@ -1046,8 +1046,8 @@ function renderNetWorth(){
           !validFI ? `<div style="color:var(--red);font-size:12px">Target FI age must be after your current age.</div>` : `
           <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:14px">
             <div class="card" style="${nwTint('var(--cat-super)')}"><div class="card-label">Years to FI</div><div class="card-value neu">${yearsToFI}</div><div class="card-sub">Age ${currentAge} → ${fiAge}</div></div>
-            <div class="card" style="${nwTint('var(--asset-forest)')}"><div class="card-label">Required Monthly Savings</div><div class="card-value neu">${n2(Math.max(0,requiredMonthlyFromYou))}</div><div class="card-sub">On top of net rental income</div></div>
-            <div class="card" style="${nwTint(monthlyGap>=0?'var(--asset-green)':'var(--debt-red)')}"><div class="card-label">Your Current Rate</div><div class="card-value ${monthlyGap>=0?'pos':'neg'}">${n2(monthlyContrib)}</div><div class="card-sub">${monthlyGap>=0?'+':''}${n2(monthlyGap)}/mo vs required</div></div>
+            <div class="card" style="${nwTint('var(--asset-forest)')}"><div class="card-label">Required Monthly Savings</div><div class="card-value neu">${n2(Math.max(0,requiredMonthlyFromYou),0)}</div><div class="card-sub">On top of net rental income</div></div>
+            <div class="card" style="${nwTint(monthlyGap>=0?'var(--asset-green)':'var(--debt-red)')}"><div class="card-label">Your Current Rate</div><div class="card-value ${monthlyGap>=0?'pos':'neg'}">${n2(monthlyContrib,0)}</div><div class="card-sub">${monthlyGap>=0?'+':''}${n2(monthlyGap)}/mo vs required</div></div>
           </div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:${reBridge||reBuffer?'14px':'0'}">
             ${requiredMonthlyFromYou<=0

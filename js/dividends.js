@@ -904,10 +904,10 @@ function renderDivCards(){
   const HINT_STYLE = 'font-size:9px;color:var(--text3);margin-top:3px;font-family:var(--mono)';
 
   $('div-cards').innerHTML = [
-    { key:null,       l:'Total Income',         v:n2(dividends.reduce((s,d)=>s+(+d.amount||0),0)), s:'pos',
+    { key:null,       l:'Total Income',         v:n2(dividends.reduce((s,d)=>s+(+d.amount||0),0),0), s:'pos',
       sub:'Cash · All time · Grossed-up: '+n2(grossUpTotal(dividends)), tint:'var(--asset-teal)' },
 
-    { key:'thisFY',   l:divCardMode.thisFY===0?'This Financial Year':'Previous Financial Year', v:n2(fyTotal), s:'pos', sub:modeLabel(divCardMode.thisFY), hint:divCardMode.thisFY===0?'▸ click for prev FY':'▸ click for current FY', tint:'var(--cat-income)' },
+    { key:'thisFY',   l:divCardMode.thisFY===0?'This Financial Year':'Previous Financial Year', v:n2(fyTotal,0), s:'pos', sub:modeLabel(divCardMode.thisFY), hint:divCardMode.thisFY===0?'▸ click for prev FY':'▸ click for current FY', tint:'var(--cat-income)' },
     { key:'yield',    l:'Portfolio Yield',       v:yieldPct.toFixed(2)+'% cash',  s:'pos',
       sub:'Grossed-up: '+yieldGross.toFixed(2)+'% · '+modeLabel(divCardMode.yield), hint:modeHint(divCardMode.yield), tint:'var(--asset-lime)' },
 

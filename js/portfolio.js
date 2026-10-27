@@ -658,11 +658,11 @@ function renderH(){
     pfCards.forEach((card, i) => { if(tints[i]) card.setAttribute('style', cardTint(tints[i])); });
   }
 
-  if($('cv')) animateValue($('cv'), tv || null, {format:v=>n2(v)});
-  if($('cc')) animateValue($('cc'), tc, {format:v=>n2(v)});
+  if($('cv')) animateValue($('cv'), tv || null, {format:v=>n2(v,0)});
+  if($('cc')) animateValue($('cc'), tc, {format:v=>n2(v,0)});
   if($('cp')){
     $('cp').className = 'card-value '+(tpl==null?'neu':tpl>=0?'pos':'neg');
-    animateValue($('cp'), tpl, {format:v=>(v>=0?'+':'')+n2(v)});
+    animateValue($('cp'), tpl, {format:v=>(v>=0?'+':'')+n2(v,0)});
   }
   if($('cpp')) animateValue($('cpp'), tpp, {flash:false, format:v=>(v>=0?'+':'')+v.toFixed(2)+'%'});
   if($('cpos')) animateValue($('cpos'), viewH.length, {flash:false, format:v=>Math.round(v).toString()});

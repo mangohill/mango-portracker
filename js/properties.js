@@ -404,11 +404,11 @@ function renderSuperCards(){
     growthNum       = growth;
     const n         = superAccounts.length;
     balLabel  = 'Total Balance';
-    balVal    = n2(totalBal);
+    balVal    = n2(totalBal,0);
     balSub    = n + ' account' + (n===1?'':'s') + (n>0?' · click to cycle ↻':'');
     prevLabel = 'FY' + PREV_FY + ' Balance';
-    prevVal   = totalPrev > 0 ? n2(totalPrev) : '—';
-    growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth) : '—';
+    prevVal   = totalPrev > 0 ? n2(totalPrev,0) : '—';
+    growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth,0) : '—';
     growthPct = gPct   !== null ? (gPct>=0?'+':'')   + gPct.toFixed(1)+'%' : '';
   } else {
     // ── Single account view ──
@@ -419,11 +419,11 @@ function renderSuperCards(){
     const gPct   = growth !== null && prev > 0 ? (growth/prev)*100 : null;
     growthNum    = growth;
     balLabel  = a.name;
-    balVal    = n2(bal);
+    balVal    = n2(bal,0);
     balSub    = 'click to cycle ↻';
     prevLabel = 'FY' + PREV_FY + ' Balance';
-    prevVal   = prev !== null ? n2(prev) : '—';
-    growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth) : '—';
+    prevVal   = prev !== null ? n2(prev,0) : '—';
+    growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth,0) : '—';
     growthPct = gPct   !== null ? (gPct>=0?'+':'')   + gPct.toFixed(1)+'%' : '';
   }
 
@@ -2461,12 +2461,12 @@ function renderPropCards(){
 
   const gainTint = totalGain >= 0 ? 'var(--asset-teal)' : 'var(--debt-red)';
   const cards = [
-    {l:'Property Value',  v:n2(totalVal),    s:'neu',            sub:heldProperties.length+' propert'+(heldProperties.length===1?'y':'ies'), fn:'', tint:'var(--cat-property)'},
-    {l:'Total Equity',    v:n2(totalEquity), s:clr(totalEquity), sub:'Value − loan balance',   fn:'', tint:'var(--asset-forest)'},
-    {l:debtLabel,         v:n2(debtVal),     s:'neg',            sub:debtSub,                  fn:'togglePropDebt()', tint:'var(--debt-red)'},
-    {l:'Unrealised Gain', v:n2(totalGain),   s:clr(totalGain),   sub:'vs purchase price',      fn:'', tint:gainTint},
-    {l:rentLabel,         v:n2(rentVal),     s:'pos',            sub:rentSub,                  fn:'togglePropRent()', tint:'var(--cat-income)'},
-    {l:repayLabel,        v:n2(repayVal),    s:'neg',            sub:repaySub,                 fn:'togglePropRepay()', tint:'var(--debt-coral)'},
+    {l:'Property Value',  v:n2(totalVal,0),    s:'neu',            sub:heldProperties.length+' propert'+(heldProperties.length===1?'y':'ies'), fn:'', tint:'var(--cat-property)'},
+    {l:'Total Equity',    v:n2(totalEquity,0), s:clr(totalEquity), sub:'Value − loan balance',   fn:'', tint:'var(--asset-forest)'},
+    {l:debtLabel,         v:n2(debtVal,0),     s:'neg',            sub:debtSub,                  fn:'togglePropDebt()', tint:'var(--debt-red)'},
+    {l:'Unrealised Gain', v:n2(totalGain,0),   s:clr(totalGain),   sub:'vs purchase price',      fn:'', tint:gainTint},
+    {l:rentLabel,         v:n2(rentVal,0),     s:'pos',            sub:rentSub,                  fn:'togglePropRent()', tint:'var(--cat-income)'},
+    {l:repayLabel,        v:n2(repayVal,0),    s:'neg',            sub:repaySub,                 fn:'togglePropRepay()', tint:'var(--debt-coral)'},
   ];
   $('pw-cards').innerHTML = cards.map(c=>{
     const click = c.fn ? ` onclick="${c.fn}" title="Click to toggle"` : '';

@@ -84,10 +84,10 @@ function renderSpending(){
   const net = totalIn - totalOut;
 
   $('sp-cards').innerHTML = [
-    {l:'Total Paid (Credit Card)', v:'$'+totalSpent.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), s:'neg', sub:'FY'+spFY+' card payments made', big:true, tint:'var(--debt-red)'},
-    {l:'Total Categorised Spend',  v:'$'+totalOut.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), s:'neg', sub:'All money out', tint:'var(--debt-coral)'},
-    {l:'Money In (Refunds etc.)',   v:'$'+totalIn.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}),  s:'pos', sub:'Refunds + credits', tint:'var(--cat-income)'},
-    {l:'Net Spend',                 v:'$'+(Math.abs(net)).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2}), s:net>=0?'pos':'neg', sub:net>=0?'Net ahead':'Net out', tint:(net>=0?'var(--asset-teal)':'var(--debt-brick)')},
+    {l:'Total Paid (Credit Card)', v:'$'+totalSpent.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0}), s:'neg', sub:'FY'+spFY+' card payments made', big:true, tint:'var(--debt-red)'},
+    {l:'Total Categorised Spend',  v:'$'+totalOut.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0}), s:'neg', sub:'All money out', tint:'var(--debt-coral)'},
+    {l:'Money In (Refunds etc.)',   v:'$'+totalIn.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0}),  s:'pos', sub:'Refunds + credits', tint:'var(--cat-income)'},
+    {l:'Net Spend',                 v:'$'+(Math.abs(net)).toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0}), s:net>=0?'pos':'neg', sub:net>=0?'Net ahead':'Net out', tint:(net>=0?'var(--asset-teal)':'var(--debt-brick)')},
   ].map(c=>`<div class="card" style="${cardTint(c.tint)}">
     <div class="card-label">${c.l}</div>
     <div class="card-value ${c.s}" style="${c.big?'font-size:22px':''}">${c.v}</div>
