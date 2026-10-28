@@ -689,7 +689,7 @@ input[type="color"]::-webkit-color-swatch{border:none;border-radius:3px;}
   #pf-change-sub{flex:1 1 100%;white-space:normal;overflow-wrap:anywhere;line-height:1.55;}
   .pf-change-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:13px 14px;}
   .pf-change-row > .pfc-chip:last-child:nth-child(odd){grid-column:1 / -1;}
-  .cards > .card:last-child:nth-child(odd){grid-column:1 / -1;}
+  .cards > .card:first-child:nth-last-child(odd){grid-column:1 / -1;}
   .th .tt{white-space:normal;}
   .th{padding:12px 14px;}
   .fs > div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important;}
