@@ -560,7 +560,7 @@ function renderH(){
       <td style="text-align:right">${nN(h.units,8)}</td>
       <td style="text-align:right">${n2(avg,dec(avg))}</td>
       <td style="text-align:right">${cur!=null?n2(cur,dec(cur)):'<span style="color:var(--text3)">—</span>'}</td>
-      <td style="text-align:right">${mv!=null?n2(mv):'<span style="color:var(--text3)">—</span>'}</td>
+      <td style="text-align:right;color:var(--text);font-weight:500">${mv!=null?n2(mv):'<span style="color:var(--text3);font-weight:400">—</span>'}</td>
       <td style="text-align:right">${n2(h.costBasis)}</td>
       <td style="text-align:right" class="${plC}">${pl!=null?(pl>=0?'+':'')+n2(pl):'<span style="color:var(--text3)">—</span>'}</td>
       <td style="text-align:right" class="${plC}">${pp!=null?(pp>=0?'+':'')+pp.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
@@ -589,8 +589,8 @@ function renderH(){
         <td></td>
         <td></td>
         <td></td>
-        <td style="text-align:right">${anyMv?n2(totMv):'—'}</td>
-        <td style="text-align:right">${n2(totCost)}</td>
+        <td style="text-align:right;font-size:12.5px;${anyMv?'color:var(--gold)':'color:var(--text3)'}">${anyMv?n2(totMv):'—'}</td>
+        <td style="text-align:right;color:var(--text3);font-weight:500">${n2(totCost)}</td>
         <td style="text-align:right" class="${plC}">${totPl!=null?(totPl>=0?'+':'')+n2(totPl):'—'}</td>
         <td style="text-align:right" class="${plC}">${totPp!=null?(totPp>=0?'+':'')+totPp.toFixed(2)+'%':'—'}</td>
         <td></td>

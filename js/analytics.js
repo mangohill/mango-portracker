@@ -976,7 +976,7 @@ function renderHD(){
     <td style="text-align:right">${nN(h.units,8)}</td>
     <td style="text-align:right">${n2(h.avg,dec(h.avg))}</td>
     <td style="text-align:right">${h.cur!=null?n2(h.cur,dec(h.cur)):'<span style="color:var(--text3)">—</span>'}</td>
-    <td style="text-align:right">${h.mkt!=null?n2(h.mkt):'<span style="color:var(--text3)">—</span>'}</td>
+    <td style="text-align:right;color:var(--text);font-weight:500">${h.mkt!=null?n2(h.mkt):'<span style="color:var(--text3);font-weight:400">—</span>'}</td>
     <td style="text-align:right">${n2(h.costBasis)}</td>
     <td style="text-align:right" class="${clr(h.pnl)}">${h.pnl!=null?(h.pnl>=0?'+':'')+n2(h.pnl):'<span style="color:var(--text3)">—</span>'}</td>
     <td style="text-align:right" class="${clr(h.pct)}">${h.pct!=null?(h.pct>=0?'+':'')+h.pct.toFixed(2)+'%':'<span style="color:var(--text3)">—</span>'}</td>
@@ -987,8 +987,8 @@ function renderHD(){
 
   $('hd-foot').innerHTML=`<tr style="font-weight:700;border-top:2px solid var(--bo)">
     <td>TOTAL (${rows.length})</td><td colspan="5"></td>
-    <td style="text-align:right">${n2(totMkt)}</td>
-    <td style="text-align:right">${n2(totCost)}</td>
+    <td style="text-align:right;font-size:12.5px;color:var(--gold)">${n2(totMkt)}</td>
+    <td style="text-align:right;color:var(--text3);font-weight:500">${n2(totCost)}</td>
     <td style="text-align:right" class="${clr(totPnl)}">${n2(totPnl)}</td>
     <td style="text-align:right" class="${clr(totPct)}">${nP(totPct)}</td>
     <td style="text-align:right">${(totAlloc||0).toFixed(2)}%</td>
