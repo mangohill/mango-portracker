@@ -2301,9 +2301,10 @@ function renderProperties(){
               }).join('')}
               ${m.splits.length>1?`<tr style="border-top:2px solid var(--border);font-weight:700;color:var(--text2)">
                 <td style="padding:5px 8px 5px 0">TOTAL</td>
-                <td style="text-align:right;padding:5px 8px;font-size:10px">${m.wtRate.toFixed(2)}% wtd</td>
+                <td></td>
                 <td style="text-align:right;padding:5px 8px;color:var(--debt-red)">${n2(m.loanCur)}</td>
-                <td colspan="2"></td>
+                <td style="text-align:right;padding:5px 8px;font-size:10px">${m.wtRate.toFixed(2)}% wtd</td>
+                <td></td>
                 <td style="text-align:right;padding:5px 8px;color:var(--debt-brick)">${n2(m.effectiveLoan)}</td>
                 <td style="text-align:right;padding:5px 8px;color:var(--debt-red)">${n2(m.monthlyInterest)}</td>
                 <td style="text-align:right;padding:5px 8px;color:var(--debt-coral)">${n2(m.repay)}</td>
