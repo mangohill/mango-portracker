@@ -535,6 +535,7 @@ function buildExportSheets(){
     date: d.date, symbol: csvSafe(d.symbol), type: d.type,
     amount: +d.amount, fy: dateToFY ? dateToFY(d.date) : '', notes: csvSafe(d.notes||''),
     franking_pct: d.frankingPct == null ? '' : d.frankingPct, // csvImportDividends already reads this; export used to drop it
+    source: d.source || '',
   }));
 
   const propRows = properties.map(p => {
@@ -819,12 +820,14 @@ function csvImportDividends(rows, filename){
       type:   csvNormDivType(r.type),
       notes:  r.notes || '',
       frankingPct: frkV !== null ? frkPct : null,
+      source: (typeof dvMatchBroker === 'function' ? dvMatchBroker(r.source ?? r.broker ?? '') : '') || undefined,
       id:     uid(),
     };
     if(!d.date || !d.symbol || !d.amount || d.amount <= 0){ errors++; continue; }
-    // Dedup: same date + symbol + amount
+    // Dedup: same date + symbol + amount (and same broker, unless either side has none)
     const isDup = dividends.some(x =>
-      x.date === d.date && x.symbol === d.symbol && Math.abs(x.amount - d.amount) < 0.001
+      x.date === d.date && x.symbol === d.symbol && Math.abs(x.amount - d.amount) < 0.001 &&
+      (!x.source || !d.source || x.source === d.source)
     );
     if(isDup){ skipped++; continue; }
     dividends.push(d);

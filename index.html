@@ -535,6 +535,8 @@
 
   <div id="dv-45day-wrap" style="display:none;margin-bottom:18px"></div>
 
+  <div id="dv-assign-wrap" style="display:none;margin-bottom:18px"></div>
+
   <!-- Add dividend / DRP + import merged -->
   <div class="fs" style="margin-bottom:18px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between">
@@ -543,6 +545,10 @@
         Upload PDF / CSV
         <input type="file" id="div-import-file" accept=".csv,.pdf" multiple style="display:none" onchange="importDividendFile(this)">
       </label>
+      <span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text3);margin-left:auto;margin-right:10px" title="Broker to tag imported dividends with. Auto uses what the file says, or the stock's only broker.">
+        Import broker
+        <select class="fsm" id="div-import-src" onchange="dvImportSrcChange()"><option value="">Auto (detect)</option></select>
+      </span>
     </div>
     <span style="font-family:var(--mono);font-size:11px;color:var(--text3);display:block;margin-bottom:10px" id="div-import-status"></span>
     <!-- Preview before confirming -->
@@ -550,7 +556,7 @@
       <div class="tw" style="margin-bottom:10px">
         <div class="th"><span class="tt" id="div-import-preview-title">PREVIEW</span></div>
         <div class="ovx">
-          <table><thead><tr><th>Date</th><th>Symbol</th><th>Type</th><th>Amount</th><th>Notes</th><th>Status</th></tr></thead>
+          <table><thead><tr><th>Date</th><th>Symbol</th><th>Type</th><th>Amount</th><th>Broker</th><th>Notes</th><th>Status</th></tr></thead>
           <tbody id="div-import-tbody"></tbody></table>
         </div>
       </div>
@@ -570,6 +576,13 @@
           <option value="airdrop">Airdrop</option>
           <option value="drp">DRP</option>
         </select>
+      </div>
+      <div class="fgi"><label class="fl">Broker / Source</label>
+        <div style="display:flex;gap:6px">
+          <select class="fi" id="dv-src" style="flex:1" onchange="_dvSrcTouched=true"></select>
+          <button class="btn" onclick="dvAddBroker()" title="Add custom broker" style="padding:4px 10px;flex-shrink:0">+</button>
+        </div>
+        <div id="dv-src-hint" style="font-size:10px;color:var(--text3);margin-top:3px;min-height:12px"></div>
       </div>
       <div class="fgi" style="grid-column:1/-1"><label class="fl">Notes</label><input class="fi" type="text" id="dv-notes" placeholder="Optional"></div>
       <div class="fgi"><label class="fl">Franking % <span style="color:var(--text3);font-size:10px">(leave blank if unfranked)</span></label><input class="fi" type="number" id="dv-franking" placeholder="e.g. 100" min="0" max="100" step="any"></div>
@@ -593,11 +606,6 @@
           <input class="fi" type="number" id="dv-drp-units" placeholder="e.g. 16" step="any" min="0" oninput="dvDrpCalc()"></div>
         <div class="fgi"><label class="fl">DRP Price Per Unit</label>
           <input class="fi" type="number" id="dv-drp-price" placeholder="e.g. 12.00" step="any" min="0" oninput="dvDrpCalc()"></div>
-        <div class="fgi"><label class="fl">Broker / Source</label>
-          <div style="display:flex;gap:6px">
-            <select class="fi" id="dv-drp-source" style="flex:1"></select>
-            <button class="btn" onclick="promptAddBroker('dv-drp-source')" title="Add custom broker" style="padding:4px 10px;flex-shrink:0">+</button>
-          </div></div>
       </div>
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;margin:10px 0;font-size:12px;color:var(--text2);line-height:2">
         <div style="font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:.08em;margin-bottom:2px">PREVIEW</div>

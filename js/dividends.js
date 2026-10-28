@@ -88,6 +88,232 @@ function parseBinanceCSV(text, filename){
          added?'ok':'err');
 }
 
+// ── DIVIDEND BROKER / SOURCE ──────────────────────────────────────────
+// Every dividend stores the broker that paid it in d.source, using the same
+// keys as trades (commsec, betashares, ...). No source = "Unassigned".
+const DV_UNASSIGNED = '__none__'; // dropdown value for the "Unassigned" filter
+let _divImportPending = [];
+let _divImportParserSource = '', _divImportFilename = '';
+
+function dvBase(sym){
+  const s = String(sym||'').toUpperCase();
+  return typeof priceSymbol === 'function' ? priceSymbol(s) : s;
+}
+
+// { BASESYMBOL: Set(brokerKeys) } from every trade. Trades can carry a broker
+// suffix (DHHF:AU) while dividends are stored plain (DHHF), so both sides are
+// normalised the same way integrity.js does it.
+function dvBrokerMap(){
+  const map = {};
+  trades.forEach(t => {
+    if(!t.source) return;
+    const b = dvBase(t.symbol);
+    (map[b] = map[b] || new Set()).add(t.source);
+  });
+  return map;
+}
+function dvBrokersForSymbol(sym, map){
+  const set = (map || dvBrokerMap())[dvBase(sym)];
+  return set ? [...set] : [];
+}
+// The stock's broker when there is no ambiguity (exactly one broker has traded it), else ''.
+function dvAutoBroker(sym, map){
+  const b = dvBrokersForSymbol(sym, map);
+  return b.length === 1 ? b[0] : '';
+}
+function dvBrokerLabel(key){
+  if(!key) return 'Unassigned';
+  const b = getAllBrokers().find(x => x.value === key);
+  return b ? b.label : key;
+}
+// Match free text (a CSV cell) to a known broker by key or label; '' if unknown.
+function dvMatchBroker(text){
+  const n = String(text||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  if(!n) return '';
+  const hit = getAllBrokers().find(b => b.value === n || String(b.label).toLowerCase().replace(/[^a-z0-9]/g,'') === n);
+  return hit ? hit.value : '';
+}
+// <option> list of every broker. `preferred` (brokers that traded the stock) come first.
+function dvBrokerOptions(selected, preferred, blankLabel){
+  const all = getAllBrokers();
+  const pref = (preferred||[]).filter(k => all.some(b => b.value === k));
+  const opt = (v, l) => '<option value="' + escHtml(v) + '"' + (v === selected ? ' selected' : '') + '>' + escHtml(l) + '</option>';
+  let html = blankLabel != null ? opt('', blankLabel) : '';
+  if(selected && !all.some(b => b.value === selected)) html += opt(selected, selected); // broker since removed from the list
+  if(pref.length){
+    html += pref.map(k => opt(k, dvBrokerLabel(k))).join('');
+    html += '<option disabled>──────────</option>';
+  }
+  html += all.filter(b => !pref.includes(b.value)).map(b => opt(b.value, b.label)).join('');
+  return html;
+}
+
+// Best guess for a stock held at several brokers: whoever held the most units just
+// before the payment date. Only ever a suggestion — the user confirms it.
+function dvSuggestBroker(sym, date){
+  const base = dvBase(sym), units = {};
+  trades.forEach(t => {
+    if(!t.source || t.date >= date || dvBase(t.symbol) !== base) return;
+    if(t.type === 'buy' || t.type === 'drp') units[t.source] = (units[t.source]||0) + (+t.units||0);
+    else if(t.type === 'sell') units[t.source] = (units[t.source]||0) - (+t.units||0);
+  });
+  let ranked = Object.entries(units).filter(e => e[1] > 0.000001).sort((a,b) => b[1]-a[1]);
+  const real = ranked.filter(e => e[0] !== 'drp' && e[0] !== 'manual'); // prefer an actual broker over generic labels
+  if(real.length) ranked = real;
+  return ranked.length ? ranked[0][0] : '';
+}
+
+// Migration: any dividend with no broker whose stock has traded through exactly one
+// broker gets that broker. Never overwrites a broker that is already set.
+function dvMigrateSources(){
+  const map = dvBrokerMap();
+  let changed = 0;
+  dividends.forEach(d => {
+    if(d.source) return;
+    const b = dvAutoBroker(d.symbol, map);
+    if(b){ d.source = b; changed++; }
+  });
+  if(changed) save();
+  return changed;
+}
+// Dividends the app can't place on its own: no broker, and the stock traded through several.
+function dvNeedsBroker(map){
+  map = map || dvBrokerMap();
+  return dividends.filter(d => !d.source && dvBrokersForSymbol(d.symbol, map).length > 1);
+}
+
+// Broker for the DRP buy trade made from a queued dividend (sw-register.js DRP queue).
+function dvDrpSourceFor(p){
+  const div = dividends.find(d => String(d.id) === String(p.divId));
+  return (div && div.source) || dvAutoBroker(p.sym) || undefined;
+}
+
+// ── "Needs a broker" review panel ─────────────────────────────────────
+let dvAssignOpen = false;
+let dvAssignDraft = {};   // dividend id -> broker chosen in the panel (not saved until APPLY)
+
+function dvRenderAssignPanel(){
+  const wrap = $('dv-assign-wrap');
+  if(!wrap) return;
+  const map = dvBrokerMap();
+  const todo = dvNeedsBroker(map);
+  if(!todo.length){ wrap.style.display = 'none'; wrap.innerHTML = ''; dvAssignOpen = false; dvAssignDraft = {}; return; }
+  wrap.style.display = '';
+  const head = '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:var(--bg2);border:1px solid var(--gold);border-radius:8px">'
+    + '<span style="font-size:12px;color:var(--gold);font-weight:700">⚠ ' + todo.length + ' dividend' + (todo.length!==1?'s':'') + ' need a broker</span>'
+    + '<span style="font-size:11px;color:var(--text3)">These stocks are held at more than one broker, so the app can\'t tell which one paid.</span>'
+    + '<button class="btn" style="margin-left:auto;padding:4px 12px;font-size:11px" onclick="dvAssignToggle()">' + (dvAssignOpen ? 'HIDE' : 'REVIEW &amp; ASSIGN') + '</button></div>';
+  if(!dvAssignOpen){ wrap.innerHTML = head; return; }
+
+  const groups = {};
+  todo.slice().sort((a,b) => dvBase(a.symbol).localeCompare(dvBase(b.symbol)) || a.date.localeCompare(b.date))
+    .forEach(d => { (groups[dvBase(d.symbol)] = groups[dvBase(d.symbol)] || []).push(d); });
+
+  let ready = 0, rows = '';
+  Object.keys(groups).forEach(base => {
+    const cands = dvBrokersForSymbol(base, map);
+    rows += '<tr style="background:var(--surface2)"><td colspan="2"><b>' + escHtml(base) + '</b> <span style="color:var(--text3);font-size:11px">— ' + groups[base].length + ' dividend' + (groups[base].length!==1?'s':'') + '</span></td>'
+      + '<td colspan="2" style="text-align:right;font-size:11px;color:var(--text3)">Set all to '
+      + '<select class="fi" style="padding:2px 4px;font-size:11px;width:auto" onchange="dvAssignBulk(this.dataset.base, this.value)" data-base="' + escHtml(base) + '">'
+      + dvBrokerOptions('', cands, '— choose —') + '</select></td></tr>';
+    groups[base].forEach(d => {
+      const val = dvAssignDraft[d.id] !== undefined ? dvAssignDraft[d.id] : dvSuggestBroker(d.symbol, d.date);
+      if(val) ready++;
+      rows += '<tr><td>' + escHtml(d.date) + '</td><td>' + escHtml(displaySymbol(d.symbol)) + '</td>'
+        + '<td style="text-align:right" class="pos">$' + (+d.amount).toFixed(2) + '</td>'
+        + '<td><select class="fi" style="padding:3px 5px;font-size:11px" data-id="' + escHtml(String(d.id)) + '" onchange="dvAssignSet(this.dataset.id, this.value)">'
+        + dvBrokerOptions(val, cands, '— choose —') + '</select></td></tr>';
+    });
+  });
+
+  wrap.innerHTML = head
+    + '<div class="tw" style="margin-top:8px"><div class="ovx" style="max-height:340px;overflow:auto"><table>'
+    + '<thead><tr><th>Date</th><th>Symbol</th><th style="text-align:right">Amount</th><th>Broker</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>'
+    + '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<button class="btn btn-g" onclick="dvAssignApply()">APPLY ' + ready + ' ASSIGNMENT' + (ready!==1?'S':'') + '</button>'
+    + '<span style="font-size:11px;color:var(--text3)">Pre-filled with the broker holding the most units on the payment date — check them before applying. Rows left on “— choose —” stay Unassigned.</span></div>';
+}
+function dvAssignToggle(){ dvAssignOpen = !dvAssignOpen; dvRenderAssignPanel(); }
+function dvAssignSet(id, val){ dvAssignDraft[id] = val; dvRenderAssignPanel(); }
+function dvAssignBulk(base, val){
+  if(!val) return;
+  dvNeedsBroker().filter(d => dvBase(d.symbol) === base).forEach(d => { dvAssignDraft[d.id] = val; });
+  dvRenderAssignPanel();
+}
+function dvAssignApply(){
+  const map = dvBrokerMap();
+  let n = 0;
+  dvNeedsBroker(map).forEach(d => {
+    const val = dvAssignDraft[d.id] !== undefined ? dvAssignDraft[d.id] : dvSuggestBroker(d.symbol, d.date);
+    if(val){ d.source = val; n++; }
+  });
+  dvAssignDraft = {};
+  if(n) save();
+  renderDividends();
+  notify(n ? '✓ ' + n + ' dividend' + (n!==1?'s':'') + ' assigned a broker' : 'Nothing chosen to apply.', n ? 'ok' : 'err');
+}
+
+// ── Add-form broker field ─────────────────────────────────────────────
+let _dvSrcSym = '', _dvSrcTouched = false;   // touched = the user picked a broker by hand
+function dvPopulateBrokerField(selected){
+  const el = $('dv-src');
+  if(!el) return;
+  const cur = selected !== undefined ? selected : el.value;
+  el.innerHTML = dvBrokerOptions(cur, [], '— choose broker —');
+  el.value = cur && getAllBrokers().some(b => b.value === cur) ? cur : '';
+}
+// Re-evaluated only when the symbol changes, so a manual pick is never overridden.
+function dvSyncBrokerField(){
+  const el = $('dv-src');
+  if(!el) return;
+  const sym = ($('dv-sym') && $('dv-sym').value || '').trim().toUpperCase();
+  const hint = $('dv-src-hint');
+  const brokers = sym ? dvBrokersForSymbol(sym) : [];
+  if(sym !== _dvSrcSym){
+    _dvSrcSym = sym;
+    if(brokers.length === 1) el.value = brokers[0];
+    else if(brokers.length > 1 && !brokers.includes(el.value)) el.value = '';
+    else if(brokers.length === 0 && !_dvSrcTouched) el.value = '';   // don't carry an auto-picked broker over to an unrelated stock
+  }
+  if(hint){
+    hint.textContent = !sym ? ''
+      : brokers.length === 1 ? 'Only ' + dvBrokerLabel(brokers[0]) + ' has traded ' + sym + '.'
+      : brokers.length > 1 ? sym + ' traded at ' + brokers.map(dvBrokerLabel).join(', ') + ' — choose which paid it.'
+      : 'No trades found for ' + sym + ' yet.';
+  }
+}
+function dvAddBroker(){
+  const before = getCustomBrokers().length;
+  promptAddBroker('dv-src');   // saves the broker and refreshes the app's other broker lists
+  const custom = getCustomBrokers();
+  if(custom.length > before) _dvSrcTouched = true;
+  dvPopulateBrokerField(custom.length > before ? custom[custom.length-1].value : undefined);
+}
+
+// ── Import broker picker ──────────────────────────────────────────────
+function dvPopulateImportBroker(){
+  const el = $('div-import-src');
+  if(!el) return;
+  const cur = el.value;
+  el.innerHTML = dvBrokerOptions(cur, [], 'Auto (detect)');
+}
+// Broker for an imported dividend: the picker if set, else what the parser knows
+// (CommSec PDF → commsec), else the stock's only broker, else '' (Unassigned).
+function dvImportSource(sym, parserSource){
+  const pick = ($('div-import-src') && $('div-import-src').value || '').trim();
+  return pick || parserSource || dvAutoBroker(sym) || '';
+}
+function dvAssignImportSources(){
+  _divImportPending.forEach(d => {
+    d.source = d._fileSource || dvImportSource(d.symbol, _divImportParserSource) || undefined;
+  });
+}
+function dvImportSrcChange(){
+  if(!_divImportPending.length) return;
+  dvAssignImportSources();
+  dvRenderImportPreview();
+}
+
 function importDividendFile(input){
   const files = Array.from(input.files);
   if(!files.length) return;
@@ -124,14 +350,15 @@ function importDividendFile(input){
           if(result.type === 'drp'){
             const { date, symbol, units, drpPrice, amount, carryIn, carryOut } = result;
             const assetType = resolveAssetType(symbol) || 'asx_stock';
+            const src = dvImportSource(symbol);
             const trade = {
               date, type:'drp', symbol, assetType,
-              units, price: drpPrice, fees:0, source:($('dv-drp-source')?.value||'drp'), id:uid(),
+              units, price: drpPrice, fees:0, source: src || 'drp', id:uid(),
               notes:'DRP ' + nN(units,4) + ' units @ ' + n2(drpPrice,dec(drpPrice))
                    + (carryIn > 0.005 ? ' (incl. ' + n2(carryIn) + ' carry-in)' : ''),
             };
             const div = {
-              date, symbol, amount, type:'drp', id:uid(),
+              date, symbol, amount, type:'drp', id:uid(), source: src || undefined,
               notes:'Declared ' + n2(amount)
                    + (carryIn  > 0.005 ? ' + ' + n2(carryIn) + ' carry-in' : '')
                    + ' → ' + nN(units,4) + ' units @ ' + n2(drpPrice,dec(drpPrice))
@@ -144,9 +371,10 @@ function importDividendFile(input){
             trades.push(trade); dividends.push(div);
           } else {
             const { date, symbol, amount } = result;
-            const dup = dividends.some(d => d.date===date && d.symbol===symbol && Math.abs(+d.amount - +amount)<0.01);
+            const src = dvImportSource(symbol);
+            const dup = dividends.some(d => d.date===date && d.symbol===symbol && Math.abs(+d.amount - +amount)<0.01 && (!d.source || !src || d.source===src));
             if(dup){ status.textContent = 'Skipped — duplicate dividend record.'; return; }
-            dividends.push({ date, symbol, amount, type:'dividend', id:uid() });
+            dividends.push({ date, symbol, amount, type:'dividend', id:uid(), source: src || undefined });
           }
           save();
           renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards(); renderH(); renderT();
@@ -221,7 +449,9 @@ function isDivDuplicate(d){
   return dividends.some(x =>
     x.date === d.date &&
     x.symbol === d.symbol &&
-    Math.abs((+x.amount) - (+d.amount)) < 0.005
+    Math.abs((+x.amount) - (+d.amount)) < 0.005 &&
+    // identical payouts from two different brokers are separate; a blank source on either side still matches
+    (!x.source || !d.source || x.source === d.source)
   );
 }
 
@@ -246,13 +476,14 @@ async function importDividendPDF(input){
         const { date, symbol, units, drpPrice, amount, carryIn, carryOut, notes } = result;
         const assetType = result.assetType || resolveAssetType(symbol) || 'asx_stock';
         const price = drpPrice || (units && amount ? amount / units : 0);
+        const src = dvImportSource(symbol);
         const trade = {
           date, type:'drp', symbol, assetType,
-          units, price, fees:0, source:($('dv-drp-source')?.value||'drp'), id:uid(),
+          units, price, fees:0, source: src || 'drp', id:uid(),
           notes: notes||'',
         };
         const div = {
-          date, symbol, amount, type:'drp', id:uid(),
+          date, symbol, amount, type:'drp', id:uid(), source: src || undefined,
           notes: notes||'',
           frankingPct: result.frankingPct ?? null,
         };
@@ -273,11 +504,12 @@ async function importDividendPDF(input){
       } else {
         // Plain dividend
         const { date, symbol, amount, divType, notes } = result;
-        if(isDivDuplicate({date, symbol, amount})){
+        const src = dvImportSource(symbol);
+        if(isDivDuplicate({date, symbol, amount, source: src})){
           skipped++; continue;
         }
         dividends.push({ date, symbol, amount, type: divType||result.type||'dividend',
-          notes, id: uid(),
+          notes, id: uid(), source: src || undefined,
           frankingPct: result.frankingPct ?? null });
         imported++;
       }
@@ -527,7 +759,7 @@ function parseSelfwealthDivCSV(text, filename){
       id: uid()
     });
   }
-  showDividendPreview(parsed, filename);
+  showDividendPreview(parsed, filename, 'selfwealth');
 }
 
 function parseDividendCSV(text, filename){
@@ -556,7 +788,8 @@ function parseDividendCSV(text, filename){
                  : 'dividend';
     const notes  = get(row,'notes') || '';
     if(!date || !symbol || isNaN(amount) || amount <= 0){ skippedRows++; continue; }
-    parsed.push({date, symbol, amount, type, notes, id: uid()});
+    // optional "source" / "broker" column (the app's own CSV export writes "source")
+    parsed.push({date, symbol, amount, type, notes, id: uid(), _fileSource: dvMatchBroker(get(row,'source') || get(row,'broker'))});
   }
   showDividendPreview(parsed, filename);
   if(skippedRows && typeof notify === 'function') notify(skippedRows + ' row' + (skippedRows===1?'':'s') + ' skipped (unreadable date, symbol or amount)', 'err');
@@ -573,7 +806,7 @@ async function parseDividendPDF(buffer, filename){
 
     const parsed = parseCommSecDividendText(fullText);
     if(parsed.length > 0){
-      showDividendPreview(parsed, filename);
+      showDividendPreview(parsed, filename, 'commsec');
     } else {
       $('div-import-status').textContent = 'No dividend rows found in PDF. Make sure you upload the CommSec Interest & Dividend Summary PDF.';
     }
@@ -681,8 +914,16 @@ function ndFlex(s){
 }
 
 // ── PREVIEW & CONFIRM ─────────────────────────────────────────────────
-function showDividendPreview(parsed, filename){
+function showDividendPreview(parsed, filename, parserSource){
   _divImportPending = parsed;
+  _divImportFilename = filename;
+  _divImportParserSource = parserSource || '';
+  dvAssignImportSources();
+  dvRenderImportPreview();
+}
+
+function dvRenderImportPreview(){
+  const parsed = _divImportPending, filename = _divImportFilename;
   const newCount  = parsed.filter(d => !isDivDuplicate(d)).length;
   const dupCount  = parsed.length - newCount;
 
@@ -698,6 +939,7 @@ function showDividendPreview(parsed, filename){
       + '<td><b>' + escHtml(d.symbol) + '</b></td>'
       + '<td>' + escHtml(typeLabel[d.type]||d.type) + '</td>'
       + '<td class="pos">$' + (+d.amount).toFixed(2) + '</td>'
+      + '<td style="font-size:11px">' + (d.source ? escHtml(dvBrokerLabel(d.source)) : '<span style="color:var(--gold)">⚠ unassigned</span>') + '</td>'
       + '<td style="font-size:10px;color:var(--text3)">' + escHtml(d.notes||'') + '</td>'
       + '<td style="font-size:10px">' + (dup
           ? '<span style="color:var(--gold)">⚠ duplicate</span>'
@@ -712,7 +954,8 @@ function showDividendPreview(parsed, filename){
 function confirmDividendImport(){
   const toAdd = _divImportPending.filter(d => !isDivDuplicate(d));
   if(!toAdd.length){ notify('No new dividends to import.','info'); return; }
-  dividends.push(...toAdd);
+  // _fileSource is a parse-time helper only — don't store it
+  dividends.push(...toAdd.map(d => { const c = {...d}; delete c._fileSource; return c; }));
   save();
   renderDividends(); renderDivCharts(); renderDivCards();
   $('div-import-preview').style.display = 'none';
@@ -741,6 +984,10 @@ function addDividend(){
   const type   = $('dv-type').value;
   const notes  = $('dv-notes').value.trim();
   if(!date||!sym||isNaN(amount)||amount<=0){ notify('Fill date, symbol and amount.','err'); return; }
+  const source = ($('dv-src') && $('dv-src').value || '').trim();
+  if(!source && dvBrokersForSymbol(sym).length > 1){
+    notify(sym + ' is held at more than one broker — choose which one paid this.','err'); return;
+  }
 
   if(type === 'drp'){
     // DRP mode — also create a buy trade
@@ -756,7 +1003,7 @@ function addDividend(){
 
     const trade = {
       date, type:'drp', symbol:sym, assetType: at,
-      units, price, fees:0, source:($('dv-drp-source')?.value||'drp'), id:uid(),
+      units, price, fees:0, source: source || 'drp', id:uid(),
       notes: finalNotes,
     };
     if(isTradeDuplicate(trade)){ notify('Duplicate DRP — skipped.','err'); return; }
@@ -765,19 +1012,19 @@ function addDividend(){
     if(carryOut > 0.005) carry[sym] = carryOut; else delete carry[sym];
     saveDRPCarry(carry);
 
-    const dupDiv = isDivDuplicate({date, symbol:sym, amount});
+    const dupDiv = isDivDuplicate({date, symbol:sym, amount, source});
     trades.push(trade);
-    if(!dupDiv) dividends.push({ date, symbol:sym, amount, type:'drp', notes: finalNotes, id:uid(),
+    if(!dupDiv) dividends.push({ date, symbol:sym, amount, type:'drp', notes: finalNotes, id:uid(), source: source || undefined,
       frankingPct: (() => { const v=parseFloat($('dv-franking')?.value); return isNaN(v)?null:Math.min(100,Math.max(0,v)); })() });
     save();
     renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards(); renderH(); renderT();
     notify('DRP saved ✓');
     dvClear();
   } else {
-    if(isDivDuplicate({date, symbol:sym, amount})){
+    if(isDivDuplicate({date, symbol:sym, amount, source})){
       notify('Duplicate dividend entry — same date, symbol and amount already exists.','err'); return;
     }
-    dividends.push({ date, symbol:sym, amount, type, notes, id:uid(),
+    dividends.push({ date, symbol:sym, amount, type, notes, id:uid(), source: source || undefined,
       frankingPct: (() => { const v=parseFloat($('dv-franking')?.value); return isNaN(v)?null:Math.min(100,Math.max(0,v)); })() });
     save();
     renderFYBar(); renderDividends(); renderDivCharts(); renderDivCards();
@@ -787,6 +1034,7 @@ function addDividend(){
 }
 
 function dvTypeChange(){
+  dvSyncBrokerField();
   const type = $('dv-type').value;
   const isDRP = type === 'drp';
   const fields = $('dv-drp-fields');
@@ -842,6 +1090,7 @@ function dvClear(){
   const pd=$('dv-drp-prev-div');   if(pd) pd.innerHTML='';
   const pc=$('dv-drp-prev-carry'); if(pc) pc.innerHTML='';
   // reset type to dividend
+  _dvSrcSym = ''; _dvSrcTouched = false; dvPopulateBrokerField('');
   const t=$('dv-type'); if(t){ t.value='dividend'; dvTypeChange(); }
   const d=$('dv-date'); if(d) d.value=localDateStr();
 }
@@ -1081,6 +1330,11 @@ function dvEditGross(){
 
 function renderDividends(){
   render45DayRuleFlags();
+  dvMigrateSources();        // give dividends a broker wherever the stock has only one
+  dvPopulateImportBroker();
+  dvPopulateBrokerField();
+  dvRenderAssignPanel();
+  const _dvMap = dvBrokerMap();
   const search = ($('dv-search').value||'').toLowerCase();
   const typeF  = $('dv-filter').value;
   // Rebuild dv-owner-filter from actual owners
@@ -1090,28 +1344,18 @@ function renderDividends(){
     getAllPersons().concat(['joint']).map(p=>`<option value="${p}" ${p===_dvOwnerCur?'selected':''}>${getPersonLabel(p)}</option>`).join('');
   const ownerF = _dvOwnerCur;
 
-  // Rebuild dv-source broker/source filter. Dividends don't store a broker of their own,
-  // so it's derived from the trades for the same underlying symbol (trades can carry a
-  // broker suffix like DHHF:AU while dividends are stored plain as DHHF — same
-  // normalisation integrity.js uses). A symbol traded through several brokers matches
-  // each of them. Options only list brokers that match at least one dividend.
-  const _dvNorm = s => typeof priceSymbol === 'function' ? priceSymbol(s) : s;
-  const _dvBrokersBySym = {};
-  (typeof trades !== 'undefined' ? trades : []).forEach(t=>{
-    if(!t.source) return;
-    (_dvBrokersBySym[_dvNorm(t.symbol)] = _dvBrokersBySym[_dvNorm(t.symbol)] || new Set()).add(t.source);
-  });
+  // Rebuild dv-source filter from the broker stored on each dividend
   const _dvSourceSel = $('dv-source');
   let _dvSourceCur = _dvSourceSel ? _dvSourceSel.value : '';
   if(_dvSourceSel){
-    const _inUse = [...new Set(dividends.flatMap(d => [...(_dvBrokersBySym[_dvNorm(d.symbol)] || [])]))].sort();
-    if(_dvSourceCur && !_inUse.includes(_dvSourceCur)) _dvSourceCur = ''; // selected broker no longer applies
-    const _labels = getAllBrokers();
-    _dvSourceSel.innerHTML = '<option value="">All Sources</option>' +
-      _inUse.map(b=>{
-        const label = (_labels.find(x=>x.value===b)||{}).label || b;
-        return `<option value="${b}" ${b===_dvSourceCur?'selected':''}>${label}</option>`;
-      }).join('');
+    const _used = [...new Set(dividends.map(d => d.source).filter(Boolean))]
+      .sort((a,b) => dvBrokerLabel(a).localeCompare(dvBrokerLabel(b)));
+    const _hasNone = dividends.some(d => !d.source);
+    const _valid = new Set(_used.concat(_hasNone ? [DV_UNASSIGNED] : []));
+    if(_dvSourceCur && !_valid.has(_dvSourceCur)) _dvSourceCur = '';   // selected broker no longer applies
+    _dvSourceSel.innerHTML = '<option value="">All Sources</option>'
+      + _used.map(b => '<option value="' + escHtml(b) + '"' + (b === _dvSourceCur ? ' selected' : '') + '>' + escHtml(dvBrokerLabel(b)) + '</option>').join('')
+      + (_hasNone ? '<option value="' + DV_UNASSIGNED + '"' + (_dvSourceCur === DV_UNASSIGNED ? ' selected' : '') + '>Unassigned</option>' : '');
   }
   const sourceF = _dvSourceCur;
 
@@ -1119,7 +1363,7 @@ function renderDividends(){
     if(search && !d.symbol.toLowerCase().includes(search)) return false;
     if(typeF && d.type!==typeF) return false;
     if(ownerF && getSymbolOwner(d.symbol)!==ownerF) return false;
-    if(sourceF && !(_dvBrokersBySym[_dvNorm(d.symbol)] || new Set()).has(sourceF)) return false;
+    if(sourceF && (sourceF === DV_UNASSIGNED ? !!d.source : d.source !== sourceF)) return false;
     if(dvFYFilter !== 'ALL'){
       const fy = dateToFY(d.date);
       if(String(fy) !== dvFYFilter) return false;
@@ -1129,7 +1373,7 @@ function renderDividends(){
 
   // _owner is the display label, not the raw key, so sorting matches what's
   // actually shown in the column (and reads sensibly for custom persons).
-  filtered = filtered.map(d => ({...d, _owner: getPersonLabel(getSymbolOwner(d.symbol))}));
+  filtered = filtered.map(d => ({...d, _owner: getPersonLabel(getSymbolOwner(d.symbol)), _source: dvBrokerLabel(d.source)}));
 
   // Sort — default to most-recent-first by date whenever nothing's been explicitly chosen
   if(!getSort('dv-body').col) SORT_STATE['dv-body'] = {col:'date', dir:-1};
@@ -1149,6 +1393,7 @@ function renderDividends(){
     th('date','Date') +
     th('symbol','Symbol') +
     th('_owner','Owner') +
+    th('_source','Source') +
     th('type','Type') +
     th('amount','Cash (AUD)','text-align:right') +
     '<th style="text-align:right">Grossed-up</th>' +
@@ -1165,6 +1410,7 @@ function renderDividends(){
         <td><input class="fi" type="date" id="ed-date" value="${d.date}" style="width:118px;padding:3px 5px"></td>
         <td><input class="fi" type="text" id="ed-sym" value="${escHtml(d.symbol)}" style="width:70px;padding:3px 5px" oninput="this.value=this.value.toUpperCase()"></td>
         <td><span style="font-size:10px;padding:2px 6px;border-radius:12px;background:${getPersonColourAlpha(getSymbolOwner(d.symbol),'22')};color:${getPersonColour(getSymbolOwner(d.symbol))}">${getPersonLabel(getSymbolOwner(d.symbol))}</span></td>
+        <td><select class="fi" id="ed-source" style="padding:3px 5px;font-size:11px">${dvBrokerOptions(d.source, dvBrokersForSymbol(d.symbol, _dvMap), 'Unassigned')}</select></td>
         <td><select class="fi" id="ed-type" style="padding:3px 5px;font-size:11px">
           ${TYPES.map(t=>`<option value="${t}"${t===d.type?' selected':''}>${TYPE_LABEL[t]}</option>`).join('')}
         </select></td>
@@ -1182,6 +1428,7 @@ function renderDividends(){
       <td>${d.date}</td>
       <td><b>${displaySymbol(d.symbol)}</b></td>
       <td><span style="font-size:10px;padding:2px 6px;border-radius:12px;background:${getPersonColourAlpha(getSymbolOwner(d.symbol),'22')};color:${getPersonColour(getSymbolOwner(d.symbol))}">${getPersonLabel(getSymbolOwner(d.symbol))}</span></td>
+      <td style="font-size:11px;${d.source ? 'color:var(--text2)' : 'color:var(--text3)'}">${escHtml(dvBrokerLabel(d.source))}</td>
       <td><span class="badge b-etf" style="font-size:10px">${TYPE_LABEL[d.type]||d.type}</span></td>
       <td style="text-align:right" class="pos">$${(+d.amount).toFixed(2)}</td>
       <td style="text-align:right;font-family:var(--mono);color:var(--blue);font-size:12px">$${grossUpDiv(+d.amount||0,d.frankingPct||0).toFixed(2)}</td>
@@ -1202,7 +1449,7 @@ function renderDividends(){
   if(foot){
     if(hasFilter && filteredCount > 0){
       foot.innerHTML = `<tr style="font-weight:700;border-top:2px solid var(--bo)">
-        <td colspan="4" style="color:var(--text2);font-size:12px">
+        <td colspan="5" style="color:var(--text2);font-size:12px">
           ${filteredCount} result${filteredCount!==1?'s':''} shown
         </td>
         <td style="text-align:right;color:var(--gold);font-size:13px">
@@ -1263,7 +1510,8 @@ function saveEditDiv(){
   if(idx < 0){ notify('Dividend not found.', 'err'); return; }
 
   const nfp = parseFloat($('ed-franking')?.value);
-  dividends[idx] = { ...dividends[idx], date, symbol:sym, type, amount:+amt.toFixed(2), notes,
+  const newSource = ($('ed-source') && $('ed-source').value || '').trim();
+  dividends[idx] = { ...dividends[idx], date, symbol:sym, type, amount:+amt.toFixed(2), notes, source: newSource || undefined,
     frankingPct: isNaN(nfp) ? null : Math.min(100,Math.max(0,nfp)) };
   editingDivId = null;
   save();

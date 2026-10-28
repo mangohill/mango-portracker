@@ -407,6 +407,8 @@ function addSingleMissingDiv(r, showAll) {
     type:       'dividend',
     frankingPct: 0,
     notes:      'Auto-added from dividend history check',
+    // broker only when the stock has a single one; otherwise left Unassigned for the review panel
+    source:     (typeof dvAutoBroker === 'function' ? dvAutoBroker(r.symbol) : '') || undefined,
   });
   save();
   renderDivCharts(); renderDivCards();
@@ -446,6 +448,7 @@ function addAllMissingDivs() {
       type:       'dividend',
       frankingPct: 0,
       notes:      'Auto-added from dividend history check',
+      source:     (typeof dvAutoBroker === 'function' ? dvAutoBroker(r.symbol) : '') || undefined,
     });
     if(isSymbolDRPEnabled(r.symbol)) anyDRP = true;
   });
@@ -759,6 +762,7 @@ function confirmDRPItem(idx){
     fees:      0,
     assetType: getSymbolAssetType(p.sym),
     divId:     p.divId, // links back to the dividend this reinvests, for exact re-scan matching
+    source:    (typeof dvDrpSourceFor === 'function' ? dvDrpSourceFor(p) : undefined), // same broker as the dividend
     notes:     'DRP — auto from dividend ' + p.divDate + (issueDate !== p.divDate ? ' (issued ' + issueDate + ')' : ''),
   });
 
@@ -821,6 +825,7 @@ function confirmAllDRP(){
       fees:      0,
       assetType: getSymbolAssetType(p.sym),
       divId:     p.divId, // links back to the dividend this reinvests, for exact re-scan matching
+      source:    (typeof dvDrpSourceFor === 'function' ? dvDrpSourceFor(p) : undefined), // same broker as the dividend
       notes:     'DRP — auto from dividend ' + p.divDate + (issueDate !== p.divDate ? ' (issued ' + issueDate + ')' : ''),
     });
     carry[p.sym] = carryOut;
