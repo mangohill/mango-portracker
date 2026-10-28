@@ -708,7 +708,7 @@ function nwShowAfterTax(){
   const th = 'text-align:right;padding:6px 14px;color:var(--text3);font-size:10px;white-space:nowrap';
   const gcol = v => v >= 0 ? 'var(--green)' : 'var(--red)';
   const title = t => `<div style="font-size:11px;font-weight:700;color:var(--text2);margin:16px 0 6px">${t}</div>`;
-  const tbl = rows => `<table style="width:100%;border-collapse:collapse">${rows}</table>`;
+  const tbl = rows => `<table class="nw-at-tbl" style="width:100%;border-collapse:collapse">${rows}</table>`;
   const line = (lbl, val, opts) => `<tr style="${opts&&opts.top?'border-top:1px solid var(--border);':''}">
     <td style="padding:6px 0;${opts&&opts.bold?'font-weight:700;font-size:14px;':''}">${lbl}</td>
     <td style="text-align:right;padding:6px 0;${opts&&opts.bold?'font-weight:700;font-size:14px;':''}${opts&&opts.color?'color:'+opts.color+';':''}">${val}</td></tr>`;
@@ -793,7 +793,7 @@ function nwShowAfterTax(){
       r.segs.map(sg => line(`Less: est. CGT on ${sg.short}`, minus(sg.tax), {color: sg.tax > 0.004 ? 'var(--red)' : ''})).join('') +
       (hasTaxableProp ? line('Less: est. CGT on investment property', minus(r.propTax), {color: r.propTax > 0.004 ? 'var(--red)' : ''}) : '') +
       (nProps ? line('Less: selling costs on property sales', minus(r.sold.sellCosts), {color: r.sold.sellCosts > 0 ? 'var(--red)' : ''}) : '') +
-      line('After-tax net worth', n2(r.afterTaxNW), {bold: true, top: true}));
+      line('After-tax net worth', n2(r.afterTaxNW), {bold: true, top: true, color:'var(--gold)'}));
 
     const diff = r.afterTaxNW - everything.afterTaxNW;
     const vsAll = Math.abs(diff) < 0.005 ? '' :
@@ -802,13 +802,13 @@ function nwShowAfterTax(){
     const cashBlock = r.sold.count ? `
       ${title(`Cash in hand from the ${r.sold.count} ${r.sold.count === 1 ? 'property' : 'properties'} sold`)}
       ${tbl(
-        line('Sale value', n2(r.sold.value)) +
-        line('Less: selling costs', minus(r.sold.sellCosts)) +
-        line('Less: loan payouts', minus(r.sold.loan)) +
-        line('Less: est. CGT', minus(r.propTax)) +
-        line('Net cash from sales', n2(r.propNetCash), {bold: true, top: true, color: gcol(r.propNetCash)}) +
-        line('Plus: offset balances (your own cash)', r.sold.offset > 0 ? '+' + n2(r.sold.offset) : '—') +
-        line('Total cash after selling these properties', n2(r.propTotalCash), {bold: true, top: true, color: gcol(r.propTotalCash)}))}
+        line('Sale value', n2(r.sold.value), {color:'var(--green)'}) +
+        line('Less: selling costs', minus(r.sold.sellCosts), {color: r.sold.sellCosts > 0.004 ? 'var(--red)' : ''}) +
+        line('Less: loan payouts', minus(r.sold.loan), {color: r.sold.loan > 0.004 ? 'var(--red)' : ''}) +
+        line('Less: est. CGT', minus(r.propTax), {color: r.propTax > 0.004 ? 'var(--red)' : ''}) +
+        line('Net cash from sales', n2(r.propNetCash), {bold: true, top: true, color:'var(--gold)'}) +
+        line('Plus: offset balances (your own cash)', r.sold.offset > 0 ? '+' + n2(r.sold.offset) : '—', {color: r.sold.offset > 0 ? 'var(--green)' : ''}) +
+        line('Total cash after selling these properties', n2(r.propTotalCash), {bold: true, top: true, color:'var(--gold)'}))}
       <div style="margin-top:6px;color:var(--text3);font-size:10px;line-height:1.5">Loans are repaid in full from the proceeds; offset balances stay yours and are added separately. CGT is the property figure above (properties sold alongside the portfolio) — each property card estimates it as if sold on its own, so the totals can differ. Main residence is treated as CGT-exempt.${anySellCosts ? '' : ' Selling costs aren\'t included — set Est. Selling Costs % on each property to include agent/legal fees.'}</div>` : '';
 
     const holdBlock = `
@@ -816,30 +816,30 @@ function nwShowAfterTax(){
       ${tbl(
         r.segs.map(sg => line(`${esc(sg.label)} kept (at market value)`, dash(sg.held))).join('') +
         (nProps ? line('Properties kept (equity' + (anyOffset ? ' + offset cash' : '') + ')', dash(r.held.equity + r.held.offset)) : '') +
-        r.segs.map(sg => line(`Cash from ${esc(sg.short)} sold (after CGT)`, dash(sg.cash))).join('') +
-        (nProps ? line('Cash from property sales' + (anyOffset ? ' (incl. offset balances)' : ''), dash(r.propTotalCash)) : '') +
+        r.segs.map(sg => line(`Cash from ${esc(sg.short)} sold (after CGT)`, dash(sg.cash), {color: sg.cash > 0.004 ? 'var(--green)' : ''})).join('') +
+        (nProps ? line('Cash from property sales' + (anyOffset ? ' (incl. offset balances)' : ''), dash(r.propTotalCash), {color: r.propTotalCash > 0.004 ? 'var(--green)' : ''}) : '') +
         line('Super (not sold)', n2(model.superBal)) +
-        line('Total = after-tax net worth', n2(r.afterTaxNW), {bold: true, top: true}))}`;
+        line('Total = after-tax net worth', n2(r.afterTaxNW), {bold: true, top: true, color:'var(--gold)'}))}`;
 
     const personRows = r.rows.length ? `
       ${title('Estimated tax by person (this selection)')}
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <div style="overflow-x:auto"><table class="nw-at-tbl" style="width:100%;border-collapse:collapse">
         <thead><tr><th style="${th};text-align:left">Person</th><th style="${th}">Short-term</th><th style="${th}">Long-term</th><th style="${th}">Losses</th><th style="${th}">Added taxable gain</th><th style="${th}" title="Last financial year's taxable income, built the same way as the Tax tab. The added gain is stacked on top of it.">Base income (last FY)</th><th style="${th}">Est. tax</th><th style="${th}" title="Est. tax ÷ added taxable gain">Rate on added gain</th></tr></thead>
         <tbody>${r.rows.map(x => `<tr style="border-top:1px solid var(--border)">
           <td style="padding:8px 14px">${label(x.person)}</td>
-          <td style="${cell}">${n2(x.short)}</td><td style="${cell}">${n2(x.long)}</td><td style="${cell}">${x.loss ? '−' + n2(x.loss) : '—'}</td>
-          <td style="${cell}">${n2(x.added)}</td><td style="${cell};color:var(--text2)">${n2(x.base)}</td><td style="${cell};font-weight:700;color:var(--red)">${n2(x.tax)}</td><td style="${cell};color:var(--text2)">${x.added > 0 ? (x.tax / x.added * 100).toFixed(1) + '%' : '—'}</td></tr>`).join('')}
+          <td style="${cell};color:var(--green)">${n2(x.short)}</td><td style="${cell};color:var(--green)">${n2(x.long)}</td><td style="${cell};${x.loss ? 'color:var(--red)' : ''}">${x.loss ? '−' + n2(x.loss) : '—'}</td>
+          <td style="${cell};color:var(--gold)">${n2(x.added)}</td><td style="${cell};color:var(--text2)">${n2(x.base)}</td><td style="${cell};font-weight:700;color:var(--red)">${n2(x.tax)}</td><td style="${cell};color:var(--text2)">${x.added > 0 ? (x.tax / x.added * 100).toFixed(1) + '%' : '—'}</td></tr>`).join('')}
         </tbody></table></div>
         <div style="margin-top:6px;color:var(--text3);font-size:10px;line-height:1.5">The added gain is stacked on top of each person's base income (last financial year's taxable income, built the same way as the Tax tab: salary less sacrifice, dividends + franking, net rental, and that year's net capital gain). Only the slice that lands above $190,000 is taxed at 45% + 2% Medicare; the part below is taxed at the lower brackets, so the rate on the added gain is usually below the top rate.</div>`
       : `${title('Estimated tax by person (this selection)')}<div style="color:var(--text3)">${r.segs.some(sg => sg.f > 0) || r.soldProps.length ? 'No gains found in this selection — nothing to deduct.' : 'Nothing selected to sell — no tax.'}</div>`;
 
     const propTable = hasTaxableProp ? `
       ${title('Investment properties included')}
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <div style="overflow-x:auto"><table class="nw-at-tbl" style="width:100%;border-collapse:collapse">
         <thead><tr><th style="${th};text-align:left">Property</th><th style="${th}">Value</th><th style="${th}">Cost base</th><th style="${th}">Selling costs</th><th style="${th}">Gain</th><th style="${th}">&gt; 12 months</th><th style="${th}">Action</th></tr></thead>
         <tbody>${model.props.map((p, i) => !p.taxable ? '' : `<tr style="border-top:1px solid var(--border);${sel.sold[i] ? '' : 'opacity:.45'}">
           <td style="padding:8px 14px">${esc(p.name)} <span style="color:var(--text3)">· ${label(p.owner)}</span></td>
-          <td style="${cell}">${n2(p.value)}</td><td style="${cell}">${n2(p.costBase)}</td><td style="${cell}">${p.sellCosts ? n2(p.sellCosts) : '—'}</td>
+          <td style="${cell}">${n2(p.value)}</td><td style="${cell}">${n2(p.costBase)}</td><td style="${cell};${p.sellCosts ? 'color:var(--red)' : ''}">${p.sellCosts ? n2(p.sellCosts) : '—'}</td>
           <td style="${cell}">${gl(p.gain)}</td><td style="${cell}">${p.long ? 'Yes (50% discount)' : 'No'}</td>
           <td style="${cell};font-weight:700">${sel.sold[i] ? 'Sell' : 'Hold'}</td></tr>`).join('')}
         </tbody></table></div>` : '';

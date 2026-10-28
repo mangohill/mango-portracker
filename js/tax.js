@@ -807,6 +807,7 @@ function renderTax(){
     </tr>`;
 
   const sp = (v,cls)=>`<span class="${cls||''}">${v}</span>`;
+  const gold = v => `<span style="color:var(--gold)">${v}</span>`;
 
   const colPersons = taxVisiblePersons(taxPersons);   // who is displayed (cards + summary columns)
   const pager = taxPagerHtml(taxPersons, colPersons);
@@ -816,6 +817,9 @@ function renderTax(){
   <style>
     /* The Item column of the Tax Summary never scrolls away, even if a narrow screen has to scroll sideways. */
     #panel-tax .tx-tbl td:first-child, #panel-tax .tx-tbl th:first-child{ position:sticky; left:0; z-index:1; background:var(--surface); box-shadow:1px 0 0 var(--border); max-width:48vw; }
+    /* Keep the sticky Item cell in step with the zebra/hover row backgrounds. */
+    #panel-tax .tx-tbl tbody tr:nth-child(even):not(.tx-total) td:first-child{ background:linear-gradient(rgba(255,255,255,.02),rgba(255,255,255,.02)), var(--surface); }
+    #panel-tax .tx-tbl tbody tr:not(.tx-total):hover td:first-child{ background:linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)), var(--surface); }
     #panel-tax .tx-tbl tr.tx-total td:first-child{ background:linear-gradient(rgba(255,255,255,.03),rgba(255,255,255,.03)), var(--surface); }
   </style>
   <!-- FY selector -->
@@ -1000,17 +1004,16 @@ function renderTax(){
         ${colPersons.map(p=>`<th style="text-align:right;padding:6px 8px;font-size:12px;font-family:var(--mono);color:${getPersonColour(p)}">${escHtml(getPersonLabel(p))}</th>`).join('')}
       </tr></thead>
       <tbody>
-        ${row('Gross Salary', colPersons.map(p=>n2(taxByPerson[p].salary)))}
+        ${row('Gross Salary', colPersons.map(p=>sp(n2(taxByPerson[p].salary),'pos')))}
         ${taxPersons.some(p=>taxByPerson[p].rfb>0)?row('Reportable Fringe Benefits',
           colPersons.map(p=>taxByPerson[p].rfb>0?'+'+n2(taxByPerson[p].rfb):'—'),
           '','not taxable income — used for Div293 & MLS threshold tests only'):''}
         ${`<tr>
-          <td style='color:var(--text3);font-size:12px;padding:5px 8px'>Dividend Income (cash)<span style='color:var(--text3);font-size:10px'> from dividends tab</span></td>
-          ${colPersons.map(p=>`<td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted;color:var(--green)' onclick='taxDrillDividends("${p}",${fy})' title='Click to see these dividends'>${n2(taxByPerson[p].myDiv)}</td>`).join('')}
-        </tr>`}
-        ${`<tr class='pos'>
-          <td style='color:var(--text3);font-size:12px;padding:5px 8px'>Franking Credits</td>
-          ${colPersons.map(p=>`<td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted' onclick='taxDrillDividends("${p}",${fy})' title='Click to see franked dividends'>+${n2(taxByPerson[p].myFrank)}</td>`).join('')}
+          <td style='color:var(--text3);font-size:12px;padding:5px 8px'>Grossed-up Dividends<span style='color:var(--text3);font-size:10px'> cash + franking credits</span></td>
+          ${colPersons.map(p=>{
+            const t = taxByPerson[p], gross = t.myDiv + t.myFrank;
+            return `<td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted;color:var(--green)' onclick='taxDrillDividends("${p}",${fy})' title='Cash ${n2(t.myDiv)} + franking credits ${n2(t.myFrank)} — click to see these dividends'>${n2(gross)}</td>`;
+          }).join('')}
         </tr>`}
         ${taxPersons.some(p=>taxByPerson[p].investInterestDeduction>0)?row(
           'Investment Interest Deduction',
@@ -1021,9 +1024,9 @@ function renderTax(){
           '  └ Net Investment Loss (added back for Div293/MLS)',
           colPersons.map(p=>taxByPerson[p].totalNetInvLoss>0?n2(taxByPerson[p].totalNetInvLoss):'—'),
           '','not added to taxable income — used for Div293 & MLS threshold tests only'):''}
-        ${row('Net Rental Income', colPersons.map(p=>taxByPerson[p].netRent>taxByPerson[p].netExpenses?'+'+n2(taxByPerson[p].netRent-taxByPerson[p].netExpenses):'—'))}
+        ${row('Net Rental Income', colPersons.map(p=>taxByPerson[p].netRent>taxByPerson[p].netExpenses?sp('+'+n2(taxByPerson[p].netRent-taxByPerson[p].netExpenses),'pos'):'—'))}
         ${row('Rental Loss (negative gearing)', colPersons.map(p=>taxByPerson[p].netPropLoss>0?'-'+n2(taxByPerson[p].netPropLoss):'—'),'neg')}
-        ${row('Net Capital Gain (after 50% disc)', colPersons.map(p=>n2(taxByPerson[p].myCGT)),'',cgt.totalLoss>0?'capital losses: -'+n2(cgt.totalLoss):'')}
+        ${row('Net Capital Gain (after 50% disc)', colPersons.map(p=>sp(n2(taxByPerson[p].myCGT), taxByPerson[p].myCGT>0?'pos':'')),'',cgt.totalLoss>0?'capital losses: -'+n2(cgt.totalLoss):'')}
         <tr><td colspan="${colPersons.length+1}" style="padding:2px 8px 8px">
           <span style="font-size:11px;color:#8fe6d2;cursor:pointer" onclick="switchTab('cgt',$('tab-cgt'))">
             ↳ View full Capital Gains report (per-parcel detail, any FY) →
@@ -1034,14 +1037,14 @@ function renderTax(){
           ${colPersons.map(p=>{
             const t = taxByPerson[p];
             return `<td style="font-family:var(--mono);font-size:13px;font-weight:600;text-align:right;padding:6px 8px">
-              ${n2(Math.max(0,t.taxableIncome))}
+              ${gold(n2(Math.max(0,t.taxableIncome)))}
               ${t.sacrifice>0?`<div style='font-size:10px;color:var(--text3)'>(pre-sacrifice: ${n2(t.salary)})</div>`:''}
             </td>`;
           }).join('')}
         </tr>
         ${taxPersons.some(p=>taxByPerson[p].sacrifice>0)?row('Salary Sacrifice',
           colPersons.map(p=>taxByPerson[p].sacrifice>0?'-'+n2(taxByPerson[p].sacrifice):'—'),'neg','reduces taxable income'):''}
-        ${row('Gross Tax Payable', colPersons.map(p=>n2(taxByPerson[p].grossTax)))}
+        ${row('Gross Tax Payable', colPersons.map(p=>gold(n2(taxByPerson[p].grossTax))))}
         ${row('  └ Medicare Levy (2%)',
           colPersons.map(p=>taxByPerson[p].medicareLevy>0?n2(taxByPerson[p].medicareLevy):'—'),
           'neg','included in gross tax above')}
@@ -1075,10 +1078,10 @@ ${(()=>{
         </tr>`;
         })()}
       ${taxPersons.some(p=>taxByPerson[p].hecsRep>0)?row('HECS-HELP Repayment',
-        colPersons.map(p=>taxByPerson[p].hecsRep>0?n2(taxByPerson[p].hecsRep):'—')):''
+        colPersons.map(p=>taxByPerson[p].hecsRep>0?n2(taxByPerson[p].hecsRep):'—'),'neg'):''
       }
       ${taxPersons.some(p=>taxByPerson[p].mls>0)?row('Medicare Levy Surcharge',
-        colPersons.map(p=>taxByPerson[p].mls>0?n2(taxByPerson[p].mls)+'<span style="font-size:10px;color:var(--neg)"> (no priv. health)</span>':'—')):''
+        colPersons.map(p=>taxByPerson[p].mls>0?n2(taxByPerson[p].mls)+'<span style="font-size:10px;color:var(--neg)"> (no priv. health)</span>':'—'),'neg'):''
       }
         ${row('Less: Tax Withheld', colPersons.map(p=>'-'+n2(taxByPerson[p].withheld)),'neg')}
         ${row('Less: PAYG Instalments', colPersons.map(p=>taxByPerson[p].payg?'-'+n2(taxByPerson[p].payg):'—'),'neg')}

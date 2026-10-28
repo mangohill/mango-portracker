@@ -1,7 +1,8 @@
 // ── eofy.js ──────────────────────────────────────────────────────────
 // One-click EOFY pack: pulls together the Capital Gains summary, dividend
-// + franking credit totals, spending summary, and a portfolio value
-// snapshot for a given financial year into a single printable page.
+// + franking credit totals, property rental income/expenses, spending
+// summary, and a portfolio value snapshot for a given financial year into a
+// single printable page.
 // Opens in a new tab styled for print/PDF — use the browser's own
 // "Print → Save as PDF" so no PDF-generation library is needed.
 // Read-only: touches no stored data, only reads via the same functions
@@ -50,18 +51,116 @@ function eofySpendingSummary(fy){
 function eofyPortfolioSnapshot(fy){
   if(typeof pfSnapshots === 'undefined') return null;
   const target = fy + '-06-30';
+
+  // Prefer a true mark-to-market reconstruction: holdings held on the
+  // nearest priced snapshot on/before 30 June, valued at the nearest
+  // available quote per symbol. This avoids the stale/understated `all`
+  // totals recorded on days when only some holdings had a price.
+  const pricedDate = (typeof findPricedSnapshotOnOrBefore === 'function')
+    ? findPricedSnapshotOnOrBefore(target) : null;
+  if(pricedDate && typeof markToMarketAt === 'function' && typeof calcH === 'function'){
+    const mtm = markToMarketAt(pricedDate, ()=>true);
+    if(mtm && mtm.value != null){
+      return { date: pricedDate, value: mtm.value, priced: mtm.priced, count: mtm.count,
+               complete: mtm.complete, recomputed: true };
+    }
+  }
+
+  // Fallback: the stored total for the latest snapshot on/before 30 June.
   const dates = Object.keys(pfSnapshots).filter(d => d <= target).sort();
   if(!dates.length) return null;
   const last = dates[dates.length-1];
   const snap = pfSnapshots[last];
-  return { date: last, value: snap.all };
+  return { date: last, value: snap.all, recomputed: false };
+}
+
+// Property rental summary for the EOFY pack. Mirrors the Tax tab's
+// per-property expense inputs (Council Rates / Insurance / Repairs /
+// Agent / Other / Depreciation) and its ownership and part-year logic, so
+// the pack reconciles with the figures on the Tax tab. Rental loan interest
+// is pro-rated for part-year ownership; investment-purpose loan interest is
+// tracked separately because it's deductible against investment income,
+// not against rent.
+function eofyPropertySummary(fy){
+  if(typeof properties === 'undefined' || !properties.length) return null;
+  const rec = (typeof getTaxRecord === 'function') ? getTaxRecord(fy) : {props:{}};
+  const persons = (typeof getAllPersons === 'function') ? getAllPersons() : ['lumia','chilli'];
+  const jointPersons = typeof JOINT_PERSONS !== 'undefined' ? JOINT_PERSONS : ['lumia','chilli'];
+  const fyStart = new Date((fy-1)+'-07-01');
+  const fyEnd   = new Date(fy+'-06-30');
+  const fyDays  = Math.round((fyEnd - fyStart)/86400000) + 1;
+
+  function ownedFraction(p){
+    const from = p.purchaseDate ? new Date(String(p.purchaseDate).slice(0,10)) : null;
+    const to   = (p.sold && p.soldDate) ? new Date(String(p.soldDate).slice(0,10)) : null;
+    const a = (from && from > fyStart) ? from : fyStart;
+    const b = (to && to < fyEnd) ? to : fyEnd;
+    const days = Math.round((b - a)/86400000) + 1;
+    return Math.max(0, Math.min(1, days / fyDays));
+  }
+
+  const rows = [];
+  const byPerson = {};
+  persons.forEach(k => { byPerson[k] = { rent:0, exp:0, invInterest:0 }; });
+
+  properties.forEach(p => {
+    const own = ownedFraction(p);
+    if(own <= 0) return;
+    const pOwner = p.owner || 'joint';
+    const share = pOwner === 'joint' ? 0.5 : 1;
+    const pr = (rec.props && rec.props[p.id]) || {};
+
+    let splits = [];
+    if(typeof normaliseSplits === 'function'){ try { splits = normaliseSplits(p); } catch(e){ splits = []; } }
+    let rentalInterest = 0, invInterest = 0;
+    splits.forEach(sp => {
+      const purpose = sp.purpose || 'rental';
+      const annInt = Math.max(0, (+sp.balance||0)-(+sp.offset||0)) * ((+sp.rate||0)/100);
+      if(purpose === 'investment') invInterest += annInt;
+      else if(purpose === 'rental') rentalInterest += annInt;
+    });
+
+    const expenseBase = ['rates','insurance','repairs','agent','other','depr_bldg','depr_pe']
+      .reduce((s,k)=>s+(+pr[k]||0),0);
+    const isPpor = p.propType === 'ppor';
+    // Property-level totals (no ownership share) so the entered expense
+    // amounts are shown in full; the per-person summary below applies the
+    // owner's share (joint = 50/50 across JOINT_PERSONS).
+    const rent    = isPpor ? 0 : (p.weeklyRent||0)*52*own;
+    const interest= isPpor ? 0 : rentalInterest*own;
+    const expense = isPpor ? 0 : expenseBase + interest;
+
+    rows.push({
+      name: p.name||p.address||'Property', owner:pOwner, own, ppor:isPpor,
+      rent,
+      rates:+pr.rates||0, insurance:+pr.insurance||0, repairs:+pr.repairs||0,
+      agent:+pr.agent||0, other:+pr.other||0,
+      depr:(+pr.depr_bldg||0)+(+pr.depr_pe||0),
+      interest, expense, net: rent - expense,
+    });
+
+    persons.forEach(person => {
+      const isOwner = pOwner===person || (pOwner==='joint' && jointPersons.includes(person));
+      if(!isOwner) return;
+      if(!isPpor){
+        byPerson[person].rent += rent*share;
+        byPerson[person].exp  += expense*share;
+      }
+      // Investment-purpose loan interest is deductible against investment
+      // income regardless of property type (same as the Tax tab).
+      byPerson[person].invInterest += invInterest*share*own;
+    });
+  });
+
+  if(!rows.length) return null;
+  return { rows, byPerson };
 }
 
 function generateEofyPack(fy){
   const persons = typeof getAllPersons === 'function' ? getAllPersons() : ['lumia','chilli'];
   const cgtAll = typeof computeCGTSummary === 'function' ? computeCGTSummary().result : {};
 
-  const money = v => v==null ? '—' : '$'+Number(v).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const money = v => v==null ? '—' : (Number(v) < 0 ? '-$' : '$') + Math.abs(Number(v)).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   const esc = v => typeof escHtml === 'function' ? escHtml(v) : String(v);
   const label = k => esc(typeof getPersonLabel === 'function' ? getPersonLabel(k) : k);
 
@@ -87,7 +186,8 @@ function generateEofyPack(fy){
   const divTotal = eofyDivFranking(fy, null);
 
   const spend = eofySpendingSummary(fy);
-  const snap = eofyPortfolioSnapshot(fy);
+  const prop  = eofyPropertySummary(fy);
+  const snap  = eofyPortfolioSnapshot(fy);
   const today = new Date().toLocaleDateString('en-AU',{day:'numeric',month:'long',year:'numeric'});
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>EOFY Pack — FY${fy}</title>
@@ -107,6 +207,8 @@ function generateEofyPack(fy){
   .printbar button{font-size:13px;padding:8px 16px;border-radius:6px;border:1px solid #111;background:#111;color:#fff;cursor:pointer;}
   @media print{ .printbar{display:none;} }
   .empty{color:#999;font-style:italic;}
+  .wide th,.wide td{font-size:10px;padding:4px 4px;}
+  .wide th{font-size:9.5px;}
 </style></head><body>
   <div class="printbar"><button onclick="window.print()">Print / Save as PDF</button></div>
   <h1>EOFY Pack — FY${fy}</h1>
@@ -121,6 +223,29 @@ function generateEofyPack(fy){
   ${divRows.length ? `<table><thead><tr><th>Person</th><th style="text-align:right">Dividends received</th><th style="text-align:right">Franking credits</th><th style="text-align:right">Grossed-up income</th></tr></thead><tbody>${divRows.join('')}<tr style="font-weight:700"><td>Total</td><td style="text-align:right">${money(divTotal.amount)}</td><td style="text-align:right">${money(divTotal.franking)}</td><td style="text-align:right">${money(divTotal.amount+divTotal.franking)}</td></tr></tbody></table>`
     : `<div class="empty">No dividends, distributions, DRP, or interest recorded for FY${fy}.</div>`}
 
+  <h2>Property — Rental Income &amp; Expenses</h2>
+  ${prop ? `
+    <table class="wide"><thead><tr><th>Property</th><th>Owner</th><th style="text-align:right">Rent</th><th style="text-align:right">Rates</th><th style="text-align:right">Insurance</th><th style="text-align:right">Repairs</th><th style="text-align:right">Agent</th><th style="text-align:right">Other</th><th style="text-align:right">Depreciation</th><th style="text-align:right">Loan interest</th><th style="text-align:right">Total expenses</th><th style="text-align:right">Net</th></tr></thead><tbody>
+      ${prop.rows.map(r => `<tr>
+        <td>${esc(r.name)}${r.ppor?' <span class="note">(PPOR — excluded)</span>':''}${r.own<0.999?' <span class="note">('+Math.round(r.own*100)+'% of year)</span>':''}</td>
+        <td>${label(r.owner)}${r.owner==='joint'?' <span class="note">(50% each)</span>':''}</td>
+        <td style="text-align:right">${r.ppor?'—':money(r.rent)}</td>
+        <td style="text-align:right">${r.ppor?'—':money(r.rates)}</td>
+        <td style="text-align:right">${r.ppor?'—':money(r.insurance)}</td>
+        <td style="text-align:right">${r.ppor?'—':money(r.repairs)}</td>
+        <td style="text-align:right">${r.ppor?'—':money(r.agent)}</td>
+        <td style="text-align:right">${r.ppor?'—':money(r.other)}</td>
+        <td style="text-align:right">${r.ppor?'—':money(r.depr)}</td>
+        <td style="text-align:right">${r.ppor?'—':money(r.interest)}</td>
+        <td style="text-align:right">${r.ppor?'—':money(r.expense)}</td>
+        <td style="text-align:right;font-weight:700">${r.ppor?'—':money(r.net)}</td>
+      </tr>`).join('')}
+    </tbody></table>
+    <div class="note">Property totals are shown in full; joint-owned properties are split 50/50 in the person summary. Expenses are the amounts entered on the Tax tab for FY${fy}. Rent and rental loan interest are pro-rated for part-year ownership; a negative net is a rental loss. Investment-loan interest (e.g. redraw used to buy shares) is deductible against investment income and is shown in the person summary below.</div>
+    <table><thead><tr><th>Person</th><th style="text-align:right">Rental income</th><th style="text-align:right">Deductions</th><th style="text-align:right">Net rental</th><th style="text-align:right">Investment interest</th></tr></thead><tbody>
+      ${prop.rows.length && Object.entries(prop.byPerson).filter(([,v])=>v.rent||v.exp||v.invInterest).map(([k,v]) => `<tr><td>${label(k)}</td><td style="text-align:right">${money(v.rent)}</td><td style="text-align:right">${money(v.exp)}</td><td style="text-align:right;font-weight:700">${money(v.rent-v.exp)}</td><td style="text-align:right">${money(v.invInterest)}</td></tr>`).join('')}
+    </tbody></table>` : `<div class="empty">No property rental data recorded for FY${fy}.</div>`}
+
   <h2>Spending Summary</h2>
   ${spend ? `<table><thead><tr><th>Metric</th><th style="text-align:right">Amount</th></tr></thead><tbody>
       <tr><td>Total categorised spend</td><td style="text-align:right">${money(spend.totalOut)}</td></tr>
@@ -131,10 +256,13 @@ function generateEofyPack(fy){
     : `<div class="empty">No spending data recorded for FY${fy}.</div>`}
 
   <h2>Portfolio Snapshot</h2>
-  ${snap ? `<table><tbody><tr><td>Market value as at ${snap.date}</td><td style="text-align:right;font-weight:700">${money(snap.value)}</td></tr></tbody></table><div class="note">Nearest recorded snapshot on or before 30 June FY${fy}.</div>`
+  ${snap ? `<table><tbody><tr><td>Market value as at ${snap.date}${snap.recomputed?' (reconstructed)':''}</td><td style="text-align:right;font-weight:700">${money(snap.value)}</td></tr></tbody></table>
+    <div class="note">${snap.recomputed
+      ? `Reconstructed from the holdings held on ${snap.date}, priced at the nearest available quote per symbol${snap.count?` (${snap.priced} of ${snap.count} positions priced)`:''}${snap.complete===false?' — incomplete price coverage, treat as an estimate':''}.`
+      : `Nearest recorded snapshot total on or before 30 June FY${fy}.`}</div>`
     : `<div class="empty">No price snapshot available for this period.</div>`}
 
-  <div class="disclaimer">This pack is generated from data you've entered into Portfolio Tracker and is provided for convenience only. All figures — capital gains, franking credits, and spending totals — are estimates and have not been reviewed by a registered tax agent. Verify all figures against your own broker/ATO records before lodging a tax return.</div>
+  <div class="disclaimer">This pack is generated from data you've entered into Portfolio Tracker and is provided for convenience only. All figures — capital gains, dividends and franking credits, property rental income/expenses, and spending totals — are estimates and have not been reviewed by a registered tax agent. Verify all figures against your own broker/ATO records before lodging a tax return.</div>
 </body></html>`;
 
   const w = window.open('', '_blank');

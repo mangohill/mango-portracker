@@ -346,6 +346,19 @@ td{
   white-space:nowrap;position:relative;
   font-variant-numeric:tabular-nums;
 }
+/* Tax Summary — semantic values, zebra rows and hover for readability.
+   Row classes on <tr> need an explicit td rule because the td colour above
+   would otherwise override the inherited colour. */
+.tx-tbl tbody tr{transition:background .12s;}
+.tx-tbl tbody tr:nth-child(even):not(.tx-total) td{background:rgba(255,255,255,.02);}
+.tx-tbl tbody tr:not(.tx-total):hover td{background:rgba(255,255,255,.055);}
+.tx-tbl tbody tr.pos td,.tx-tbl tbody tr.pos td span:not([style]){color:var(--green);}
+.tx-tbl tbody tr.neg td,.tx-tbl tbody tr.neg td span:not([style]){color:var(--red);}
+.tx-tbl thead th{border-bottom:1px solid var(--border2);}
+/* After-tax net worth popup — same zebra/hover readability treatment. */
+.nw-at-tbl tbody tr:nth-child(even) td{background:rgba(255,255,255,.02);}
+.nw-at-tbl tbody tr:hover td{background:rgba(255,255,255,.055);}
+.nw-at-tbl thead th{border-bottom:1px solid var(--border2);}
 tbody td:first-child{color:var(--text);}
 tr{transition:background .12s;}
 tbody tr:hover td{background:rgba(255,255,255,.022);}

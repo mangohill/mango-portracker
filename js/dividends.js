@@ -1069,6 +1069,16 @@ function render45DayRuleFlags(){
     </div>`;
 }
 
+// Live grossed-up preview while the dividend edit row is open.
+function dvEditGross(){
+  const amt = document.getElementById('ed-amt');
+  const frank = document.getElementById('ed-franking');
+  const out = document.getElementById('ed-gross');
+  if(!amt || !frank || !out) return;
+  const pct = frank.value === '' ? 0 : +frank.value;
+  out.textContent = '$' + grossUpDiv(+amt.value || 0, pct).toFixed(2);
+}
+
 function renderDividends(){
   render45DayRuleFlags();
   const search = ($('dv-search').value||'').toLowerCase();
@@ -1154,12 +1164,14 @@ function renderDividends(){
       return `<tr style="background:var(--bg2);outline:2px solid var(--blue)">
         <td><input class="fi" type="date" id="ed-date" value="${d.date}" style="width:118px;padding:3px 5px"></td>
         <td><input class="fi" type="text" id="ed-sym" value="${escHtml(d.symbol)}" style="width:70px;padding:3px 5px" oninput="this.value=this.value.toUpperCase()"></td>
+        <td><span style="font-size:10px;padding:2px 6px;border-radius:12px;background:${getPersonColourAlpha(getSymbolOwner(d.symbol),'22')};color:${getPersonColour(getSymbolOwner(d.symbol))}">${getPersonLabel(getSymbolOwner(d.symbol))}</span></td>
         <td><select class="fi" id="ed-type" style="padding:3px 5px;font-size:11px">
           ${TYPES.map(t=>`<option value="${t}"${t===d.type?' selected':''}>${TYPE_LABEL[t]}</option>`).join('')}
         </select></td>
-        <td><input class="fi" type="number" id="ed-amt" value="${d.amount}" step="any" style="width:100px;padding:3px 5px;text-align:right"></td>
+        <td><input class="fi" type="number" id="ed-amt" value="${d.amount}" step="any" style="width:100px;padding:3px 5px;text-align:right" oninput="dvEditGross()"></td>
+        <td id="ed-gross" style="text-align:right;font-family:var(--mono);color:var(--blue);font-size:12px">$${grossUpDiv(+d.amount||0,d.frankingPct||0).toFixed(2)}</td>
+        <td style="padding:2px 4px"><input class="fi" type="number" id="ed-franking" min="0" max="100" step="any" style="width:64px;padding:3px 5px" placeholder="Frank%" title="Franking %" value="${d.frankingPct??""}" oninput="dvEditGross()"></td>
         <td><input class="fi" type="text" id="ed-notes" value="${escHtml(d.notes||'')}" style="width:120px;padding:3px 5px"></td>
-        <td style="padding:2px 4px"><input class="fi" type="number" id="ed-franking" min="0" max="100" step="any" style="width:64px;padding:3px 5px" placeholder="Frank%" title="Franking %" value="${d.frankingPct??""}"></td>
         <td style="white-space:nowrap;padding:6px 8px">
           <button class="btn btn-g" style="padding:4px 12px;font-size:11px" onclick="saveEditDiv()">&#10003; SAVE</button>
           <button class="btn" style="padding:4px 8px;font-size:11px" onclick="cancelEditDiv()">&#10005;</button>
