@@ -149,7 +149,7 @@ function getTaxRecord(fy){
   return taxData[k];
 }
 
-// ATO FY2025/26 tax brackets (Stage 3 cuts)
+// ATO resident tax brackets (Stage 3 cuts; FY2026–27 rates used from FY2027)
 function calcTax(taxable, fy){
   // taxable: numeric income
   // fy: optional fiscal year (FY as integer, e.g. 2027 for FY2026-27). If omitted, use current FY.
@@ -269,15 +269,33 @@ function calcHECS(income, hecsDebt, fy){
   return Math.min(Math.round(repayment), hecsDebt);
 }
 
-// Medicare Levy Surcharge (MLS) — applies if NO private hospital cover
-// Single threshold: $93,000 | Family threshold: $186,000
-// Rate: 1.0% (<$108k), 1.25% (<$144k), 1.5% (>=$144k)
-// Thresholds by FY (single / family / tier-1 start / tier-2 start). FY2027 reuses the
-// latest published set until new ones are released. VERIFY against the ATO's MLS page.
+// Medicare Levy Surcharge (MLS) — applies if NO appropriate private hospital cover.
+// Thresholds are keyed by the app's FY label (FY2027 = 2026–27).
+// Source: ATO "Medicare levy surcharge income, thresholds and rates".
+//   • FY2014 (2013–14): $88k/$102k/$136k single, $176k/$204k/$272k family.
+//   • FY2015–FY2023 (2014–15 to 2022–23): unchanged at $90k/$105k/$140k single,
+//     $180k/$210k/$280k family.
+//   • FY2024 onward: indexed annually.
+// t1/t2 are the TOP of single tier 1 / tier 2 (the point where the rate steps up).
+// ft1/ft2 are the equivalent family ceilings — they are not always exactly 2× the
+// single ceilings in future years, so they're stored explicitly.
+// Family thresholds and both tier ceilings rise by $1,500 for each MLS dependent
+// child after the first. FY2028+ reuse the latest published set until updated.
 const MLS_THRESHOLDS = {
-  2024: { single:  93000, family: 186000, t1: 108000, t2: 144000 },
-  2025: { single:  97000, family: 194000, t1: 113000, t2: 151000 },
-  2026: { single: 101000, family: 202000, t1: 118000, t2: 158000 },
+  2014: { single:  88000, family: 176000, t1: 102000, t2: 136000, ft1: 204000, ft2: 272000 },
+  2015: { single:  90000, family: 180000, t1: 105000, t2: 140000, ft1: 210000, ft2: 280000 },
+  2016: { single:  90000, family: 180000, t1: 105000, t2: 140000, ft1: 210000, ft2: 280000 },
+  2017: { single:  90000, family: 180000, t1: 105000, t2: 140000, ft1: 210000, ft2: 280000 },
+  2018: { single:  90000, family: 180000, t1: 105000, t2: 140000, ft1: 210000, ft2: 280000 },
+  2019: { single:  90000, family: 180000, t1: 105000, t2: 140000, ft1: 210000, ft2: 280000 },
+  2020: { single:  90000, family: 180000, t1: 105000, t2: 140000, ft1: 210000, ft2: 280000 },
+  2021: { single:  90000, family: 180000, t1: 105000, t2: 140000, ft1: 210000, ft2: 280000 },
+  2022: { single:  90000, family: 180000, t1: 105000, t2: 140000, ft1: 210000, ft2: 280000 },
+  2023: { single:  90000, family: 180000, t1: 105000, t2: 140000, ft1: 210000, ft2: 280000 },
+  2024: { single:  93000, family: 186000, t1: 108000, t2: 144000, ft1: 216000, ft2: 288000 },
+  2025: { single:  97000, family: 194000, t1: 113000, t2: 151000, ft1: 226000, ft2: 302000 },
+  2026: { single: 101000, family: 202000, t1: 118000, t2: 158000, ft1: 236000, ft2: 316000 },
+  2027: { single: 105000, family: 210000, t1: 123000, t2: 164000, ft1: 246000, ft2: 328000 },
 };
 function mlsThresholdsFor(fy){
   const ks = Object.keys(MLS_THRESHOLDS).map(Number).sort((a,b)=>a-b);
@@ -285,7 +303,21 @@ function mlsThresholdsFor(fy){
   ks.forEach(x => { if(fy >= x) k = x; });
   return MLS_THRESHOLDS[k];
 }
-function calcMLS(income, familyIncome, hasPrivateHealth, dependants, fy, isFamily){
+
+// income       = amount the surcharge is charged on — taxable income + reportable
+//                fringe benefits (+ family trust distribution amounts). ATO M2.
+// familyIncome = combined income for MLS purposes (threshold + rate test).
+// ownMlsIncome = this person's income for MLS purposes when it differs from
+//                `income` — i.e. adding back net investment losses and reportable
+//                super contributions. Defaults to `income`.
+//
+// Two things people often get wrong, both handled here:
+//  1. The threshold/tier test uses income for MLS purposes, but the 1%/1.25%/1.5%
+//     is charged on taxable income + reportable fringe benefits — not on the
+//     larger test figure.
+//  2. There is NO phase-in/shading of MLS above the threshold (unlike the 2%
+//     Medicare levy). Crossing the threshold by $1 can cost the full 1%.
+function calcMLS(income, familyIncome, hasPrivateHealth, dependants, fy, isFamily, ownMlsIncome){
   if(hasPrivateHealth) return 0;
   const T = mlsThresholdsFor(+fy || (typeof dateToFY === 'function' ? dateToFY(localDateStr()) : 2026));
 
@@ -293,34 +325,24 @@ function calcMLS(income, familyIncome, hasPrivateHealth, dependants, fy, isFamil
   // Family threshold (and each tier) rises by $1,500 for each dependent child AFTER the first
   const adj = Math.max(0, deps - 1) * 1500;
   // A couple, or a single parent, is tested against the FAMILY thresholds on combined income —
-  // NOT the single threshold on the individual's own income. (Previously a person earning above
-  // the single threshold was charged even when the household was under the family threshold.)
+  // NOT the single threshold on the individual's own income.
   const inFamily = !!isFamily || deps > 0;
-  const famIncome = +familyIncome || +income;
+  const ownTest = Math.max(0, +ownMlsIncome || +income || 0);
+  const famTest = Math.max(0, +familyIncome || ownTest);
+  const base    = Math.max(0, +income || 0);
 
-  const liable = inFamily ? famIncome > (T.family + adj) : income > T.single;
-  if(!liable) return 0;
-
-  // Rate tier: family income vs doubled tier thresholds for families, own income for singles
-  const tierInc = inFamily ? famIncome : income;
-  const t1 = inFamily ? T.t1 * 2 + adj : T.t1;
-  const t2 = inFamily ? T.t2 * 2 + adj : T.t2;
-  let rate;
-  if(tierInc > t2)       rate = 0.015;
-  else if(tierInc > t1)  rate = 0.0125;
-  else                   rate = 0.010;
-
-  const rawMLS = income * rate;
-
-  // Shading rule — singles only, just above the threshold:
-  // MLS cannot exceed 10% of income above the single threshold
-  if(!inFamily && income <= T.single + 4500){
-    const shadingCap = (income - T.single) * 0.10;
-    // Don't round shading result — small amounts near threshold can be < $1
-    return Math.min(rawMLS, shadingCap);
+  let rate = 0;
+  if(inFamily){
+    if(famTest <= T.family + adj) return 0;
+    const t1 = T.ft1 + adj, t2 = T.ft2 + adj;
+    rate = famTest > t2 ? 0.015 : famTest > t1 ? 0.0125 : 0.010;
+  } else {
+    if(ownTest <= T.single) return 0;
+    rate = ownTest > T.t2 ? 0.015 : ownTest > T.t1 ? 0.0125 : 0.010;
   }
 
-  return Math.round(rawMLS);
+  // Rate applies to this person's own taxable income + RFB, not to family income.
+  return Math.round(base * rate);
 }
 
 
@@ -476,40 +498,164 @@ function removePerson(key){
 }
 
 
-// ── Tax tab paging ──────────────────────────────────────────────────────
-// Only TAX_PAGE_SIZE people are shown at a time — both the input cards and the Tax Summary columns — so the tab
-// stays readable however many people are added. The arrows step through one person at a time. Every calculation
-// still runs for EVERYONE; this only decides what's displayed. taxPageStart is the index of the first person shown.
-const TAX_PAGE_SIZE = 2;
-let taxPageStart = 0;
-function taxVisiblePersons(all){
-  const maxStart = Math.max(0, all.length - TAX_PAGE_SIZE);
-  taxPageStart = Math.min(Math.max(0, taxPageStart), maxStart);   // also re-clamps after a person is removed
-  return all.slice(taxPageStart, taxPageStart + TAX_PAGE_SIZE);
+// ── Tax tab person switching ────────────────────────────────────────────
+// Up to TAX_SLOT_MAX people get an input card. Clicking a person's name opens a
+// dropdown to change who sits in that slot — no more pager arrows. The Tax
+// Summary is always dual: one column per visible card, in the same left-to-right
+// order, so re-ordering the cards re-orders the summary. Every calculation still
+// runs for EVERYONE; this only decides what's displayed.
+const TAX_SLOT_MAX = 2;
+let taxSlotPersons = [];       // person keys currently occupying the visible cards
+let taxSummaryOverride = null; // explicit summary columns; null = follow the cards
+let _txPickerBound = false;
+
+function taxResolveSlots(all){
+  const max = Math.min(TAX_SLOT_MAX, all.length);
+  const out = taxSlotPersons.filter(p => all.includes(p)).slice(0, max);
+  for(const p of all){
+    if(out.length >= max) break;
+    if(!out.includes(p)) out.push(p);
+  }
+  taxSlotPersons = out;
+  return out;
 }
-function taxPage(dir){ taxPageStart += dir; renderTax(); }
-function taxPagerHtml(all, shown){
-  if(all.length <= TAX_PAGE_SIZE) return '';
-  const first = taxPageStart, last = taxPageStart + shown.length;
-  const btn = (dir, glyph, disabled, label) => `<button type="button" class="btn" ${disabled?'disabled':''} onclick="taxPage(${dir})" title="${label}" aria-label="${label}" style="padding:2px 14px;font-size:14px;${disabled?'opacity:.3;pointer-events:none;':''}">${glyph}</button>`;
-  return `<span class="tax-pager" style="display:inline-flex;align-items:center;gap:10px;font-weight:400">
-    ${btn(-1, '◀', first <= 0, 'Previous person')}
-    <span style="font-family:var(--mono);font-size:12px;min-width:170px;text-align:center">
-      ${shown.map(p => `<span style="color:${getPersonColour(p)}">${escHtml(getPersonLabel(p))}</span>`).join(' · ')}
-      <span style="color:var(--text3);font-size:10px;margin-left:6px">${first + 1}–${last} of ${all.length}</span>
-    </span>
-    ${btn(1, '▶', last >= all.length, 'Next person')}
-  </span>`;
+
+function taxPickerCloseAll(){
+  document.querySelectorAll('.tx-picker-menu.open').forEach(m => {
+    m.classList.remove('open');
+    m.style.position = ''; m.style.left = ''; m.style.top = ''; m.style.right = '';
+    // Put the list back where it belongs (skipped if a re-render already removed it).
+    if(m._txHome && m._txHome.isConnected) m._txHome.appendChild(m);
+    else if(m.parentElement === document.body) m.remove();
+  });
+  document.querySelectorAll('.tx-picker-btn[aria-expanded="true"]').forEach(b => b.setAttribute('aria-expanded','false'));
+}
+
+function taxPickerPlace(menu, btn){
+  const b = btn.getBoundingClientRect();
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  const left = Math.max(8, Math.min(b.left, window.innerWidth - 8 - mw));
+  let top = b.bottom + 6;
+  if(top + mh > window.innerHeight - 8) top = Math.max(8, b.top - 6 - mh);
+  menu.style.position = 'fixed';
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  menu.style.right = 'auto';
+}
+
+function taxPickerToggle(ev, which){
+  ev.stopPropagation();   // the click that opens must not reach the close-all handler
+  const menu = document.querySelector('.tx-picker-menu[data-picker="' + which + '"]');
+  if(!menu) return;
+  const wasOpen = menu.classList.contains('open');
+  taxPickerCloseAll();
+  if(!wasOpen){
+    const btn = menu.parentElement.querySelector('.tx-picker-btn');
+    if(!btn) return;
+    // Move the list to <body> while open: the summary pickers sit inside the
+    // table's scroll wrapper (and a transformed panel), both of which would clip
+    // or misplace an in-place menu. It goes home again on close.
+    menu._txHome = menu.parentElement;
+    document.body.appendChild(menu);
+    menu.classList.add('open');
+    taxPickerPlace(menu, btn);
+    btn.setAttribute('aria-expanded','true');
+  }
+  if(!_txPickerBound){
+    _txPickerBound = true;
+    document.addEventListener('click', taxPickerCloseAll);
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') taxPickerCloseAll(); });
+    window.addEventListener('resize', taxPickerCloseAll);
+    window.addEventListener('scroll', taxPickerCloseAll, true);   // any scroll container, not just the window
+  }
+}
+
+function taxPickerChoose(which, value){
+  which = String(which);
+  if(which.indexOf('sum') === 0) taxChooseSummary(+which.slice(3), value);
+  else taxChooseSlot(+which.replace('slot',''), value);
+}
+
+// Pick who occupies a card slot. Choosing the person already in the other slot
+// swaps the two, so the same person can never appear twice. The Tax Summary
+// follows the slots, so this also sets the column order.
+function taxChooseSlot(slot, person){
+  if(!taxSlotPersons.length) return;
+  const i = Math.min(Math.max(0, slot), taxSlotPersons.length - 1);
+  const other = 1 - i;
+  if(taxSlotPersons[i] !== person){
+    if(taxSlotPersons[other] === person) taxSlotPersons[other] = taxSlotPersons[i];
+    taxSlotPersons[i] = person;
+  }
+  taxSummaryOverride = null;   // a card change restores the card order in the summary
+  taxPickerCloseAll();
+  renderTax();
+}
+
+// Override one summary column. This never moves the income cards; it only
+// changes what the summary shows until the cards are re-ordered again.
+function taxChooseSummary(slot, person){
+  const base = (taxSummaryOverride || taxSlotPersons).slice();
+  if(!base.length) return;
+  const i = Math.min(Math.max(0, slot), base.length - 1);
+  const other = 1 - i;
+  if(base[i] !== person){
+    if(base[other] === person) base[other] = base[i];
+    base[i] = person;
+  }
+  const sameAsCards = base.length === taxSlotPersons.length && base.every((p, k) => p === taxSlotPersons[k]);
+  taxSummaryOverride = sameAsCards ? null : base;
+  taxPickerCloseAll();
+  renderTax();
+}
+
+function taxSummaryReset(){
+  taxSummaryOverride = null;
+  taxPickerCloseAll();
+  renderTax();
+}
+
+function taxPersonPicker(which, current, all, opts){
+  opts = opts || {};
+  const options = all.map(p => ({value:p, label:getPersonLabel(p), colour:getPersonColour(p)}));
+  const cur = options.find(o => o.value === current) || options[0] || {label:'—'};
+  const btnColour = opts.colour || getPersonColour(current);
+  return `<div class="tx-picker">
+    <button type="button" class="tx-picker-btn" aria-haspopup="listbox" aria-expanded="false"
+      onclick="taxPickerToggle(event,'${which}')"${btnColour ? ` style="color:${btnColour}"` : ''}>
+      ${escHtml(cur.label)}<span class="tx-picker-caret">▾</span>
+    </button>
+    <div class="tx-picker-menu" data-picker="${which}" role="listbox">
+      ${options.map(o => {
+        const sel = o.value === current;
+        return `<button type="button" class="tx-picker-opt${sel ? ' sel' : ''}" role="option" aria-selected="${sel}"
+          onclick="taxPickerChoose('${which}','${o.value}')">
+          <span class="tx-picker-dot" style="background:${o.colour}"></span>
+          <span class="tx-picker-opt-label" style="color:${o.colour}">${escHtml(o.label)}</span>
+          ${sel ? '<span class="tx-picker-check">✓</span>' : ''}
+        </button>`;
+      }).join('')}
+    </div>
+  </div>`;
 }
 
 function renderTax(){
   const panel = document.getElementById('panel-tax');
   if(!panel) return;
+  // Drop any picker list left in <body> by an open dropdown when the panel re-rendered.
+  document.querySelectorAll('body > .tx-picker-menu').forEach(m => m.remove());
 
   const fy = getTaxFY();
   const _d = new Date();
   const curFY = _d.getMonth() >= 6 ? _d.getFullYear()+1 : _d.getFullYear();
   const rec = getTaxRecord(fy);
+
+  // MLS thresholds for the selected FY — used by the input cards and notes so
+  // the displayed figures can't drift from the calculation.
+  const mlsT    = mlsThresholdsFor(+fy);
+  const mlsDeps = Math.max(0, (+(rec.dependants||0)) - 1);
+  const mlsAdj  = mlsDeps * 1500;
+  const fmtAUD  = v => '$' + Math.round(v).toLocaleString('en-AU');
 
   // ── FY selector ───────────────────────────────────────────────
   const fyOpts = Array.from({length:5},(_,i)=>curFY-i)
@@ -681,13 +827,13 @@ function renderTax(){
     const totalConcess = empSuper + sacrifice;
     // RFB: reportable fringe benefits (grossed-up, from income statement)
     const rfb = +p.rfb || 0;
-    // Total net investment loss (ATO s293-20 / MLS income tests)
-    // = amount by which financial investment deductions exceed investment income
-    // (rental losses are NOT included — they're a separate category)
+    // Net financial investment loss — the amount by which financial investment
+    // deductions exceed investment income. Rental losses are a separate category
+    // (shown separately) but are also added back for the MLS test below.
     const netInvIncome      = myDiv + myFrank;
     const totalNetInvLoss   = Math.max(0, investInterestDeduction - netInvIncome);
     // Div293 income (ATO s293-20):
-    // = taxable income + RFB + reportable employer super + total net investment loss
+    // = taxable income + RFB + reportable employer super + net financial investment loss
     const div293Income    = taxableIncome + rfb + totalConcess + totalNetInvLoss;
     const div293Threshold = 250000;
     let div293 = 0;
@@ -701,39 +847,42 @@ function renderTax(){
     // treatment; anyone else (e.g. a custom/extra person like a child)
     // is assessed purely on their own income against the single threshold.
     const isCoupled = JOINT_PERSONS.includes(personKey);
-    let familyIncome;
+    // Income for MLS purposes = taxable income + RFB + total net investment loss
+    // (net financial loss AND net rental loss) + reportable super contributions
+    // (salary sacrifice). It sets the threshold/tier only. The surcharge itself is
+    // charged on taxable income + RFB (ATO M2), which is why the two are separate.
+    const mlsBase      = Math.max(0, taxableIncome) + rfb;
+    const ownMlsIncome = mlsBase + totalNetInvLoss + netPropLoss + sacrifice;
+    let familyIncome = ownMlsIncome;
     if(isCoupled){
       const otherKey     = personKey === JOINT_PERSONS[0] ? JOINT_PERSONS[1] : JOINT_PERSONS[0];
       const otherSalary  = +rec[otherKey]?.salary||0;
       const otherSacr    = +rec[otherKey]?.sacrifice||0;
       const _otherDivs   = personDivs(otherKey);
       const otherDiv     = _otherDivs.reduce((s,d)=>s+(+d.amount||0)*personDivShare(d,otherKey),0);
-      // ATO: family income for MLS includes net rental of both persons
       const otherPropResult = propPnL(otherKey);
       const otherRental  = otherPropResult.netPropGain - otherPropResult.netPropLoss;
       const otherRFB     = +rec[otherKey]?.rfb || 0;
       const otherFrank   = _otherDivs.reduce((s,d)=>s+frankingCredit((+d.amount||0)*personDivShare(d,otherKey), d.frankingPct||0),0);
       const otherInvInt  = otherPropResult.investInterest || 0;
       const otherCGT     = (cgtByPerson[otherKey] && cgtByPerson[otherKey].netGain) || 0;
-      const otherNetInvLoss = Math.max(0, otherInvInt - (otherDiv + otherFrank));
+      const otherFinLoss = Math.max(0, otherInvInt - (otherDiv + otherFrank));
+      const otherRentalLoss = Math.max(0, otherPropResult.netPropLoss || 0);
       // Same components as this person's own taxable income, so both sides are comparable
-      const otherTI      = (otherSalary - otherSacr) + otherDiv + otherFrank - otherInvInt + otherRental + otherCGT + otherRFB;
-      // MLS family income includes RFB and net investment loss for each person
-      familyIncome = (taxableIncome + rfb + totalNetInvLoss) + otherTI + otherNetInvLoss;
-    } else {
-      // No spouse to combine with — family income reduces to own income, so
-      // calcMLS's family-threshold branch effectively never applies and
-      // only the single-filer threshold/rate logic governs this person.
-      familyIncome = taxableIncome + rfb + totalNetInvLoss;
+      const otherTaxable = (otherSalary - otherSacr) + otherDiv + otherFrank - otherInvInt + otherRental + otherCGT;
+      const otherMlsIncome = Math.max(0, otherTaxable) + otherRFB + otherFinLoss + otherRentalLoss + otherSacr;
+      // Combined income for MLS purposes — both persons' add-backs included.
+      familyIncome = ownMlsIncome + otherMlsIncome;
     }
     const deps         = isCoupled ? +(rec.dependants||0) : 0;
-    const mls          = calcMLS(taxableIncome, familyIncome, hasPrivH, deps, fy, isCoupled);
+    const mls          = calcMLS(mlsBase, familyIncome, hasPrivH, deps, fy, isCoupled, ownMlsIncome);
     const totalLiability = grossTax + hecsRep + mls + div293;
     const netTax    = Math.max(0, totalLiability - withheld - payg - myFrank);
     const refund    = Math.max(0, withheld + payg + myFrank - totalLiability);
     return { salary, withheld, payg, sacrifice, rfb, myDiv, myFrank, investInterestDeduction, totalNetInvLoss, empSGManual, empSuper, sgRate, totalConcess, div293Income, div293Threshold:250000, medicareLevy,
              netPropLoss, netPropGain, netRent, netExpenses,
              myCGT, taxableIncome, grossTax, medicareLevy, hecsRep, mls, div293,
+             mlsBase, ownMlsIncome, familyIncome,
              totalLiability, netTax, refund, hecsDebt, hasPrivH, isCoupled };
   }
 
@@ -809,8 +958,40 @@ function renderTax(){
   const sp = (v,cls)=>`<span class="${cls||''}">${v}</span>`;
   const gold = v => `<span style="color:var(--gold)">${v}</span>`;
 
-  const colPersons = taxVisiblePersons(taxPersons);   // who is displayed (cards + summary columns)
-  const pager = taxPagerHtml(taxPersons, colPersons);
+  const slotPersons = taxResolveSlots(taxPersons);   // who occupies the visible input cards
+  let summaryPersons = slotPersons;   // Tax Summary columns: same people, same order as the cards
+  if(taxSummaryOverride){
+    const valid = taxSummaryOverride.filter(p => taxPersons.includes(p));
+    if(valid.length === taxSummaryOverride.length) summaryPersons = valid;
+    else taxSummaryOverride = null;   // someone was removed — fall back to the cards
+  }
+  const summaryOverridden = !!taxSummaryOverride;
+
+  // ── Family MLS position (combined income for MLS purposes) ────
+  // taxByPerson[*].familyIncome already includes both partners' RFB, net
+  // investment losses and reportable super contributions. Couples share the
+  // same combined figure, so either partner's value can be used.
+  const _couple = JOINT_PERSONS.filter(p => taxByPerson[p]);
+  const familyMlsIncome = _couple.length ? (+taxByPerson[_couple[0]].familyIncome || 0) : 0;
+  const mlsFamBase = mlsT.family + mlsAdj;
+  const mlsFamT1   = mlsT.ft1 + mlsAdj;
+  const mlsFamT2   = mlsT.ft2 + mlsAdj;
+  let familyMlsTier = -1;   // -1 = no income entered yet
+  if(familyMlsIncome > 0){
+    familyMlsTier = familyMlsIncome > mlsFamT2 ? 3
+                  : familyMlsIncome > mlsFamT1 ? 2
+                  : familyMlsIncome > mlsFamBase ? 1 : 0;
+  }
+  const familyMlsRate = familyMlsTier >= 0 ? [0, 1, 1.25, 1.5][familyMlsTier] : 0;
+  const familyTierLabel = familyMlsTier <= 0 ? 'Base tier' : 'Tier ' + familyMlsTier;
+  const mlsUncovered = _couple.filter(p => !taxByPerson[p].hasPrivH);
+  const familyMlsPayable = familyMlsTier > 0 && !rec.privateHealthFamily && mlsUncovered.length > 0;
+  const mlsTierCards = [
+    { tier:0, label:'Base',   rate:'0%',    range:'≤ ' + fmtAUD(mlsFamBase) },
+    { tier:1, label:'Tier 1', rate:'1%',    range:fmtAUD(mlsFamBase + 1) + '–' + fmtAUD(mlsFamT1) },
+    { tier:2, label:'Tier 2', rate:'1.25%', range:fmtAUD(mlsFamT1 + 1) + '–' + fmtAUD(mlsFamT2) },
+    { tier:3, label:'Tier 3', rate:'1.5%',  range:fmtAUD(mlsFamT2 + 1) + '+' },
+  ];
 
 
   panel.innerHTML = `
@@ -821,6 +1002,36 @@ function renderTax(){
     #panel-tax .tx-tbl tbody tr:nth-child(even):not(.tx-total) td:first-child{ background:linear-gradient(rgba(255,255,255,.02),rgba(255,255,255,.02)), var(--surface); }
     #panel-tax .tx-tbl tbody tr:not(.tx-total):hover td:first-child{ background:linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)), var(--surface); }
     #panel-tax .tx-tbl tr.tx-total td:first-child{ background:linear-gradient(rgba(255,255,255,.03),rgba(255,255,255,.03)), var(--surface); }
+    /* Person picker: the name is the dropdown trigger. */
+    .tx-picker{position:relative;display:inline-block;text-transform:none;letter-spacing:0}
+    .tx-picker-btn{background:none;border:0;margin:0;padding:2px 7px;font-family:var(--mono);font-size:13px;font-weight:600;line-height:1.45;cursor:pointer;display:inline-flex;align-items:center;gap:7px;border-radius:7px;text-transform:none}
+    .tx-picker-btn:hover{background:rgba(255,255,255,.06)}
+    .tx-picker-btn:focus-visible{outline:1px solid var(--border2);outline-offset:2px}
+    .tx-picker-caret{font-size:9px;opacity:.65}
+    .tx-picker-menu{display:none;position:absolute;left:0;top:calc(100% + 6px);z-index:1000;min-width:185px;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;box-shadow:0 14px 34px rgba(0,0,0,.5)}
+    .tx-picker-menu.open{display:flex;flex-direction:column;gap:2px}
+    #panel-tax .tx-tbl thead th .tx-picker-btn{font-size:12px}
+    .tx-picker-opt{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;background:none;border:0;border-radius:7px;font-family:var(--mono);font-size:12px;color:var(--text2);cursor:pointer;text-align:left;text-transform:none}
+    .tx-picker-opt:hover{background:rgba(255,255,255,.07);color:var(--text)}
+    .tx-picker-opt.sel{background:rgba(255,255,255,.05);color:var(--text)}
+    .tx-picker-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+    .tx-picker-opt-label{flex:1;text-align:left;white-space:nowrap}
+    .tx-picker-check{font-size:10px;color:var(--text3)}
+    /* Family MLS tier strip — highlights the tier the combined family income falls in. */
+    .mls-tiers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:7px}
+    .mls-tier{position:relative;border:1px solid var(--border);border-radius:8px;padding:6px 8px 7px;background:rgba(255,255,255,.02);min-width:0}
+    .mls-tier-top{display:flex;align-items:baseline;justify-content:space-between;gap:5px}
+    .mls-tier-rate{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--text2);line-height:1.2}
+    .mls-tier-name{font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);white-space:nowrap}
+    .mls-tier-range{font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .mls-tier.on{border-color:#8fe6d2;background:rgba(143,230,210,.10);box-shadow:inset 0 0 0 1px rgba(143,230,210,.18)}
+    .mls-tier.on .mls-tier-rate{color:#8fe6d2}
+    .mls-tier.on .mls-tier-range{color:var(--text2)}
+    .mls-tier.on.pay{border-color:var(--gold);background:rgba(212,175,55,.10);box-shadow:inset 0 0 0 1px rgba(212,175,55,.18)}
+    .mls-tier.on.pay .mls-tier-rate{color:var(--gold)}
+    .mls-tier-now{font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8fe6d2;margin-top:4px}
+    .mls-tier.on.pay .mls-tier-now{color:var(--gold)}
+    @media(max-width:620px){ .mls-tiers{grid-template-columns:repeat(2,minmax(0,1fr))} }
   </style>
   <!-- FY selector -->
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap">
@@ -830,15 +1041,15 @@ function renderTax(){
     <button class="btn" style="margin-left:auto" onclick="generateEofyPack(${fy})">EOFY Pack</button>
   </div>
 
-  <!-- Side by side income inputs (two people at a time) -->
-  ${pager ? `<div style="display:flex;justify-content:center;margin-bottom:12px">${pager}</div>` : ''}
+  <!-- Income inputs — click a name to change who occupies that card -->
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;margin-bottom:18px">
-    ${colPersons.map((person,pi)=>{
+    ${slotPersons.map((person,pi)=>{
       const pRec = rec[person] || {};
-      const name = getPersonLabel(person);
       const col  = getPersonColour(person);
       return `<div class="fs" style="min-width:0">
-        <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:${col};margin-bottom:12px">${escHtml(name)}</div>
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
+          ${taxPersonPicker('slot' + pi, person, taxPersons, {colour:col})}
+        </div>
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
           <div><label class="fl">Gross Salary (AUD)</label>
             <input type="text" inputmode="text" class="fi math-tax-inp" style="padding:4px 8px"
@@ -936,8 +1147,8 @@ function renderTax(){
                 onchange="taxInpUpdate('${person}','privateHealth',this.checked,${fy})">
               <span style="font-size:12px">
                 <span style="color:var(--text2);font-weight:500">Has private hospital cover</span>
-                ${!pRec.privateHealth&&(+pRec.salary>93000)?
-                  `<span style="display:block;color:var(--neg);font-size:11px;margin-top:2px">⚠ MLS applies — income >$93k with no private cover</span>`:''}
+                ${!pRec.privateHealth&&taxByPerson[person]&&taxByPerson[person].mls>0?
+                  `<span style="display:block;color:var(--neg);font-size:11px;margin-top:2px">⚠ MLS applies — est. ${n2(taxByPerson[person].mls)} with no private cover</span>`:''}
                 ${pRec.privateHealth?
                   `<span style="display:block;color:var(--pos);font-size:11px;margin-top:2px">✓ Exempt from Medicare Levy Surcharge</span>`:''}
               </span>
@@ -958,9 +1169,36 @@ function renderTax(){
         (overrides individual settings above for MLS calculation)
       </label>
     </div>
-    <div style="font-size:10px;color:var(--text3);margin-top:6px;margin-left:28px">
-      MLS applies if combined family income ≥ $186,000 and no hospital cover.
-      Rates: 1.0% ($93k–$108k) · 1.25% ($108k–$144k) · 1.5% ($144k+)
+    <div style="margin-left:28px;margin-top:8px">
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:10px;color:var(--text3)">
+        <span>Combined family income for MLS</span>
+        <b style="font-family:var(--mono);font-size:12px;color:var(--text2)">${familyMlsIncome>0?fmtAUD(familyMlsIncome):'—'}</b>
+        ${familyMlsTier>=0?`<span style="font-family:var(--mono);font-size:11px;font-weight:600;color:${familyMlsPayable?'var(--gold)':'var(--pos)'}">${familyTierLabel} · ${familyMlsRate}%</span>`:''}
+      </div>
+      <div class="mls-tiers">
+        ${mlsTierCards.map(t=>{
+          const on = t.tier === familyMlsTier;
+          return `<div class="mls-tier${on?' on'+(familyMlsPayable&&t.tier>0?' pay':' base'):''}"${on?' aria-current="true"':''}>
+            <div class="mls-tier-top">
+              <span class="mls-tier-rate">${t.rate}</span>
+              <span class="mls-tier-name">${t.label}</span>
+            </div>
+            <div class="mls-tier-range" title="${t.range}">${t.range}</div>
+            ${on?'<div class="mls-tier-now">● Current</div>':''}
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:7px">
+        ${familyMlsTier < 0
+          ? 'Enter each person’s income to see which family tier applies.'
+          : rec.privateHealthFamily
+            ? 'Family hospital cover is active — MLS is $0, whichever tier the family income falls in.'
+            : familyMlsTier === 0
+              ? 'No family cover — the family is under the base threshold, so no MLS is payable.'
+              : mlsUncovered.length === 0
+                ? 'Everyone has individual hospital cover — no MLS is payable.'
+                : `No family cover — ${mlsUncovered.length === 1 ? escHtml(getPersonLabel(mlsUncovered[0])) + ' pays' : 'each uncovered person pays'} ${familyMlsRate}% of their taxable income + reportable fringe benefits.`}
+      </div>
     </div>
   </div>
 
@@ -970,20 +1208,20 @@ function renderTax(){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div>
         <label class="fl">Dependant Children
-          <span style="color:var(--text3);font-size:10px">(adds $1,500/child to the MLS family threshold below)</span>
+          <span style="color:var(--text3);font-size:10px">(adds $1,500 for each child after the first)</span>
         </label>
         <input type="number" class="fi" style="padding:4px 8px" min="0" max="20" step="1"
           placeholder="0" value="${rec.dependants||''}"
           oninput="taxRecSave('dependants',+this.value,${fy})" onblur="renderTax()">
       </div>
       <div style="padding:8px 0;font-size:11px;color:var(--text3)">
-        MLS family threshold: ${n2(186000+Math.max(0,(+(rec.dependants||0)-1))*1500)}
-        (base $186,000${+(rec.dependants||0)>1?' + '+n2(Math.max(0,+(rec.dependants||0)-1)*1500)+' for '+Math.max(0,+(rec.dependants||0)-1)+' extra child'+(Math.max(0,+(rec.dependants||0)-1)>1?'ren':''):''})
+        MLS family threshold: ${fmtAUD(mlsT.family + mlsAdj)}
+        (base ${fmtAUD(mlsT.family)}${mlsDeps>0?' + '+fmtAUD(mlsAdj)+' for '+mlsDeps+' extra child'+(mlsDeps>1?'ren':''):''})
       </div>
     </div>
     ${taxPersons.length>2?`<div style="font-size:10px;color:var(--text3);margin-top:8px">
       This family income test applies only to ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} &amp; ${escHtml(getPersonLabel(JOINT_PERSONS[1]))} — the ATO MLS family test combines a couple's income, it doesn't merge a dependant's own return with their parents'.
-      ${taxPersons.filter(p=>!JOINT_PERSONS.includes(p)).map(p=>escHtml(getPersonLabel(p))).join(', ')} ${taxPersons.filter(p=>!JOINT_PERSONS.includes(p)).length===1?'is':'are'} assessed on their own income against the $93,000 single threshold instead.
+      ${taxPersons.filter(p=>!JOINT_PERSONS.includes(p)).map(p=>escHtml(getPersonLabel(p))).join(', ')} ${taxPersons.filter(p=>!JOINT_PERSONS.includes(p)).length===1?'is':'are'} assessed on their own income against the ${fmtAUD(mlsT.single)} single threshold instead.
     </div>`:''}
   </div>
 
@@ -996,45 +1234,50 @@ function renderTax(){
 
   <!-- Tax summary table -->
   <div class="fs" style="margin-bottom:18px">
-    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><span>Tax Summary — FY${fy}</span>${pager}</div>
+    <div class="fst" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <span>Tax Summary — FY${fy}</span>
+      ${summaryOverridden
+        ? `<span style="font-size:10px;color:#8fe6d2;cursor:pointer;text-decoration:underline" onclick="taxSummaryReset()" title="Go back to the income-card order">↺ follow cards</span>`
+        : `<span style="font-size:10px;color:var(--text3)">Click a name to override · follows the cards</span>`}
+    </div>
     <div style="overflow-x:auto">
     <table class="tx-tbl" style="width:100%;border-collapse:collapse">
       <thead><tr>
         <th style="text-align:left;padding:6px 8px;font-size:11px;color:var(--text3);font-weight:400">Item</th>
-        ${colPersons.map(p=>`<th style="text-align:right;padding:6px 8px;font-size:12px;font-family:var(--mono);color:${getPersonColour(p)}">${escHtml(getPersonLabel(p))}</th>`).join('')}
+        ${summaryPersons.map((p,si)=>`<th style="text-align:right;padding:4px 8px">${taxPersonPicker('sum' + si, p, taxPersons, {colour:getPersonColour(p)})}</th>`).join('')}
       </tr></thead>
       <tbody>
-        ${row('Gross Salary', colPersons.map(p=>sp(n2(taxByPerson[p].salary),'pos')))}
+        ${row('Gross Salary', summaryPersons.map(p=>sp(n2(taxByPerson[p].salary),'pos')))}
         ${taxPersons.some(p=>taxByPerson[p].rfb>0)?row('Reportable Fringe Benefits',
-          colPersons.map(p=>taxByPerson[p].rfb>0?'+'+n2(taxByPerson[p].rfb):'—'),
-          '','not taxable income — used for Div293 & MLS threshold tests only'):''}
+          summaryPersons.map(p=>taxByPerson[p].rfb>0?'+'+n2(taxByPerson[p].rfb):'—'),
+          '','not taxable income — included in the MLS income test and Div293 income'):''}
         ${`<tr>
           <td style='color:var(--text3);font-size:12px;padding:5px 8px'>Grossed-up Dividends<span style='color:var(--text3);font-size:10px'> cash + franking credits</span></td>
-          ${colPersons.map(p=>{
+          ${summaryPersons.map(p=>{
             const t = taxByPerson[p], gross = t.myDiv + t.myFrank;
             return `<td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;cursor:pointer;text-decoration:underline dotted;color:var(--green)' onclick='taxDrillDividends("${p}",${fy})' title='Cash ${n2(t.myDiv)} + franking credits ${n2(t.myFrank)} — click to see these dividends'>${n2(gross)}</td>`;
           }).join('')}
         </tr>`}
         ${taxPersons.some(p=>taxByPerson[p].investInterestDeduction>0)?row(
           'Investment Interest Deduction',
-          colPersons.map(p=>taxByPerson[p].investInterestDeduction>0?'-'+n2(taxByPerson[p].investInterestDeduction):'—'),
+          summaryPersons.map(p=>taxByPerson[p].investInterestDeduction>0?'-'+n2(taxByPerson[p].investInterestDeduction):'—'),
           'neg','interest on loan used to buy investments'
         ):''}
         ${taxPersons.some(p=>taxByPerson[p].totalNetInvLoss>0)?row(
           '  └ Net Investment Loss (added back for Div293/MLS)',
-          colPersons.map(p=>taxByPerson[p].totalNetInvLoss>0?n2(taxByPerson[p].totalNetInvLoss):'—'),
+          summaryPersons.map(p=>taxByPerson[p].totalNetInvLoss>0?n2(taxByPerson[p].totalNetInvLoss):'—'),
           '','not added to taxable income — used for Div293 & MLS threshold tests only'):''}
-        ${row('Net Rental Income', colPersons.map(p=>taxByPerson[p].netRent>taxByPerson[p].netExpenses?sp('+'+n2(taxByPerson[p].netRent-taxByPerson[p].netExpenses),'pos'):'—'))}
-        ${row('Rental Loss (negative gearing)', colPersons.map(p=>taxByPerson[p].netPropLoss>0?'-'+n2(taxByPerson[p].netPropLoss):'—'),'neg')}
-        ${row('Net Capital Gain (after 50% disc)', colPersons.map(p=>sp(n2(taxByPerson[p].myCGT), taxByPerson[p].myCGT>0?'pos':'')),'',cgt.totalLoss>0?'capital losses: -'+n2(cgt.totalLoss):'')}
-        <tr><td colspan="${colPersons.length+1}" style="padding:2px 8px 8px">
+        ${row('Net Rental Income', summaryPersons.map(p=>taxByPerson[p].netRent>taxByPerson[p].netExpenses?sp('+'+n2(taxByPerson[p].netRent-taxByPerson[p].netExpenses),'pos'):'—'))}
+        ${row('Rental Loss (negative gearing)', summaryPersons.map(p=>taxByPerson[p].netPropLoss>0?'-'+n2(taxByPerson[p].netPropLoss):'—'),'neg','reduces taxable income — added back for the MLS income test')}
+        ${row('Net Capital Gain (after 50% disc)', summaryPersons.map(p=>sp(n2(taxByPerson[p].myCGT), taxByPerson[p].myCGT>0?'pos':'')),'',cgt.totalLoss>0?'capital losses: -'+n2(cgt.totalLoss):'')}
+        <tr><td colspan="${summaryPersons.length+1}" style="padding:2px 8px 8px">
           <span style="font-size:11px;color:#8fe6d2;cursor:pointer" onclick="switchTab('cgt',$('tab-cgt'))">
             ↳ View full Capital Gains report (per-parcel detail, any FY) →
           </span>
         </td></tr>
         <tr style="border-top:1px solid var(--border)">
           <td style="font-size:12px;font-weight:600;padding:6px 8px">Taxable Income</td>
-          ${colPersons.map(p=>{
+          ${summaryPersons.map(p=>{
             const t = taxByPerson[p];
             return `<td style="font-family:var(--mono);font-size:13px;font-weight:600;text-align:right;padding:6px 8px">
               ${gold(n2(Math.max(0,t.taxableIncome)))}
@@ -1043,17 +1286,17 @@ function renderTax(){
           }).join('')}
         </tr>
         ${taxPersons.some(p=>taxByPerson[p].sacrifice>0)?row('Salary Sacrifice',
-          colPersons.map(p=>taxByPerson[p].sacrifice>0?'-'+n2(taxByPerson[p].sacrifice):'—'),'neg','reduces taxable income'):''}
-        ${row('Gross Tax Payable', colPersons.map(p=>gold(n2(taxByPerson[p].grossTax))))}
+          summaryPersons.map(p=>taxByPerson[p].sacrifice>0?'-'+n2(taxByPerson[p].sacrifice):'—'),'neg','reduces taxable income'):''}
+        ${row('Gross Tax Payable', summaryPersons.map(p=>gold(n2(taxByPerson[p].grossTax))))}
         ${row('  └ Medicare Levy (2%)',
-          colPersons.map(p=>taxByPerson[p].medicareLevy>0?n2(taxByPerson[p].medicareLevy):'—'),
+          summaryPersons.map(p=>taxByPerson[p].medicareLevy>0?n2(taxByPerson[p].medicareLevy):'—'),
           'neg','included in gross tax above')}
         ${row('Effective Tax Rate',
-          colPersons.map(p=>taxByPerson[p].taxableIncome>0 ? (taxByPerson[p].grossTax/taxByPerson[p].taxableIncome*100).toFixed(1)+'%' : '—'),
+          summaryPersons.map(p=>taxByPerson[p].taxableIncome>0 ? (taxByPerson[p].grossTax/taxByPerson[p].taxableIncome*100).toFixed(1)+'%' : '—'),
           '','% of taxable income'
         )}
         ${row('PAYG Withholding Rate',
-          colPersons.map(p=>taxByPerson[p].salary>0 ? (taxByPerson[p].withheld/taxByPerson[p].salary*100).toFixed(1)+'%' : '—'),
+          summaryPersons.map(p=>taxByPerson[p].salary>0 ? (taxByPerson[p].withheld/taxByPerson[p].salary*100).toFixed(1)+'%' : '—'),
           '','% of gross salary withheld by employer'
         )}
 ${(()=>{
@@ -1066,7 +1309,7 @@ ${(()=>{
             Division 293 Tax
             <span style='color:var(--text3);font-size:10px'> extra 15% on super · income &gt;$250k</span>
           </td>
-          ${colPersons.map(p=>{
+          ${summaryPersons.map(p=>{
             const t = taxByPerson[p];
             return `<td style='font-family:var(--mono);font-size:12px;text-align:right;padding:5px 8px;
             ${t.div293>0?'cursor:pointer;text-decoration:underline dotted':''}'
@@ -1078,17 +1321,17 @@ ${(()=>{
         </tr>`;
         })()}
       ${taxPersons.some(p=>taxByPerson[p].hecsRep>0)?row('HECS-HELP Repayment',
-        colPersons.map(p=>taxByPerson[p].hecsRep>0?n2(taxByPerson[p].hecsRep):'—'),'neg'):''
+        summaryPersons.map(p=>taxByPerson[p].hecsRep>0?n2(taxByPerson[p].hecsRep):'—'),'neg'):''
       }
       ${taxPersons.some(p=>taxByPerson[p].mls>0)?row('Medicare Levy Surcharge',
-        colPersons.map(p=>taxByPerson[p].mls>0?n2(taxByPerson[p].mls)+'<span style="font-size:10px;color:var(--neg)"> (no priv. health)</span>':'—'),'neg'):''
+        summaryPersons.map(p=>taxByPerson[p].mls>0?n2(taxByPerson[p].mls)+'<span style="font-size:10px;color:var(--neg)"> (no priv. health)</span>':'—'),'neg'):''
       }
-        ${row('Less: Tax Withheld', colPersons.map(p=>'-'+n2(taxByPerson[p].withheld)),'neg')}
-        ${row('Less: PAYG Instalments', colPersons.map(p=>taxByPerson[p].payg?'-'+n2(taxByPerson[p].payg):'—'),'neg')}
-        ${row('Less: Franking Credits', colPersons.map(p=>'-'+n2(taxByPerson[p].myFrank)),'neg')}
+        ${row('Less: Tax Withheld', summaryPersons.map(p=>'-'+n2(taxByPerson[p].withheld)),'neg')}
+        ${row('Less: PAYG Instalments', summaryPersons.map(p=>taxByPerson[p].payg?'-'+n2(taxByPerson[p].payg):'—'),'neg')}
+        ${row('Less: Franking Credits', summaryPersons.map(p=>'-'+n2(taxByPerson[p].myFrank)),'neg')}
         <tr class="tx-total" style="border-top:2px solid var(--border);background:rgba(255,255,255,0.03)">
           <td style="font-size:13px;font-weight:700;padding:8px 8px">Estimated Refund / Owing</td>
-          ${colPersons.map(p=>{
+          ${summaryPersons.map(p=>{
             const t = taxByPerson[p];
             return `<td style="font-family:var(--mono);font-size:15px;font-weight:700;text-align:right;padding:8px 8px">
               <span class="${t.refund>0?'pos':'neg'}">${t.refund>0?'REFUND '+n2(t.refund):'OWING '+n2(t.netTax)}</span>
@@ -1099,7 +1342,7 @@ ${(()=>{
     </table>
     </div>
     <div style="margin-top:10px;font-size:10px;color:var(--text3)">
-      ⚠ Estimates only. CGT and dividends on jointly-owned holdings split 50/50 between ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} and ${escHtml(getPersonLabel(JOINT_PERSONS[1]))} specifically — other persons' shares come only from their own individual stock ownership. FY2025/26 Stage 3 rates + 2% Medicare levy. MLS family income test (threshold &gt;$186,000) applies only to ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} &amp; ${escHtml(getPersonLabel(JOINT_PERSONS[1]))}; other persons use the $93,000 individual threshold. HECS uses ATO FY2025/26 repayment rates. Consult your accountant.
+      ⚠ Estimates only. CGT and dividends on jointly-owned holdings split 50/50 between ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} and ${escHtml(getPersonLabel(JOINT_PERSONS[1]))} specifically — other persons' shares come only from their own individual stock ownership. FY${fy} resident rates + 2% Medicare levy. MLS family income test (threshold &gt;${fmtAUD(mlsT.family + mlsAdj)}) applies only to ${escHtml(getPersonLabel(JOINT_PERSONS[0]))} &amp; ${escHtml(getPersonLabel(JOINT_PERSONS[1]))}; other persons use the ${fmtAUD(mlsT.single)} individual threshold. HECS uses the ATO repayment schedule (marginal from FY2025–26). Consult your accountant.
     </div>
   </div>`;
 }

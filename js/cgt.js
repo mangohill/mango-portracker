@@ -1653,11 +1653,20 @@ function cgtRunSimulation(){
     const other = person==='lumia' ? 'chilli' : 'lumia';
     const otherRec = taxRec[other] || {};
     const baseIncome = income || 0;
-    const otherIncome = (+otherRec.salary||0) - (+otherRec.sacrifice||0);
-    const familyIncome = baseIncome + otherIncome;
+    // MLS: a couple is tested on combined family income even if one spouse earns
+    // nothing, so treat Lumia/Chilli as coupled regardless of the spouse's income.
+    const isCoupled = (typeof JOINT_PERSONS !== 'undefined') && JOINT_PERSONS.includes(person);
+    const personRFB = +personRec.rfb || 0;
+    const otherRFB = +otherRec.rfb || 0;
+    const otherIncome = isCoupled ? ((+otherRec.salary||0) + otherRFB) : 0;
+    const mlsBase = Math.max(0, baseIncome) + personRFB;
+    // Salary sacrifice is a reportable super contribution — add it back for the
+    // threshold/rate test (but not to the amount the surcharge is charged on).
+    const ownTestIncome = mlsBase + (+personRec.sacrifice||0);
+    const familyIncome = ownTestIncome + otherIncome;
     const hecsDebt = +personRec.hecs || 0;
     const hasPH = !!(personRec.privateHealth || taxRec.privateHealthFamily);
-    const deps = +(taxRec.dependants||0);
+    const deps = isCoupled ? +(taxRec.dependants||0) : 0;
 
     // Compute full tax delta but honour the post-cutoff 30% minimum floor.
     // Accepts pre/post breakdown so we can attribute tax increments correctly.
@@ -1666,18 +1675,18 @@ function cgtRunSimulation(){
       taxablePost = +taxablePost || 0;
       const beforeTax = calcTax(Math.max(0, baseIncome));
       const beforeHECS = calcHECS(Math.max(0, baseIncome), hecsDebt);
-      const beforeMLS = calcMLS(Math.max(0, baseIncome), Math.max(0, familyIncome), hasPH, deps, undefined, otherIncome > 0);
+      const beforeMLS = calcMLS(mlsBase, familyIncome, hasPH, deps, undefined, isCoupled, ownTestIncome);
 
       // Apply pre portion first, then post portion so we can isolate post incremental tax
       const afterPreIncome = Math.max(0, baseIncome + taxablePre);
       const afterPreTax = calcTax(afterPreIncome);
       const afterPreHECS = calcHECS(afterPreIncome, hecsDebt);
-      const afterPreMLS = calcMLS(afterPreIncome, Math.max(0, familyIncome + taxablePre), hasPH, deps, undefined, otherIncome > 0);
+      const afterPreMLS = calcMLS(afterPreIncome + personRFB, familyIncome + taxablePre, hasPH, deps, undefined, isCoupled, afterPreIncome + personRFB + (+personRec.sacrifice||0));
 
       const afterFullIncome = Math.max(0, baseIncome + taxablePre + taxablePost);
       const afterFullTax = calcTax(afterFullIncome);
       const afterFullHECS = calcHECS(afterFullIncome, hecsDebt);
-      const afterFullMLS = calcMLS(afterFullIncome, Math.max(0, familyIncome + taxablePre + taxablePost), hasPH, deps, undefined, otherIncome > 0);
+      const afterFullMLS = calcMLS(afterFullIncome + personRFB, familyIncome + taxablePre + taxablePost, hasPH, deps, undefined, isCoupled, afterFullIncome + personRFB + (+personRec.sacrifice||0));
 
       // Increments attributable to pre and post portions
       const preInc = (afterPreTax + afterPreHECS + afterPreMLS) - (beforeTax + beforeHECS + beforeMLS);
