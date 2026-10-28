@@ -315,6 +315,19 @@ a:hover{text-decoration:underline;text-underline-offset:2px;}
 .pos{color:var(--green);}
 .neg{color:var(--red);}
 .neu{color:var(--text);}
+.debt-red{color:var(--debt-red);}
+.debt-brick{color:var(--debt-brick);}
+.debt-coral{color:var(--debt-coral);}
+/* Super balances: current → prior FY → older FY */
+.su-current{color:var(--cat-super);}
+.su-prev{color:var(--cat-portfolio);}
+.su-older{color:var(--neutral-slate);}
+/* Super contributions by treatment */
+.su-personal{color:var(--asset-mint);}
+.su-total{color:var(--gold);}
+.su-aftertax{color:var(--asset-lime);}
+.su-noncc{color:var(--cyan);}
+.su-muted{color:var(--text2);}
 
 /* ── Panels / tables ─────────────────────────────────────────────────── */
 .tw{
@@ -578,6 +591,19 @@ input[type="color"]::-webkit-color-swatch{border:none;border-radius:3px;}
 .card.flash-pos{animation:flashPos 900ms ease-out;}
 .card.flash-neg{animation:flashNeg 900ms ease-out;}
 .card.flash-ath{animation:flashAth 1400ms ease-out;}
+/* Neutral click pulse when the figure itself doesn't change (Super view cycle) */
+@keyframes flashClick{
+  0%{
+    border-color:color-mix(in srgb,var(--c,var(--border)) 65%,var(--border));
+    box-shadow:0 0 0 1px color-mix(in srgb,var(--c,var(--teal)) 55%,transparent),
+               0 6px 20px color-mix(in srgb,var(--c,var(--teal)) 18%,transparent);
+  }
+  100%{
+    border-color:color-mix(in srgb,var(--c,var(--border)) 34%,var(--border));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
+  }
+}
+.card.flash-click{animation:flashClick 650ms ease-out;}
 /* Let the flash colour show through instead of being muted by the tint. */
 .card.flash-pos::before,
 .card.flash-neg::before,

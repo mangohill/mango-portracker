@@ -665,8 +665,8 @@ function renderH(){
     animateValue($('cp'), tpl, {format:v=>(v>=0?'+':'')+n2(v,0)});
   }
   if($('cpp')) animateValue($('cpp'), tpp, {flash:false, format:v=>(v>=0?'+':'')+v.toFixed(2)+'%'});
-  if($('cpos')) animateValue($('cpos'), viewH.length, {flash:false, format:v=>Math.round(v).toString()});
-  if($('ctrd')) animateValue($('ctrd'), viewTrades.length, {flash:false, format:v=>Math.round(v).toString()});
+  if($('cpos')) animateValue($('cpos'), viewH.length, {format:v=>Math.round(v).toString()});
+  if($('ctrd')) animateValue($('ctrd'), viewTrades.length, {format:v=>Math.round(v).toString()});
   if(typeof renderMvSparkline==='function') renderMvSparkline(portfolioView);
   if(typeof checkAthMilestone==='function') checkAthMilestone(tv||null, portfolioView);
 

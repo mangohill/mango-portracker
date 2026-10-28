@@ -254,11 +254,11 @@ function calcSuperPreview(){
   const fmtPct = v => v === null ? '—' : (v>=0?'+':'')+v.toFixed(2)+'%';
 
   const items = [
-    {l:'Current Balance',          v:n2(curBal),           c:'neu'},
-    prevBal  ? {l:'FY'+PREV_FY+' Balance', v:n2(prevBal), c:'neu'} : null,
+    {l:'Current Balance',          v:n2(curBal),           c:'su-current'},
+    prevBal  ? {l:'FY'+PREV_FY+' Balance', v:n2(prevBal), c:'su-prev'} : null,
     roi_cur  ? {l:'FY'+CUR_FY+' Inv. Gain',  v:fmt(roi_cur.gain),       c:clr(roi_cur.gain)}  : null,
     roi_cur  ? {l:'FY'+CUR_FY+' ROI',        v:fmtPct(roi_cur.roi),     c:clr(roi_cur.roi)}   : null,
-    prev2Bal ? {l:'FY'+PREV2_FY+' Balance',  v:n2(prev2Bal),        c:'neu'}               : null,
+    prev2Bal ? {l:'FY'+PREV2_FY+' Balance',  v:n2(prev2Bal),        c:'su-older'}               : null,
     roi_prev ? {l:'FY'+PREV_FY+' Inv. Gain', v:fmt(roi_prev.gain),      c:clr(roi_prev.gain)} : null,
     roi_prev ? {l:'FY'+PREV_FY+' ROI',       v:fmtPct(roi_prev.roi),    c:clr(roi_prev.roi)}  : null,
   ].filter(Boolean);
@@ -379,7 +379,29 @@ function deleteSuperAccount(btn){
   notify('Account deleted.','ok');
 }
 
-function renderSuperCards(){
+// Pick the badge tint for an individual super account. If the account is
+// named after a person (e.g. "Lumia", "Chilli's Super"), use that person's
+// colour; otherwise keep the account's own chart colour.
+function superAccountTint(a){
+  const name = String((a && a.name) || '').trim().toLowerCase();
+  if(name && typeof getAllPersons === 'function' && typeof getPersonColour === 'function'){
+    const key = getAllPersons().find(k => {
+      const keyLc = String(k).toLowerCase();
+      const label = String(typeof getPersonLabel === 'function' ? getPersonLabel(k) : k).toLowerCase();
+      return name === keyLc || name === label
+          || name.startsWith(label + ' ')
+          || name.startsWith(label + ' -')
+          || name.startsWith(label + ' –')
+          || name.startsWith(label + ' —')
+          || name.startsWith(label + "'s")
+          || name.startsWith(label + '’s');
+    });
+    if(key) return getPersonColour(key);
+  }
+  return (a && a.color) || 'var(--cat-super)';
+}
+
+function renderSuperCards(clickPulse = false){
   const el = $('su-cards');
   if(!el) return;
 
@@ -394,6 +416,14 @@ function renderSuperCards(){
   const fyBal = (a, fy) => (a.fyData && a.fyData[fy]) ? +a.fyData[fy] : null;
 
   let balLabel, balVal, balSub, prevLabel, prevVal, growthVal, growthPct, growthNum = null;
+  let balNum = null, prevNum = null;
+
+  // Remember what the cards currently show so a click can count from the old
+  // figure to the new one (same tween + flash pulse as the Portfolio cards).
+  const prevShown = [...el.querySelectorAll('.card-value')].map(v => {
+    const raw = parseFloat(v.textContent.replace(/[^0-9.\-]/g, ''));
+    return isFinite(raw) ? raw : null;
+  });
 
   if(suCardView === 0){
     // ── Combined view ──
@@ -405,9 +435,11 @@ function renderSuperCards(){
     const n         = superAccounts.length;
     balLabel  = 'Total Balance';
     balVal    = n2(totalBal,0);
+    balNum    = totalBal;
     balSub    = n + ' account' + (n===1?'':'s') + (n>0?' · click to cycle ↻':'');
     prevLabel = 'FY' + PREV_FY + ' Balance';
     prevVal   = totalPrev > 0 ? n2(totalPrev,0) : '—';
+    prevNum   = totalPrev > 0 ? totalPrev : null;
     growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth,0) : '—';
     growthPct = gPct   !== null ? (gPct>=0?'+':'')   + gPct.toFixed(1)+'%' : '';
   } else {
@@ -420,9 +452,11 @@ function renderSuperCards(){
     growthNum    = growth;
     balLabel  = a.name;
     balVal    = n2(bal,0);
+    balNum    = bal;
     balSub    = 'click to cycle ↻';
     prevLabel = 'FY' + PREV_FY + ' Balance';
     prevVal   = prev !== null ? n2(prev,0) : '—';
+    prevNum   = prev;
     growthVal = growth !== null ? (growth>=0?'+':'') + n2(growth,0) : '—';
     growthPct = gPct   !== null ? (gPct>=0?'+':'')   + gPct.toFixed(1)+'%' : '';
   }
@@ -433,7 +467,13 @@ function renderSuperCards(){
   const growthTint = growthClass === 'neg' ? 'var(--debt-red)'
                     : growthClass === 'pos' ? 'var(--asset-lime)'
                     : 'var(--neutral-slate)';
-  const tints = ['var(--cat-super)', 'var(--cat-portfolio)', growthTint];
+  // Combined stays purple. An individual account takes its owner's colour when
+  // the account name matches a known person (Lumia, Chilli, custom), otherwise
+  // it falls back to the account's own chart colour.
+  const firstTint = suCardView === 0
+    ? 'var(--cat-super)'
+    : superAccountTint(superAccounts[suCardView - 1]);
+  const tints = [firstTint, 'var(--cat-portfolio)', growthTint];
 
   el.innerHTML = [
     { l: balLabel,              v: balVal,   s: 'neu',        sub: balSub,
@@ -449,12 +489,37 @@ function renderSuperCards(){
       <div class="card-sub">${c.sub}</div>
     </div>`
   ).join('');
+
+  // Match the Portfolio cards: count from the previous figure to the new one
+  // and run the same flash pulse, so cycling a Super badge feels identical.
+  if(typeof animateValue === 'function'){
+    const targets = [
+      { v: balNum,    f: v => n2(v,0) },
+      { v: prevNum,   f: v => n2(v,0) },
+      { v: growthNum, f: v => (v>=0?'+':'') + n2(v,0) },
+    ];
+    el.querySelectorAll('.card-value').forEach((node, i) => {
+      const old = prevShown[i];
+      const card = node.closest('.card');
+      if(old != null) node.dataset.rawVal = String(old);
+      animateValue(node, targets[i].v, { format: targets[i].f });
+      // Every click should react, even when the figure itself is unchanged
+      // (e.g. cycling between a single account and the combined view).
+      if(clickPulse && card && !card.classList.contains('flash-pos') && !card.classList.contains('flash-neg')){
+        card.classList.remove('flash-click');
+        void card.offsetWidth;
+        card.classList.add('flash-click');
+        clearTimeout(card._clickT);
+        card._clickT = setTimeout(() => card.classList.remove('flash-click'), 650);
+      }
+    });
+  }
 }
 
 function cycleSuperCardView(){
   if(!superAccounts.length) return;
   suCardView = (suCardView + 1) % (superAccounts.length + 1);
-  renderSuperCards();
+  renderSuperCards(true);
 }
 
 // Snapshot each account's balance into fyData when a new financial year starts,
@@ -586,10 +651,10 @@ function renderSuperAccounts(){
               <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${CUR_FY} — in progress</div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                 ${stat('Employer CC',     empCC_cur  ? n2(empCC_cur)          : '—')}
-                ${stat('Personal CC',     perCC_cur  ? n2(perCC_cur)          : '—')}
-                ${stat('Total CC',        contribCur ? n2(contribCur)         : '—')}
-                ${stat('After-tax (85%)', contribCur ? n2(contribCur*0.85)    : '—', 'pos')}
-                ${ncc_cur  ? stat('Non-Concessional', n2(ncc_cur))            : ''}
+                ${stat('Personal CC',     perCC_cur  ? n2(perCC_cur)          : '—', perCC_cur  ? 'su-personal': 'neu')}
+                ${stat('Total CC',        contribCur ? n2(contribCur)         : '—', contribCur ? 'su-total'   : 'neu')}
+                ${stat('After-tax (85%)', contribCur ? n2(contribCur*0.85)    : '—', contribCur ? 'su-aftertax': 'neu')}
+                ${ncc_cur  ? stat('Non-Concessional', n2(ncc_cur), 'su-noncc')            : ''}
                 ${sgc_cur  ? stat('SGC (excl. from cap)', n2(sgc_cur), 'neu', 'Not a concessional contribution') : ''}
               </div>
             </div>
@@ -597,10 +662,10 @@ function renderSuperAccounts(){
               <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${PREV_FY} — completed</div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                 ${stat('Employer CC',     empCC_prev  ? n2(empCC_prev)         : '—')}
-                ${stat('Personal CC',     perCC_prev  ? n2(perCC_prev)         : '—')}
-                ${stat('Total CC',        contribPrev ? n2(contribPrev)        : '—')}
-                ${stat('After-tax (85%)', contribPrev ? n2(contribPrev*0.85)   : '—', 'pos')}
-                ${ncc_prev ? stat('Non-Concessional', n2(ncc_prev))            : ''}
+                ${stat('Personal CC',     perCC_prev  ? n2(perCC_prev)         : '—', perCC_prev  ? 'su-personal': 'neu')}
+                ${stat('Total CC',        contribPrev ? n2(contribPrev)        : '—', contribPrev ? 'su-total'   : 'neu')}
+                ${stat('After-tax (85%)', contribPrev ? n2(contribPrev*0.85)   : '—', contribPrev ? 'su-aftertax': 'neu')}
+                ${ncc_prev ? stat('Non-Concessional', n2(ncc_prev), 'su-noncc')           : ''}
                 ${sgc_prev ? stat('SGC (excl. from cap)', n2(sgc_prev), 'neu', 'Not a concessional contribution') : ''}
               </div>
             </div>
@@ -750,10 +815,10 @@ function renderSuperAccounts(){
             <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${CUR_FY} — Current vs FY${PREV_FY} end</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
               ${stat('Start (FY'+PREV_FY+')',  n2(prevBal))}
-              ${stat('End (Current)',           n2(curBal))}
+              ${stat('End (Current)',           n2(curBal), 'su-current')}
               ${stat('After-tax CC',            roi_cur ? n2(roi_cur.afterTaxCC)       : '$0.00')}
               ${stat('Inv. Gain',               roi_cur ? fmtGain(roi_cur)                  : n2(curBal-prevBal))}
-              ${stat('Avg Balance',             n2((prevBal+curBal)/2))}
+              ${stat('Avg Balance',             n2((prevBal+curBal)/2), 'su-muted')}
               ${stat('ROI %',                   roi_cur ? fmtROI(roi_cur)                   : '—')}
             </div>
           </div>
@@ -761,10 +826,10 @@ function renderSuperAccounts(){
             <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${PREV_FY} — FY${PREV_FY} vs FY${PREV2_FY} end</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
               ${prev2Bal !== null ? stat('Start (FY'+PREV2_FY+')', n2(prev2Bal)) : stat('Start (FY'+PREV2_FY+')', '—')}
-              ${stat('End (FY'+PREV_FY+')',      n2(prevBal))}
+              ${stat('End (FY'+PREV_FY+')',      n2(prevBal), 'su-prev')}
               ${stat('After-tax CC',            roi_prev ? n2(roi_prev.afterTaxCC)      : '$0.00')}
               ${stat('Inv. Gain',               roi_prev ? fmtGain(roi_prev)                : '—')}
-              ${stat('Avg Balance',             prev2Bal !== null ? n2((prev2Bal+prevBal)/2) : '—')}
+              ${stat('Avg Balance',             prev2Bal !== null ? n2((prev2Bal+prevBal)/2) : '—', 'su-muted')}
               ${stat('ROI %',                   roi_prev ? fmtROI(roi_prev)                 : '—')}
             </div>
           </div>
@@ -792,9 +857,9 @@ function renderSuperAccounts(){
       <!-- Collapsible body - starts minimised -->
       <div id="su-body-${a.id}" style="display:none;padding:14px 0 4px">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
-        ${stat('Current Balance', n2(curBal))}
-        ${prevBal  !== null ? stat('FY'+PREV_FY+' Balance',  n2(prevBal))  : ''}
-        ${prev2Bal !== null ? stat('FY'+PREV2_FY+' Balance', n2(prev2Bal)) : ''}
+        ${stat('Current Balance', n2(curBal), 'su-current')}
+        ${prevBal  !== null ? stat('FY'+PREV_FY+' Balance',  n2(prevBal),  'su-prev')  : ''}
+        ${prev2Bal !== null ? stat('FY'+PREV2_FY+' Balance', n2(prev2Bal), 'su-older') : ''}
         ${roi_cur  ? stat('FY'+CUR_FY+' ROI',  fmtROI(roi_cur),  '') : ''}
         ${roi_prev ? stat('FY'+PREV_FY+' ROI', fmtROI(roi_prev), '') : ''}
       </div>
@@ -1532,12 +1597,12 @@ function calcPropPreview(){
     {l:'Unrealised Gain',     v:n2(m.gainRaw),             c:clr(m.gainRaw)},
     {l:'Gain %',              v:m.gainPct.toFixed(2)+'%',  c:clr(m.gainPct)},
     {l:'LVR',                 v:m.lvr.toFixed(1)+'%',      c:m.lvr>80?'neg':m.lvr>60?'':'pos'},
-    {l:'Total Loan Balance',  v:n2(m.loanCur),             c:'neu'},
-    {l:'Effective Loan',      v:n2(m.effectiveLoan),        c:'neu'},
+    {l:'Total Loan Balance',  v:n2(m.loanCur),             c:'debt-red'},
+    {l:'Effective Loan',      v:n2(m.effectiveLoan),        c:'debt-brick'},
     {l:'Wtd Avg Rate',        v:m.wtRate.toFixed(2)+'%',   c:'neu'},
     {l:'Monthly Interest',    v:n2(m.monthlyInterest),     c:'neg'},
     {l:'Offset Savings/mo',   v:n2(m.interestSaved),       c:'pos'},
-    {l:'Est. Total Repayment',v:n2(m.repay),               c:'neu'},
+    {l:'Est. Total Repayment',v:n2(m.repay),               c:'debt-coral'},
     {l:'Gross Yield',         v:m.grossYield.toFixed(2)+'%',c:m.grossYield>0?'pos':'neu'},
     {l:'Net Yield',           v:m.netYield.toFixed(2)+'%', c:clr(m.netYield)},
   ];
@@ -2196,6 +2261,7 @@ function renderProperties(){
        <div class="${cls}" style="font-family:var(--mono);font-size:13px;font-weight:600">${val}</div></div>`;
 
     // Splits table
+    const oneSplit = m.splits.length === 1;
     const splitsHtml = m.splits.length ? `
       <div style="margin-bottom:16px">
         <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">LOAN SPLITS</div>
@@ -2225,22 +2291,22 @@ function renderProperties(){
                 return `<tr style="border-bottom:1px solid var(--border)">
                   <td style="padding:5px 8px 5px 0;font-weight:600">${sp.label||'Split'}</td>
                   <td style="text-align:right;padding:5px 8px"><span class="badge b-reit">${sp.ltype==='io'?'IO':'P&I'}</span></td>
-                  <td style="text-align:right;padding:5px 8px">${n2(bal)}</td>
+                  <td style="text-align:right;padding:5px 8px${oneSplit?';color:var(--debt-red)':''}">${n2(bal)}</td>
                   <td style="text-align:right;padding:5px 8px">${rate.toFixed(2)}%</td>
                   <td style="text-align:right;padding:5px 8px;color:var(--green)">${off?n2(off):'—'}</td>
-                  <td style="text-align:right;padding:5px 8px">${n2(eff)}</td>
+                  <td style="text-align:right;padding:5px 8px${oneSplit?';color:var(--debt-brick)':''}">${n2(eff)}</td>
                   <td style="text-align:right;padding:5px 8px;color:var(--red)">${n2(moInt)}</td>
-                  <td style="text-align:right;padding:5px 8px">${n2(rep)}</td>
+                  <td style="text-align:right;padding:5px 8px${oneSplit?';color:var(--debt-coral)':''}">${n2(rep)}</td>
                 </tr>`;
               }).join('')}
               ${m.splits.length>1?`<tr style="border-top:2px solid var(--border);font-weight:700;color:var(--text2)">
                 <td style="padding:5px 8px 5px 0">TOTAL</td>
                 <td style="text-align:right;padding:5px 8px;font-size:10px">${m.wtRate.toFixed(2)}% wtd</td>
-                <td style="text-align:right;padding:5px 8px">${n2(m.loanCur)}</td>
+                <td style="text-align:right;padding:5px 8px;color:var(--debt-red)">${n2(m.loanCur)}</td>
                 <td colspan="2"></td>
-                <td style="text-align:right;padding:5px 8px">${n2(m.effectiveLoan)}</td>
-                <td style="text-align:right;padding:5px 8px;color:var(--red)">${n2(m.monthlyInterest)}</td>
-                <td style="text-align:right;padding:5px 8px">${n2(m.repay)}</td>
+                <td style="text-align:right;padding:5px 8px;color:var(--debt-brick)">${n2(m.effectiveLoan)}</td>
+                <td style="text-align:right;padding:5px 8px;color:var(--debt-red)">${n2(m.monthlyInterest)}</td>
+                <td style="text-align:right;padding:5px 8px;color:var(--debt-coral)">${n2(m.repay)}</td>
               </tr>`:''}
             </tbody>
           </table>
@@ -2285,13 +2351,13 @@ function renderProperties(){
         <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px">CASH IN HAND AFTER SALE</div>
         <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
           <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px">
-            ${row('Sale value', n2(value))}
-            ${row('Less: selling costs' + (sellCostPct ? ' (' + sellCostPct + '%)' : ''), sellCosts > 0 ? '−' + n2(sellCosts) : '—')}
-            ${row('Less: loan payout', loan > 0 ? '−' + n2(loan) : '—')}
-            ${row('Less: est. CGT', taxCell)}
+            ${row('Sale value', n2(value), { color:'var(--green)' })}
+            ${row('Less: selling costs' + (sellCostPct ? ' (' + sellCostPct + '%)' : ''), sellCosts > 0 ? '−' + n2(sellCosts) : '—', { color: sellCosts > 0 ? 'var(--red)' : '' })}
+            ${row('Less: loan payout', loan > 0 ? '−' + n2(loan) : '—', { color: loan > 0 ? 'var(--red)' : '' })}
+            ${row('Less: est. CGT', taxCell, { color: tax > 0 ? 'var(--red)' : tax < 0 ? 'var(--green)' : '' })}
             ${row('Net cash from sale' + (taxKnown ? '' : ' (before CGT)'), n2(netCash), { bold: true, top: true, color: netCash >= 0 ? 'var(--green)' : 'var(--red)' })}
-            ${row('Plus: offset balance (your own cash)', offset > 0 ? '+' + n2(offset) : '—')}
-            ${row('Total cash after sale', n2(totalCash), { bold: true, top: true, color: totalCash >= 0 ? 'var(--green)' : 'var(--red)' })}
+            ${row('Plus: offset balance (your own cash)', offset > 0 ? '+' + n2(offset) : '—', { color: offset > 0 ? 'var(--green)' : '' })}
+            ${row('Total cash after sale', n2(totalCash), { bold: true, top: true, color:'var(--gold)' })}
           </table>
         </div>
         ${netCash < 0 ? note('Negative: the sale price wouldn\'t cover the loan and costs — you\'d need to find the shortfall' + (offset > 0 ? ', which your offset balance may help cover.' : '.'), '8px') : ''}
@@ -2305,12 +2371,12 @@ function renderProperties(){
       return `<details ${boxAttrs}>
         ${title}
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px">
-          ${stat('Sale Value (current)', n2(est.value))}
+          ${stat('Sale Value (current)', n2(est.value), 'pos')}
           ${stat('Cost Base', n2(est.costBase))}
-          ${est.sellCosts > 0 ? stat('Selling Costs' + (est.sellCostPct ? ' (' + est.sellCostPct + '%)' : ''), n2(est.sellCosts)) : ''}
+          ${est.sellCosts > 0 ? stat('Selling Costs' + (est.sellCostPct ? ' (' + est.sellCostPct + '%)' : ''), n2(est.sellCosts), 'neg') : ''}
           ${stat('Capital Gain', n2(est.gain), clr(est.gain))}
           ${stat('CGT Discount', est.long ? '50% (held 12+ months)' : 'None (under 12 months)')}
-          ${stat('Est. CGT Payable', est.gain > 0 ? n2(est.totalTax) : 'None — capital loss', est.gain > 0 ? 'neg' : 'neu')}
+          ${stat('Est. CGT Payable', est.gain > 0 ? n2(est.totalTax) : 'None — capital loss', est.totalTax > 0 ? 'neg' : est.totalTax < 0 ? 'pos' : 'neu')}
         </div>
         ${ownerLines}
         ${cashHtml}
@@ -2353,14 +2419,14 @@ function renderProperties(){
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px">
           <div style="font-family:var(--mono);font-size:10px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px">LOAN SUMMARY</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            ${stat('Total Balance',    n2(m.loanCur))}
+            ${stat('Total Balance',    n2(m.loanCur), 'debt-red')}
             ${stat('Initial Total',    n2(m.loanInit))}
             ${stat('Total Offset',     n2(m.splits.reduce((s,sp)=>s+(+sp.offset||0),0)), 'pos')}
-            ${stat('Effective Loan',   n2(m.effectiveLoan))}
+            ${stat('Effective Loan',   n2(m.effectiveLoan), 'debt-brick')}
             ${stat('Wtd Avg Rate',     m.wtRate.toFixed(2)+'% p.a.')}
             ${stat('Monthly Interest', n2(m.monthlyInterest), 'neg')}
             ${stat('Offset Savings/mo',n2(m.interestSaved),   'pos')}
-            ${stat('Est. Repayment',   n2(m.repay))}
+            ${stat('Est. Repayment',   n2(m.repay), 'debt-coral')}
             ${stat('Principal Repaid', n2(m.principalRepaid),  'pos')}
           </div>
         </div>
