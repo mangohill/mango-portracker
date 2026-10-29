@@ -407,23 +407,24 @@ async function backfillPortfolioHistory(forceSince){
   try{
     const r = await fetch(`${workerURL}?priceHistory=1&since=${since}`);
     if(!r.ok) return;
-    workerV2 = +(r.headers.get('X-Worker-Version') || 0) >= 2; // fixed Worker (exchange-timezone dates, daily bars)
+    workerV2 = +(r.headers.get('X-Worker-Version') || 0) >= 3; // v2: exchange-timezone dates + daily bars; v3: one shared set of anchor dates for all symbols
     history = await r.json();
   }catch(e){ console.warn('backfillPortfolioHistory fetch failed:', e); return; }
 
-  // One-time clean-up after upgrading the Worker. Its older versions stored weekly points (dated the
+  // One-time clean-up after upgrading the Worker (v3 also moves pre-daily history onto shared anchor dates,
+  // so the per-symbol dates an earlier version stored must go). Its older versions stored weekly points (dated the
   // Sunday before the week, priced at the week's CLOSE) and month-end dated points (priced at a
   // later month's close). A backfill only overwrites days the Worker returns, so those wrong local
   // days would otherwise stay forever. Runs once, only on a manual (Settings) backfill against the
   // fixed Worker, and only drops days before the Worker's daily window that it no longer reports.
-  if(forceSince && workerV2 && localStorage.getItem('pt_hist_rebuilt_v2') !== '1'){
+  if(forceSince && workerV2 && localStorage.getItem('pt_hist_rebuilt_v3') !== '1'){
     const hDates = Object.keys(history);
     if(hDates.filter(d => d < WORKER_DAILY_SINCE).length >= 20){   // guard: only if the rebuild really came back
       let purged = 0;
       Object.keys(pfSnapshots).forEach(d => {
         if(d >= forceSince && d < WORKER_DAILY_SINCE && !(d in history)){ delete pfSnapshots[d]; purged++; }
       });
-      localStorage.setItem('pt_hist_rebuilt_v2', '1');
+      localStorage.setItem('pt_hist_rebuilt_v3', '1');
       if(purged) console.info('[history] removed', purged, 'stale pre-' + WORKER_DAILY_SINCE + ' days after Worker upgrade');
     }
   }
