@@ -777,7 +777,7 @@ input[type="color"]::-webkit-color-swatch{border:none;border-radius:3px;}
 }
 
 /* -- Debt Recycling: FY Performance tax breakdown ------------------------- */
-/* The split behind "Tax effect" (interest shield vs dividend tax) is not shown
+/* The split behind "Tax benefit" (interest shield vs dividend tax) is not shown
    by default. On a desktop the cell's title tooltip appears on hover; on a
    touch device tapping the cell focuses it and reveals the line. display:none
    rather than visibility so no blank strip is left in the row. */

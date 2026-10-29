@@ -2911,6 +2911,8 @@ function drPerfBodyHtml(data){
   const totalDivTax = rows.reduce((s,r)=>s+(+r.divTax||0),0);
   const totalFrank  = rows.reduce((s,r)=>s+(+r.frank||0),0);
   const totalTaxEffect = totalShield - totalDivTax;
+  const totalDivOp = totalDivTax >= 0 ? '−' : '+';
+  const totalDivAbs = Math.abs(totalDivTax);
   const best = rows.reduce((a,b)=>(+b.netAfterTax||0)>(+a.netAfterTax||0)?b:a, rows[0]);
   const worst = rows.reduce((a,b)=>(+b.netAfterTax||0)<(+a.netAfterTax||0)?b:a, rows[0]);
 
@@ -2924,7 +2926,7 @@ function drPerfBodyHtml(data){
   const td = (v,al='right',cls='',sub='',style='')=>`<td class="${cls}" style="text-align:${al};padding:5px 7px;white-space:nowrap;${style}">${v}${sub?`<div style="font-size:9px;color:var(--text3);margin-top:1px">${sub}</div>`:''}</td>`;
   // Signed currency for the tax breakdown: n2 puts the minus inside the dollar
   // sign ("$-1,167.08"), which reads badly on a 9px sub-line.
-  const signed = v => (v<0?'−':'') + n2(Math.abs(+v||0));
+
 
   const body = rows.map((r,i)=>{
     const bg = r.isCur ? 'background:rgba(96,165,250,.07)'
@@ -2934,13 +2936,16 @@ function drPerfBodyHtml(data){
     const fySub = r.partial
       ? (drSpanLabel(r)+(r.isCur?' YTD':''))
       : (r.isCur ? Math.round((r.progress||0)*100)+'% YTD' : '');
-    // One tax line: the interest deduction less the tax on the dividends. The
-    // breakdown underneath stays invisible until the cell is hovered or
-    // focused (see .dr-tax-sub in app.css), so the table reads cleanly on a
-    // phone and the figures are still there when you ask for them.
+    // One tax line: the interest deduction less the tax on the dividends — the
+    // "Tax benefit". The breakdown underneath stays hidden until the cell is
+    // hovered or tapped (see .dr-tax-sub in app.css), so the table reads
+    // cleanly on a phone and the figures are still there when you ask.
     const taxEffect = (+r.taxShield||0) - (+r.divTax||0);
-    const taxSub = 'shield ' + n2(r.taxShield||0)
-      + (Math.abs(+r.divTax||0) > 0.005 ? ' · div ' + signed(-r.divTax) : '');
+    const divTaxVal = +r.divTax||0;
+    const divAbs = Math.abs(divTaxVal);
+    const divOp = divTaxVal >= 0 ? '−' : '+';
+    const taxSub = 'Loan Interest ' + n2(r.taxShield||0)
+      + (divAbs > 0.005 ? ' ' + divOp + ' Dividends ' + n2(divAbs) : '');
     const taxCell = `<td class="dr-tax-cell" tabindex="0" onclick="this.focus()" title="${taxSub}" style="text-align:right;padding:5px 7px;white-space:nowrap;${taxEffect<0?'color:var(--red)':'color:var(--gold)'}">${n2(taxEffect)}<div class="dr-tax-sub" style="font-size:9px;color:var(--text3);margin-top:1px">${taxSub}</div></td>`;
     return `<tr style="${bg}">
       ${td('FY'+r.fy+partMark,'left','',fySub,'white-space:nowrap')}
@@ -2958,7 +2963,7 @@ function drPerfBodyHtml(data){
   const table = `<table style="width:100%;min-width:760px;border-collapse:collapse;font-family:var(--mono);font-size:11px">
     <thead><tr style="border-bottom:1px solid var(--border)">
       ${th('FY','left')}${th('Avg DR debt','right','Average debt for the year = (opening + closing balance) ÷ 2. The TOTAL row shows the day-weighted average across the years, not a sum.')}${th('Interest')}${th('Income (Cash)','right','Dividends actually paid into the broker cash account — the amount the DRP reinvests. Franking credits are a tax offset, not cash, so they are not included.')}${th('Capital Gain')}
-      ${th('Net pre-tax')}${th('Tax effect','right','Interest × your marginal rate, less the tax on the dividends. The dividend tax is (cash dividend + franking credit) × marginal rate − franking credit: negative above a 30% rate, zero at 30%, and a refund below it. The sub-line shows the two halves.')}${th('Net after tax','right','Net pre-tax + tax effect. CGT is not deducted: the capital gain shown is unrealised, so no tax falls due until you sell.')}${th('Return %','right','Net after tax as a percentage of average DR debt. Interest is already deducted, so this is the margin earned above the offset breakeven — anything above zero means recycling beat leaving the cash in the offset. Measured before CGT.')}
+      ${th('Net pre-tax')}${th('Tax benefit','right','Interest × your marginal rate, less the tax on the dividends — what the structure saves you in tax. The dividend tax is (cash dividend + franking credit) × marginal rate − franking credit: it costs money above a 30% rate, is zero at 30%, and comes back as a refund below it. Turns negative only if dividend tax exceeds the interest deduction. The breakdown shows Loan Interest $… −/+ Dividends $…, with − when the dividend tax is a cost and + when it is a refund. Hover or tap the figure to see the two halves.')}${th('Net after tax','right','Net pre-tax + tax benefit. CGT is not deducted: the capital gain shown is unrealised, so no tax falls due until you sell.')}${th('Return %','right','Net after tax as a percentage of average DR debt. Interest is already deducted, so this is the margin earned above the offset breakeven — anything above zero means recycling beat leaving the cash in the offset. Measured before CGT.')}
     </tr></thead>
     <tbody>${body}</tbody>
     <tfoot><tr style="border-top:2px solid var(--border2);font-weight:700">
@@ -2968,7 +2973,7 @@ function drPerfBodyHtml(data){
       <td style="text-align:right;padding:6px 7px" class="pos">${n2(totalIncome)}</td>
       <td style="text-align:right;padding:6px 7px" class="${clr(totalGrowth)}">${n2(totalGrowth)}</td>
       <td style="text-align:right;padding:6px 7px" class="${clr(totalPre)}">${n2(totalPre)}</td>
-      <td class="dr-tax-cell" tabindex="0" onclick="this.focus()" title="shield ${n2(totalShield)} · div ${signed(-totalDivTax)}" style="text-align:right;padding:6px 7px;${totalTaxEffect<0?'color:var(--red)':'color:var(--gold)'}">${n2(totalTaxEffect)}<div class="dr-tax-sub" style="font-size:9px;color:var(--text3);margin-top:1px">shield ${n2(totalShield)} · div ${signed(-totalDivTax)}</div></td>
+      <td class="dr-tax-cell" tabindex="0" onclick="this.focus()" title="Loan Interest ${n2(totalShield)} ${totalDivOp} Dividends ${n2(totalDivAbs)}" style="text-align:right;padding:6px 7px;${totalTaxEffect<0?'color:var(--red)':'color:var(--gold)'}">${n2(totalTaxEffect)}<div class="dr-tax-sub" style="font-size:9px;color:var(--text3);margin-top:1px">Loan Interest ${n2(totalShield)} ${totalDivOp} Dividends ${n2(totalDivAbs)}</div></td>
       <td style="text-align:right;padding:6px 7px" class="${clr(totalNet)}">${n2(totalNet)}</td>
       <td style="text-align:right;padding:6px 7px" class="${clr(avgRet)}">${avgRet==null?'—':avgRet.toFixed(2)+'%'}</td>
     </tr></tfoot>
@@ -3023,16 +3028,18 @@ function drPerfBodyHtml(data){
       in their own column instead. Capital Gain = the movement in unrealised gain over the year — the linked
       holdings' value less their CGT cost base, which is the same basis your broker reports. (Selling takes
       the realised gain out of that pool; it appears in the Tax tab instead.) Net pre-tax = income + capital gain
-      − interest. Net after tax = net pre-tax + tax effect, where the tax effect is the interest deduction
+      − interest. Net after tax = net pre-tax + tax benefit, where the tax benefit is the interest deduction
       (interest × marginal rate) less the tax on the dividends.<br>
       Dividend tax = (cash dividend + franking credit) × marginal rate − franking credit. The dividend and its
       credit are taxed together and the credit then offsets the tax, so at a 30% rate a fully franked dividend
       is exactly tax-neutral, above 30% it costs money and below 30% the excess credit comes back as a refund.
       That is also why franking credits are not added to Income (Cash): they reduce the tax on the dividend
-      rather than arriving as cash. Hover (or tap, on a touch device) the tax effect cell to see the two halves,
-      so you can tell whether the debt's deduction or the dividend's tax is the larger. Capital gains are shown
-      before CGT — the gain here is unrealised, so no tax falls due until you sell, and the sale's CGT belongs
-      to the Tax tab.<br>
+      rather than arriving as cash. Hover (or tap, on a touch device) the Tax benefit figure to see the two
+      halves, so you can tell whether the interest deduction or the dividend tax is the larger.<br>
+      The breakdown line shows: Loan Interest $… [−/+] Dividends $… where the operator is − (minus)
+      when the dividend tax is a cost (above a 30% marginal rate) and + (plus) when the dividend tax is a
+      refund (below 30%). Capital gains are shown before CGT — the gain here is unrealised, so no tax falls
+      due until you sell, and the sale's CGT belongs to the Tax tab.<br>
       Return % = net after tax ÷ average DR debt. Because interest is already deducted, that figure is the
       margin earned above the offset breakeven — above zero means recycling beat the offset.<br>
       Income + Capital Gain therefore equals the <i>Total Gain (Capital + Dividends)</i> figure in the
