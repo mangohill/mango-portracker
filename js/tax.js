@@ -734,6 +734,19 @@ function renderTax(){
     const days = Math.round((b - a)/86400000) + 1;
     return Math.max(0, Math.min(1, days / fyDays));
   }
+  // Fraction of the viewed FY a loan split was actually open, from its Start
+  // Date through its optional Closed date. Used so an investment split that
+  // only began in March deducts 4 months of interest, not 12.
+  function splitFraction(sp){
+    const from = sp && sp.startDate ? new Date(String(sp.startDate).slice(0,10)) : null;
+    const to   = sp && sp.endDate   ? new Date(String(sp.endDate).slice(0,10))   : null;
+    if(!from && !to) return 1;
+    const fyDays = Math.round((fyEnd - fyStart)/86400000) + 1;
+    const a = (from && from > fyStart) ? from : fyStart;
+    const b = (to && to < fyEnd) ? to : fyEnd;
+    const days = Math.round((b - a)/86400000) + 1;
+    return Math.max(0, Math.min(1, days / fyDays));
+  }
   function propPnL(owner){
     let netRent=0, netExpenses=0, investInterest=0;
     properties.forEach(p=>{
@@ -752,11 +765,17 @@ function renderTax(){
       // Investment loan interest (e.g. redraw used to buy shares) is deductible
       // against investment income regardless of property type.
       let rentalInterest = 0, invInterest = 0;
-      (normaliseSplits(p)).forEach(sp => {
+      normaliseSplits(p).forEach(sp => {
         const purpose = sp.purpose || 'rental';
         const bal = +sp.balance||0, off = +sp.offset||0, rate = +sp.rate||0;
-        const annInt = Math.max(0, bal - off) * (rate/100);
-        if(purpose === 'investment') invInterest  += annInt;
+        let annInt = Math.max(0, bal - off) * (rate/100);
+        if(purpose === 'investment'){
+          // Interest is only deductible from when the recycled money was
+          // actually borrowed to produce income, so a split opened in March
+          // must not deduct a full year of interest.
+          annInt *= splitFraction(sp);
+          invInterest += annInt;
+        }
         else if(purpose === 'rental') rentalInterest += annInt;
         // personal: not deductible — skip
       });

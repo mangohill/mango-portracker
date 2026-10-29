@@ -134,14 +134,22 @@ function shareForOwner(ownerKey, person){
 // Walks every trade + every AMIT adjustment in chronological order,
 // maintaining open parcels per symbol (with continuity through corporate
 // actions), consuming them FIFO on each sell.
-function buildDisposals(){
+function buildDisposals(asOf){
   const parcels = {};    // symbol -> [{units, cost, date}]
   const disposals = [];  // [{symbol, saleDate, unitsSold, proceeds, costConsumed, gain, lots, shortfallUnits}]
   const amitLog = [];    // [{symbol, date, amount, capped}]
 
-  const events = [];
+  let events = [];
   for(const t of trades) events.push({ ...t, _kind:'trade', _sortDate:t.date });
   for(const a of amitAdjustments) events.push({ _kind:'amit', symbol:a.symbol, date:a.date, amount:+a.amount, _sortDate:a.date });
+
+  // Optional cut-off: replay only what had happened by `asOf`, so the open
+  // parcels describe the holdings and cost base on that date. Used to value a
+  // past 30 June without a second parcel engine.
+  if(asOf){
+    const cut = String(asOf).slice(0,10);
+    events = events.filter(e=>String(e._sortDate||'').slice(0,10) <= cut);
+  }
 
   events.sort((a,b)=>{
     const d = a._sortDate.localeCompare(b._sortDate);

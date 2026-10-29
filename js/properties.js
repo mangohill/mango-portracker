@@ -1363,16 +1363,22 @@ function renderSplitRows(splits){
     splits=[{id:'sp_'+uid(),label:'Split 1',initial:0,balance:0,rate:0,ltype:'pi',term:0,repay:0,offset:0}];
   }
   wrap.innerHTML = splits.map((sp,i)=>`
-    <div class="split-row" data-split-id="${sp.id}" style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px 12px">
+    <div class="split-row" data-split-id="${sp.id}" data-balances='${JSON.stringify(sp.balances||{})}' style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px 12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <input class="fi sp-label" type="text" value="${sp.label||('Split '+(i+1))}" placeholder="Label" style="width:140px;padding:3px 7px;font-size:12px;font-weight:600">
         <button type="button" class="btn btn-r" style="padding:2px 8px;font-size:11px" onclick="removeLoanSplit(this)">✕ Remove</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px">
-        <div><label class="fl" style="font-size:10px">Initial Amount</label>
+        <div><label class="fl" style="font-size:10px">Original Amount</label>
           <input class="fi sp-initial" type="number" value="${sp.initial||''}" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
         <div><label class="fl" style="font-size:10px">Current Balance</label>
           <input class="fi sp-balance" type="number" value="${sp.balance||''}" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px" title="When this split began. On an investment split use the date debt recycling actually started — it sets the first FY shown and pro-rates that year's interest.">Start Date</label>
+          <input class="fi sp-start" type="date" value="${sp.startDate?String(sp.startDate).slice(0,10):''}" style="padding:3px 7px" onchange="calcPropPreview();renderDRHistoryRows()"></div>
+        <div><label class="fl" style="font-size:10px" title="Balance on the Start Date. Blank = use current balance.">Opening Balance</label>
+          <input class="fi sp-open" type="number" value="${sp.openBalance!=null?sp.openBalance:''}" placeholder="Auto" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px" title="Optional. Splits paid off or refinanced stop accruing interest after this date.">Closed <span style="font-size:9px;color:var(--text3)">(optional)</span></label>
+          <input class="fi sp-end" type="date" value="${sp.endDate?String(sp.endDate).slice(0,10):''}" style="padding:3px 7px" onchange="calcPropPreview();renderDRHistoryRows()"></div>
         <div><label class="fl" style="font-size:10px">Rate (% p.a.)</label>
           <input class="fi sp-rate" type="number" value="${sp.rate||''}" placeholder="e.g. 5.89" step="0.01" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
         <div><label class="fl" style="font-size:10px">Loan Type</label>
@@ -1387,7 +1393,7 @@ function renderSplitRows(splits){
         <div><label class="fl" style="font-size:10px">Offset Balance</label>
           <input class="fi sp-offset" type="number" value="${sp.offset||''}" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
         <div><label class="fl" style="font-size:10px">Loan Purpose <span style="font-size:9px;color:var(--text3)">(tax)</span></label>
-          <select class="fi sp-purpose" style="padding:3px 7px" oninput="calcPropPreview()">
+          <select class="fi sp-purpose" style="padding:3px 7px" onchange="calcPropPreview();renderDRHistoryRows()">
             <option value="rental"     ${(!sp.purpose||sp.purpose==='rental')    ?'selected':''}>Rental</option>
             <option value="investment" ${sp.purpose==='investment'?'selected':''}>Investment</option>
             <option value="personal"   ${sp.purpose==='personal'  ?'selected':''}>Personal</option>
@@ -1402,16 +1408,22 @@ function addLoanSplit(){
   const spId = 'sp_'+uid();
   const div = document.createElement('div');
   div.innerHTML = `
-    <div class="split-row" data-split-id="${spId}" style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px 12px">
+    <div class="split-row" data-split-id="${spId}" data-balances="{}" style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:10px 12px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <input class="fi sp-label" type="text" value="Split ${count+1}" placeholder="Label" style="width:140px;padding:3px 7px;font-size:12px;font-weight:600">
         <button type="button" class="btn btn-r" style="padding:2px 8px;font-size:11px" onclick="removeLoanSplit(this)">✕ Remove</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px">
-        <div><label class="fl" style="font-size:10px">Initial Amount</label>
+        <div><label class="fl" style="font-size:10px">Original Amount</label>
           <input class="fi sp-initial" type="number" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
         <div><label class="fl" style="font-size:10px">Current Balance</label>
           <input class="fi sp-balance" type="number" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px" title="When this split began. On an investment split use the date debt recycling actually started — it sets the first FY shown and pro-rates that year's interest.">Start Date</label>
+          <input class="fi sp-start" type="date" value="${localDateStr()}" style="padding:3px 7px" onchange="calcPropPreview();renderDRHistoryRows()"></div>
+        <div><label class="fl" style="font-size:10px" title="Balance on the Start Date. Blank = use current balance.">Opening Balance</label>
+          <input class="fi sp-open" type="number" placeholder="Auto" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
+        <div><label class="fl" style="font-size:10px" title="Optional. Splits paid off or refinanced stop accruing interest after this date.">Closed <span style="font-size:9px;color:var(--text3)">(optional)</span></label>
+          <input class="fi sp-end" type="date" style="padding:3px 7px" onchange="calcPropPreview();renderDRHistoryRows()"></div>
         <div><label class="fl" style="font-size:10px">Rate (% p.a.)</label>
           <input class="fi sp-rate" type="number" placeholder="e.g. 5.89" step="0.01" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
         <div><label class="fl" style="font-size:10px">Loan Type</label>
@@ -1426,7 +1438,7 @@ function addLoanSplit(){
         <div><label class="fl" style="font-size:10px">Offset Balance</label>
           <input class="fi sp-offset" type="number" placeholder="0" step="any" min="0" style="padding:3px 7px" oninput="calcPropPreview()"></div>
         <div><label class="fl" style="font-size:10px">Loan Purpose <span style="font-size:9px;color:var(--text3)">(tax)</span></label>
-          <select class="fi sp-purpose" style="padding:3px 7px" oninput="calcPropPreview()">
+          <select class="fi sp-purpose" style="padding:3px 7px" onchange="calcPropPreview();renderDRHistoryRows()">
             <option value="rental">Rental</option>
             <option value="investment">Investment</option>
             <option value="personal">Personal</option>
@@ -1586,6 +1598,608 @@ function calcDRCapitalGains(p){
   };
 }
 
+// ── DEBT RECYCLING — per-FY performance ────────────────────────────────
+// The original DR panel is a lifetime snapshot: current investment-split
+// balance, current rate × 12, and lifetime dividends/gains. That can't answer
+// "which FY actually worked?" because it has no per-FY cost or capital-growth
+// series. These helpers build one row per FY from:
+//   • dividends + franking (exact, from `dividends`)
+//   • realised gains (exact, from buildDisposals)
+//   • capital growth (mark-to-market, when price history exists)
+//   • DR debt + interest (manual override, auto snapshot, or estimate)
+//   • the marginal rate (Tax tab, manual override, or a conservative fallback)
+function drSymbolsSet(p){
+  return new Set((p && p.drSymbols ? p.drSymbols : []).map(s=>String(s).toUpperCase()));
+}
+
+// Value of the linked holdings on a date. For "today" use the live holdings
+// and live prices; for a past 30 June use the same mark-to-market path as the
+// EOFY pack (nearest priced snapshot on/before the date).
+function drValueAt(dateStr, syms){
+  if(!syms || !syms.size) return { value:0, complete:true, count:0, priced:0 };
+  if(dateStr === 'today' || dateStr === localDateStr()){
+    const hs = (typeof calcH==='function' ? calcH() : [])
+      .filter(h=>syms.has(String(h.symbol||'').toUpperCase()) && Math.abs(+h.units)>1e-9);
+    if(!hs.length) return { value:0, complete:true, count:0, priced:0 };
+    let value=0, priced=0;
+    hs.forEach(h=>{
+      let key = h.symbol;
+      try{ if(typeof priceSymbol==='function') key = priceSymbol(h.symbol); }catch(e){}
+      const px = (typeof prices!=='undefined' && prices) ? (prices[key] ?? prices[h.symbol]) : null;
+      if(px!=null && isFinite(px)){ value += (+h.units||0)*(+px); priced++; }
+    });
+    // No quote at all for a held symbol: don't report a valuation of $0,
+    // that would turn a year of gains into a fake 100% loss.
+    if(priced===0) return { value:null, complete:false, count:hs.length, priced:0 };
+    return { value, complete: priced===hs.length, count:hs.length, priced };
+  }
+  if(typeof findPricedSnapshotOnOrBefore!=='function' || typeof markToMarketAt!=='function'){
+    return { value:null, complete:false, count:0, priced:0 };
+  }
+  const pricedDate = findPricedSnapshotOnOrBefore(dateStr);
+  if(!pricedDate) return { value:null, complete:false, count:0, priced:0 };
+  const mtm = markToMarketAt(pricedDate, h=>syms.has(String(h.symbol||'').toUpperCase()));
+  const value = (mtm.value==null && mtm.count===0) ? 0 : mtm.value;
+  return { value, complete: !!(mtm.complete || mtm.count===0), count:mtm.count, priced:mtm.priced, date:pricedDate };
+}
+
+// Tax cost base of the linked units on a date, from the same FIFO/AMIT parcel
+// engine the CGT tab and the Debt Recycling panel use. The FY figures need it
+// because "capital gain" as a broker reports it is the movement in unrealised
+// gain (value less cost base), and AMIT adjustments move the cost base without
+// moving the value — so value-change-less-cash would disagree with the panel.
+function drCostBaseAt(dateStr, syms){
+  if(!syms || !syms.size || typeof buildDisposals!=='function') return null;
+  let res;
+  try{ res = buildDisposals(dateStr); }catch(e){ return null; }
+  const parcels = (res && res.openParcels) || {};
+  let cost = 0;
+  Object.keys(parcels).forEach(sym=>{
+    if(!syms.has(String(sym).toUpperCase())) return;
+    (parcels[sym]||[]).forEach(pc=>{
+      if((+pc.units||0) > 1e-6) cost += +pc.cost||0;
+    });
+  });
+  return cost;
+}
+
+// Today's unrealised gain on a symbol set, computed exactly the way the Debt
+// Recycling panel computes it (open parcels × live price, less their cost
+// base), so the current FY lands on the panel's figure rather than a
+// near-identical re-derivation.
+function drUnrealisedNow(syms){
+  if(!syms || !syms.size || typeof buildDisposals!=='function') return null;
+  let res;
+  try{ res = buildDisposals(); }catch(e){ return null; }
+  const parcels = (res && res.openParcels) || {};
+  let total = 0, any = false;
+  Object.keys(parcels).forEach(sym=>{
+    if(!syms.has(String(sym).toUpperCase())) return;
+    const list = (parcels[sym]||[]).filter(pc=>(+pc.units||0) > 1e-6);
+    if(!list.length) return;
+    const units = list.reduce((s,pc)=>s+(+pc.units||0),0);
+    const cost  = list.reduce((s,pc)=>s+(+pc.cost||0),0);
+    let key = sym;
+    try{ if(typeof priceSymbol==='function') key = priceSymbol(sym); }catch(e){}
+    const px = (typeof prices!=='undefined' && prices) ? (prices[key] ?? prices[sym]) : null;
+    if(px==null || !isFinite(px)) return;
+    any = true;
+    total += units*(+px) - cost;
+  });
+  return any ? total : null;
+}
+
+// Net cash put into the linked holdings during the period. Buys and DRP adds
+// count as new money; sells return money, so they reduce the contribution.
+// Excluding DRP would double-count the reinvested dividend (it is already in
+// income), hence DRP is included here just like a cash buy.
+function drNetContributions(syms, fromDate, toDate){
+  let total = 0;
+  (typeof trades!=='undefined' ? trades : []).forEach(t=>{
+    const sym = String(t.symbol||'').toUpperCase();
+    if(!syms.has(sym)) return;
+    const d = String(t.date||'').slice(0,10);
+    if(!d || d < fromDate || d > toDate) return;
+    const units=+t.units||0, price=+t.price||0, fees=+t.fees||0;
+    if(t.type==='buy' || t.type==='drp') total += units*price + fees;
+    else if(t.type==='sell') total -= units*price - fees;
+  });
+  return total;
+}
+
+function drDividendMap(p, fromDate, toDate){
+  const syms = drSymbolsSet(p);
+  const out = {};
+  (typeof dividends!=='undefined' ? dividends : []).forEach(d=>{
+    if(!syms.has(String(d.symbol||'').toUpperCase()) || !d.date) return;
+    const dstr = String(d.date).slice(0,10);
+    if(fromDate && dstr < fromDate) return;
+    if(toDate && dstr > toDate) return;
+    const fy = dateToFY(dstr);
+    if(!out[fy]) out[fy] = { cash:0, frank:0 };
+    const amt = +d.amount||0;
+    out[fy].cash += amt;
+    out[fy].frank += (typeof frankingCredit==='function' ? frankingCredit(amt, d.frankingPct||0) : 0);
+  });
+  return out;
+}
+
+function drRealisedMap(p, disposalsArg, fromDate, toDate){
+  const syms = drSymbolsSet(p);
+  const out = {};
+  let disposals = disposalsArg;
+  if(!disposals){
+    try{ disposals = (typeof buildDisposals==='function' ? (buildDisposals().disposals||[]) : []); }
+    catch(e){ disposals = []; }
+  }
+  (disposals||[]).forEach(d=>{
+    if(!syms.has(String(d.symbol||'').toUpperCase()) || !d.saleDate) return;
+    const dstr = String(d.saleDate).slice(0,10);
+    if(fromDate && dstr < fromDate) return;
+    if(toDate && dstr > toDate) return;
+    const fy = dateToFY(dstr);
+    out[fy] = (out[fy]||0) + (+d.gain||0);
+  });
+  return out;
+}
+
+// Marginal rate on an extra dollar of deduction. Uses salary minus sacrifice
+// plus attributed dividends/franking for that FY; falls back to 32% only when
+// there is no income recorded at all. Joint ownership blends both rates.
+function drMarginalRate(fy, owner){
+  let persons = owner==='joint'
+    ? (typeof JOINT_PERSONS!=='undefined' ? JOINT_PERSONS : ['lumia','chilli'])
+    : [owner||'lumia'];
+  const rec = (typeof taxData!=='undefined' && taxData && taxData['FY'+fy]) ? taxData['FY'+fy] : {};
+  const bases = [], rates = [];
+  persons.forEach(person=>{
+    const pRec = rec[person] || {};
+    let base = Math.max(0, (+pRec.salary||0) - (+pRec.sacrifice||0));
+    (typeof dividends!=='undefined' ? dividends : []).forEach(d=>{
+      if(!d.date || dateToFY(String(d.date).slice(0,10))!==fy) return;
+      let own = 'lumia';
+      try{ if(typeof getSymbolOwner==='function') own = getSymbolOwner(d.symbol); }catch(e){}
+      const share = own===person ? 1 : (own==='joint' && persons.includes(person) ? 0.5 : 0);
+      if(!share) return;
+      const amt = (+d.amount||0)*share;
+      base += amt;
+      if(typeof frankingCredit==='function') base += frankingCredit(amt, d.frankingPct||0);
+    });
+    bases.push(base);
+    if(base <= 0 || typeof calcTax!=='function'){ rates.push(0); return; }
+    const before = calcTax(base, fy);
+    const after  = calcTax(Math.max(0, base - 1000), fy);
+    rates.push((before - after)/1000);
+  });
+  if(bases.every(b=>b<=0)) return 0.32;
+  return rates.reduce((s,r)=>s+r,0) / Math.max(1, rates.length);
+}
+
+function drFyProgress(fy){
+  const start = new Date((fy-1)+'-07-01T00:00:00');
+  const end   = new Date(fy+'-06-30T23:59:59');
+  const now   = new Date();
+  if(isNaN(start) || isNaN(end)) return 1;
+  if(now <= start) return 0;
+  if(now >= end) return 1;
+  return (now - start)/(end - start);
+}
+
+function drInvSplits(p){
+  return normaliseSplits(p||{}).filter(sp=>(sp.purpose||'rental')==='investment');
+}
+
+function drSplitStart(sp){
+  return sp && sp.startDate ? String(sp.startDate).slice(0,10) : '';
+}
+
+// Financial years covered by the strategy. The investment split's Start Date
+// is the only source of truth: without it there is no honest way to claim a
+// prior FY, so the report starts at the current FY (or the earliest manually
+// entered DR History year) instead of inventing history from loan balances.
+function drFyRange(p, curFY){
+  let startFY = null;
+  drInvSplits(p).forEach(sp=>{
+    const ss = drSplitStart(sp);
+    if(!ss) return;
+    const fy = dateToFY(ss);
+    if(isFinite(fy)) startFY = startFY==null ? fy : Math.min(startFY, fy);
+  });
+  if(startFY==null && p.drHistory){
+    const ks = Object.keys(p.drHistory).map(Number).filter(Number.isFinite);
+    if(ks.length) startFY = Math.min(...ks);
+  }
+  if(startFY==null) startFY = curFY;
+  startFY = Math.min(startFY, curFY);
+  const from = Math.max(startFY, curFY - 29);
+  const out = [];
+  for(let y=from; y<=curFY; y++) out.push(y);
+  return out;
+}
+
+function drDayCount(a, b){
+  if(!a || !b) return 0;
+  const ms = new Date(b+'T00:00:00') - new Date(a+'T00:00:00');
+  return isFinite(ms) ? Math.round(ms/86400000) + 1 : 0;
+}
+
+// Active part of a split within one FY: later of (FY start, split start,
+// purchase) → earlier of (FY end, split close, today). A split opened in
+// March 2026 therefore only ever accrues interest from March 2026.
+function drSplitWindow(sp, fy, p, curFY, todayStr){
+  const fyStart = (fy-1)+'-07-01', fyEnd = fy+'-06-30';
+  let from = fyStart, to = fyEnd;
+  const ss = drSplitStart(sp);
+  if(ss && ss > from) from = ss;
+  const pd = p && p.purchaseDate ? String(p.purchaseDate).slice(0,10) : '';
+  if(pd && pd > from) from = pd;
+  const se = sp && sp.endDate ? String(sp.endDate).slice(0,10) : '';
+  if(se && se < to) to = se;
+  if(fy === curFY && todayStr < to) to = todayStr;
+  if(to < from) return null;
+  const days = drDayCount(from, to);
+  const fyDays = drDayCount(fyStart, fyEnd);
+  return { from, to, days, frac: fyDays>0 ? Math.min(1, days/fyDays) : 1,
+           startedThisFy: !!(ss && ss >= fyStart) };
+}
+
+// Opening / closing net balances for a split in a FY. Opening comes from the
+// split's Opening Balance (first year) or the previous 30 June snapshot;
+// closing comes from this 30 June snapshot, today's balance in the current FY,
+// or the opening balance for a past year with no snapshot (never today's
+// already-paid-down balance, which would understate old interest).
+function drSplitBalances(sp, fy, win, curFY){
+  const snaps = sp.balances || {};
+  const snap = snaps[fy] || {}, prev = snaps[fy-1] || {};
+  const curBal = +sp.balance||0;
+  const openFallback = (sp.openBalance!=null && isFinite(+sp.openBalance)) ? +sp.openBalance : curBal;
+  const openBal = win.startedThisFy ? openFallback : (prev.balance!=null ? +prev.balance : openFallback);
+  const openOff = win.startedThisFy ? (+sp.offset||0) : (prev.offset!=null ? +prev.offset : (+sp.offset||0));
+  const closeBal = snap.balance!=null ? +snap.balance : (fy===curFY ? curBal : openBal);
+  const closeOff = snap.offset!=null ? +snap.offset : (fy===curFY ? (+sp.offset||0) : openOff);
+  return {
+    open:  Math.max(0, openBal),
+    close: Math.max(0, closeBal),
+    openNet:  Math.max(0, openBal  - openOff),
+    closeNet: Math.max(0, closeBal - closeOff)
+  };
+}
+
+function buildDRFYData(p, opts){
+  opts = opts || {};
+  const m = propMetrics(p);
+  const curFY = dateToFY(localDateStr());
+  const today = localDateStr();
+  const syms = drSymbolsSet(p);
+  const invSplits = drInvSplits(p);
+  let disposals = opts.disposals;
+  if(!disposals){
+    try{ disposals = (typeof buildDisposals==='function' ? (buildDisposals().disposals||[]) : []); }
+    catch(e){ disposals = []; }
+  }
+  let fys = drFyRange(p, curFY);
+  if(opts.onlyFY) fys = [opts.onlyFY];
+
+  const includeUnreal = opts.includeUnrealised != null
+    ? !!opts.includeUnrealised
+    : (localStorage.getItem('pt_dr_show_unreal') !== '0');
+  const owner = p.owner || 'lumia';
+  const missingDates = invSplits.filter(sp=>!drSplitStart(sp)).length;
+
+  const rows = [];
+  fys.forEach(fy=>{
+    const hist = (p.drHistory && (p.drHistory[fy] || p.drHistory[String(fy)])) || {};
+    const isCur = fy === curFY;
+    const balManual = hist.balance!=null && isFinite(+hist.balance);
+    const intManual = hist.interest!=null && isFinite(+hist.interest);
+
+    let sumAvg = 0, sumInterest = 0, weightRate = 0, weightBal = 0;
+    let frac = 0, activeSplits = 0, windowFrom = '', windowTo = '';
+    invSplits.forEach(sp=>{
+      const win = drSplitWindow(sp, fy, p, curFY, today);
+      if(!win) return;
+      activeSplits++;
+      frac = Math.max(frac, win.frac);
+      if(!windowFrom || win.from < windowFrom) windowFrom = win.from;
+      if(!windowTo   || win.to   > windowTo)   windowTo   = win.to;
+      const b = drSplitBalances(sp, fy, win, curFY);
+      const avg = (b.openNet + b.closeNet) / 2;
+      const rate = +sp.rate || 0;
+      sumAvg += avg;
+      sumInterest += avg * (rate/100) * (win.days/365);
+      weightRate += avg * rate;
+      weightBal += avg;
+    });
+    // A year where the split didn't exist yet (or was already closed) has no
+    // performance to report — don't emit a row just to show zeroes.
+    if(!activeSplits && !balManual && !intManual) return;
+    // A manual-only year (no investment split on record) still counts as a
+    // full year — otherwise it would be labelled a 1-month part-year.
+    if(!activeSplits) frac = 1;
+
+    const avgDebt = balManual ? Math.max(0, +hist.balance) : sumAvg;
+    const interest = intManual ? Math.max(0, +hist.interest) : sumInterest;
+    const partial = frac < 0.999;
+    const daysActive = (windowFrom && windowTo) ? drDayCount(windowFrom, windowTo) : 0;
+    const months = daysActive > 0 ? Math.max(1, Math.round(daysActive/30.44)) : 0;
+    const progress = isCur ? drFyProgress(fy) : 1;
+
+    // First FY of recycling (March–June) must only count dividends, sales and
+    // growth from the split's start date, not the whole financial year.
+    const fyWindowStart = (fy-1)+'-07-01';
+    const rowStart = (windowFrom && windowFrom > fyWindowStart && windowFrom <= fy+'-06-30')
+      ? windowFrom : fyWindowStart;
+    const rowEnd = isCur ? today : fy+'-06-30';
+    // A year opens on the previous year's close, not the next day. Asking for
+    // 1 July let the snapshot lookup resolve to a different price date, so
+    // FY2026's closing value and FY2027's opening value were the same instant
+    // measured two ways — and the gap between them was counted in neither
+    // year, inflating the total above the panel's figure.
+    const valStart = (rowStart === fyWindowStart) ? ((fy-1)+'-06-30') : rowStart;
+
+    const div = drDividendMap(p, rowStart, rowEnd)[fy] || { cash:0, frank:0 };
+    const realised = +drRealisedMap(p, disposals, rowStart, rowEnd)[fy] || 0;
+
+    let growth = realised;
+    let unrealised = 0;
+    let growthComplete = true;
+    if(includeUnreal && syms.size){
+      const sv = drValueAt(valStart, syms);
+      const ev = drValueAt(rowEnd, syms);
+      // Cost base has to be read on the same date the valuation used, not the
+      // row boundary: the price snapshot can precede a purchase, and pairing a
+      // stale valuation with a fresh cost base would invent a loss.
+      const cb0 = drCostBaseAt(sv.date || valStart, syms);
+      const cb1 = drCostBaseAt(ev.date || rowEnd, syms);
+      // Current FY must land exactly on the panel's figure, so reuse the
+      // panel's own computation for today's endpoint.
+      const u1 = isCur ? drUnrealisedNow(syms)
+        : (ev.value==null || cb1==null ? null : ev.value - cb1);
+      const u0 = (sv.value==null || cb0==null) ? null : sv.value - cb0;
+      // Today's endpoint comes from live prices rather than a snapshot, so its
+      // own completeness flag is already accounted for inside drUnrealisedNow.
+      const endOk = isCur ? u1!=null : (u1!=null && ev.complete);
+      if(u0==null || !endOk || !sv.complete){
+        growth = realised;
+        unrealised = 0;
+        growthComplete = false;
+      } else {
+        // Broker basis: unrealised gain (value − CGT cost base) at each end of
+        // the year; the year's capital gain is the movement between them. That
+        // is what the DR panel and the broker show, so the totals agree.
+        unrealised = u1 - u0;
+        growth = unrealised;
+      }
+    } else if(!syms.size){
+      growth = 0;
+      unrealised = 0;
+    }
+
+    let taxRate;
+    if(hist.taxRate!=null && isFinite(+hist.taxRate)) taxRate = Math.max(0, +hist.taxRate)/100;
+    else taxRate = drMarginalRate(fy, owner);
+
+    const benchRate = weightBal > 0 ? (weightRate/weightBal)/100 : (m.wtRate/100);
+    // Income is the cash the broker actually credits — the amount the DRP
+    // reinvests into new units. Franking credits are a tax offset, not cash,
+    // so they stay in the Dividends/Tax tabs rather than inflating this column.
+    const incomeCash = div.cash;
+    // Dividend tax. The cash dividend and its franking credit are taxed
+    // together, then the credit is applied as an offset:
+    //   (D + F) × rate − F
+    // Above a 30% rate that is a cost; at 30% it is exactly neutral; below 30%
+    // it goes negative, i.e. the excess credit comes back as a refund. One
+    // expression, no special case for the rate falling. Income (Cash) and
+    // Capital Gain stay pre-tax so the row still ties to the DR panel.
+    const divTax = (incomeCash + (div.frank||0)) * taxRate - (div.frank||0);
+    const netPreTax = incomeCash + growth - interest;
+    const taxShield = interest * taxRate;
+    const netAfterTax = netPreTax + taxShield - divTax;
+    const returnPct = avgDebt > 0 ? (netAfterTax/avgDebt)*100 : null;
+    // The hurdle is the after-tax cost of the debt actually booked, not the
+    // headline rate pro-rated over the window. Splits with staggered start
+    // dates make those two differ: frac tracks the longest window, while
+    // interest tracks each split's own days, which overstated the hurdle.
+    const benchmarkPct = avgDebt > 0 ? ((interest * (1 - taxRate)) / avgDebt) * 100 : 0;
+
+    let source;
+    if(!balManual && !intManual) source = 'estimated';
+    else if(balManual && intManual) source = hist.source || 'manual';
+    else source = 'mixed';
+
+    rows.push({
+      fy, avgDebt, interest,
+      divCash: div.cash, frank: div.frank, incomeCash,
+      realised, unrealised, growth,
+      netPreTax, taxRate, taxShield, divTax, netAfterTax,
+      returnPct, benchmarkPct, ratePct: benchRate * 100,
+      source, growthComplete, isCur, progress,
+      partial, frac, months, daysActive, activeSplits,
+      windowFrom, windowTo,
+      balManual, intManual
+    });
+  });
+
+  const first = rows.length ? rows[0].fy : curFY;
+  return {
+    rows,
+    meta: {
+      propId: p.id, propName: p.name, owner,
+      drRate: rows.length ? (rows[rows.length-1].ratePct/100) : 0,
+      syms: [...syms],
+      curFY, startFY: first,
+      missingSplitDates: missingDates
+    }
+  };
+}
+
+function buildDRCombinedRows(drProps){
+  let disposals = null;
+  try{ disposals = (typeof buildDisposals==='function' ? (buildDisposals().disposals||[]) : []); }
+  catch(e){ disposals = []; }
+  const byFY = {};
+  (drProps||[]).forEach(p=>{
+    let data;
+    try{ data = buildDRFYData(p, { disposals }); }
+    catch(e){ console.warn('DR performance build failed:', p && p.id, e); return; }
+    data.rows.forEach(r=>{
+      if(!byFY[r.fy]) byFY[r.fy] = {
+        fy:r.fy, avgDebt:0, interest:0, divCash:0, frank:0,
+        realised:0, unrealised:0, growth:0, netPreTax:0,
+        taxShield:0, netAfterTax:0,
+        incomeCash:0, taxRateWeighted:0, taxRateDebt:0,
+        growthComplete:true, isCur:false, progress:1, sources:{},
+        partial:false, months:0, daysActive:0, winFrom:'', winTo:''
+      };
+      const o = byFY[r.fy];
+      o.avgDebt += +r.avgDebt||0;
+      o.interest += +r.interest||0;
+      o.divCash += +r.divCash||0;
+      o.frank += +r.frank||0;
+      o.realised += +r.realised||0;
+      o.unrealised += +r.unrealised||0;
+      o.growth += +r.growth||0;
+      o.netPreTax += +r.netPreTax||0;
+      o.taxShield += +r.taxShield||0;
+      o.netAfterTax += +r.netAfterTax||0;
+      o.taxRateWeighted += (+r.taxRate||0)*(+r.avgDebt||0);
+      o.taxRateDebt += +r.avgDebt||0;
+      if(!r.growthComplete) o.growthComplete = false;
+      o.isCur = o.isCur || !!r.isCur;
+      if(r.isCur) o.progress = r.progress;
+      if(r.partial) o.partial = true;
+      o.months = Math.max(+o.months||0, +r.months||0);
+      // Union of the active windows, so a combined part-year is labelled with
+      // the whole span (not whichever property happens to be longest).
+      if(r.windowFrom && (!o.winFrom || r.windowFrom < o.winFrom)) o.winFrom = r.windowFrom;
+      if(r.windowTo   && (!o.winTo   || r.windowTo   > o.winTo))   o.winTo   = r.windowTo;
+      o.sources[r.source] = (o.sources[r.source]||0)+1;
+    });
+  });
+  // Income and capital growth are asset-level, not debt-level: if two DR
+  // properties link the same symbol, summing their per-property rows would
+  // count that stock's dividends and growth twice. Recompute those two lines
+  // once from the union of every linked symbol, then keep the summed debt,
+  // interest and tax shields.
+  const unionSyms = [...new Set((drProps||[]).flatMap(p=>(p.drSymbols||[]).map(s=>String(s).toUpperCase())))];
+  const unionStart = (drProps||[])
+    .flatMap(p=>drInvSplits(p).map(sp=>drSplitStart(sp)))
+    .filter(Boolean).sort()[0] || '';
+  const unionProp = {
+    id:'__dr_union', name:'Combined', owner:'joint',
+    drSymbols: unionSyms,
+    splits: unionStart ? [{ id:'sp_union', purpose:'investment', startDate: unionStart, rate:0 }] : [],
+    purchaseDate: (drProps||[]).map(p=>p.purchaseDate).filter(Boolean).sort()[0] || ''
+  };
+  const unionByFY = {};
+  if(unionSyms.length){
+    Object.values(byFY).forEach(o=>{
+      try{
+        const u = buildDRFYData(unionProp, { disposals, onlyFY:o.fy });
+        const ur = u.rows[0];
+        if(ur) unionByFY[o.fy] = ur;
+      }catch(e){}
+    });
+  }
+
+  const rows = Object.values(byFY).sort((a,b)=>a.fy-b.fy).map(o=>{
+    const keys = Object.keys(o.sources);
+    let source = 'estimated';
+    if(keys.length === 1) source = keys[0];
+    else if(keys.some(k=>k==='manual' || k==='auto')) source = 'mixed';
+    const ur = unionByFY[o.fy];
+    if(ur){
+      o.divCash = ur.divCash;
+      o.frank = ur.frank;
+      o.realised = ur.realised;
+      o.unrealised = ur.unrealised;
+      o.growth = ur.growth;
+      o.growthComplete = ur.growthComplete;
+    }
+    // Cash income needs no tax adjustment, so it is simply the union's
+    // dividends — the same figure the Debt Recycling card's Total Gain uses.
+    o.incomeCash = o.divCash;
+    o.netPreTax = o.incomeCash + o.growth - o.interest;
+    // Still needed for the breakeven: the union row blends the owners' rates,
+    // and without one the debt-weighted rate is the fallback.
+    if(o.taxRate == null){
+      o.taxRate = (ur && ur.taxRate != null) ? ur.taxRate
+        : (o.taxRateDebt > 0 ? o.taxRateWeighted/o.taxRateDebt : 0);
+    }
+    // Dividend tax needs the rate settled first. This row carries one blended
+    // rate, so if the owners are on different rates it is an estimate; the
+    // per-property view applies each owner's own rate exactly.
+    o.divTax = (o.incomeCash + (o.frank||0)) * o.taxRate - (o.frank||0);
+    o.netAfterTax = o.netPreTax + o.taxShield - o.divTax;
+    const daysActive = (o.winFrom && o.winTo) ? drDayCount(o.winFrom, o.winTo) : 0;
+    return {
+      ...o,
+      daysActive,
+      months: daysActive > 0 ? Math.max(1, Math.round(daysActive/30.44)) : 0,
+      returnPct: o.avgDebt>0 ? (o.netAfterTax/o.avgDebt)*100 : null,
+      // Same rule as the per-property rows: the after-tax cost of the debt
+      // actually booked, so the two views can't diverge.
+      benchmarkPct: o.avgDebt>0 ? ((o.interest * (1 - o.taxRate)) / o.avgDebt) * 100 : 0,
+      source
+    };
+  });
+  return {
+    rows,
+    meta: { combined:true, propCount:(drProps||[]).length, curFY: dateToFY(localDateStr()) }
+  };
+}
+
+let __drPerfCache = { sig:'', scopes:{} };
+function invalidateDRPerfCache(){ __drPerfCache = { sig:'', scopes:{} }; }
+
+function drSigHash(str){
+  let h = 0;
+  str = String(str||'');
+  for(let i=0;i<str.length;i++){ h = (h*31 + str.charCodeAt(i)) | 0; }
+  return h;
+}
+
+function drPerfSignature(){
+  try{
+    const propsSig = (typeof properties!=='undefined' ? properties : []).map(p=>[
+      p.id, p.debtRecycling, p.drHistory, p.drSymbols, p.owner,
+      p.currentValue, p.purchaseDate, p.sold, p.soldDate, p.fyDebtData, p.splits
+    ]);
+    const syms = new Set();
+    (typeof properties!=='undefined' ? properties : []).forEach(p=>(p.drSymbols||[]).forEach(s=>syms.add(String(s).toUpperCase())));
+    const px = [...syms].map(s=>{
+      let key = s;
+      try{ if(typeof priceSymbol==='function') key = priceSymbol(s); }catch(e){}
+      const v = (typeof prices!=='undefined' && prices) ? (prices[key] ?? prices[s] ?? '') : '';
+      return s+':'+v;
+    }).join(',');
+    const tradeSig = (typeof trades!=='undefined' ? trades : [])
+      .map(t=>[t.id,t.date,t.symbol,t.type,t.units,t.price,t.fees].join('|')).join(';');
+    const divSig = (typeof dividends!=='undefined' ? dividends : [])
+      .map(d=>[d.id,d.date,d.symbol,d.amount,d.frankingPct,d.type].join('|')).join(';');
+    return JSON.stringify(propsSig)
+      + '|' + drSigHash(tradeSig)
+      + '|' + drSigHash(divSig)
+      + '|' + Object.keys((typeof pfSnapshots!=='undefined' && pfSnapshots) || {}).length
+      + '|' + px;
+  }catch(e){ return 'err'+Date.now(); }
+}
+
+function getDRDataForScope(scope){
+  const sig = drPerfSignature();
+  if(__drPerfCache.sig !== sig) __drPerfCache = { sig, scopes:{} };
+  const key = scope || '__combined';
+  if(!__drPerfCache.scopes[key]){
+    if(scope){
+      const p = (typeof properties!=='undefined' ? properties : []).find(x=>x.id===scope);
+      __drPerfCache.scopes[key] = p ? buildDRFYData(p) : { rows:[], meta:{} };
+    } else {
+      const drProps = (typeof properties!=='undefined' ? properties : []).filter(p=>p.propType==='ppor' && p.debtRecycling);
+      __drPerfCache.scopes[key] = buildDRCombinedRows(drProps);
+    }
+  }
+  return __drPerfCache.scopes[key];
+}
 // ── LIVE PREVIEW ──────────────────────────────────────────────────────
 function calcPropPreview(){
   const p = readPropForm();
@@ -1703,11 +2317,17 @@ function readPropFormFYData(existingFyData){
 function readPropForm(){
   const splits = [];
   document.querySelectorAll('#pf-splits-wrap .split-row').forEach(row=>{
+    let balances = {};
+    try{ balances = JSON.parse(row.dataset.balances||'{}') || {}; }catch(e){ balances = {}; }
     splits.push({
       id:      row.dataset.splitId || ('sp_'+uid()),
       label:   row.querySelector('.sp-label').value.trim()||'Split',
       initial: parseFloat(row.querySelector('.sp-initial').value)||0,
       balance: parseFloat(row.querySelector('.sp-balance').value)||0,
+      startDate: row.querySelector('.sp-start')?.value || '',
+      openBalance: (()=>{ const v=row.querySelector('.sp-open')?.value; return v!==''&&v!=null&&isFinite(parseFloat(v))?parseFloat(v):null; })(),
+      endDate:  row.querySelector('.sp-end')?.value || '',
+      balances,
       rate:    parseFloat(row.querySelector('.sp-rate').value)||0,
       ltype:   row.querySelector('.sp-ltype').value,
       term:    parseFloat(row.querySelector('.sp-term').value)||0,
@@ -1753,16 +2373,19 @@ function saveProperty(){
       p.fyData = readPropFormFYData(properties[idx].fyData); // merge, don't clobber years outside the visible range
       p.fyDebtData = readPropFormFYDebtData(properties[idx].fyDebtData);
       p.fyOffsetData = readPropFormFYOffsetData(properties[idx].fyOffsetData);
+      p.drHistory = readPropFormDRHistory(properties[idx].drHistory);
       p.id=properties[idx].id; properties[idx]=p;
     }
   } else {
     p.fyData = readPropFormFYData(null);
     p.fyDebtData = readPropFormFYDebtData(null);
     p.fyOffsetData = readPropFormFYOffsetData(null);
+    p.drHistory = readPropFormDRHistory(null);
     p.id = 'prop_'+uid();
     properties.push(p);
   }
   saveProps();
+  invalidateDRPerfCache();
   clearPropForm();
   renderProperties();
   renderPropCards();
@@ -1919,6 +2542,21 @@ function toggleSection(key){
   toggle.style.color   = isOpen ? 'var(--text3)' : 'var(--blue)';
 }
 
+// Calculation notes in the Debt Recycling FY Performance popup. Local rather
+// than via toggleSection so the block always starts collapsed, however long
+// the popup has been open before.
+function toggleDRPerfNotes(){
+  const body = $('dr-notes-body');
+  const tog  = $('dr-notes-toggle');
+  if(!body) return;
+  const open = body.style.display === 'none';
+  body.style.display = open ? '' : 'none';
+  if(tog){
+    tog.textContent = open ? '−' : '+';
+    tog.style.color = open ? 'var(--blue)' : 'var(--text3)';
+  }
+}
+
 function togglePropForm(forceOpen){
   const body   = $('prop-form-body');
   const toggle = $('prop-form-toggle');
@@ -1945,7 +2583,7 @@ function togglePropDRFields(){
   const box = $('pf-dr'), fields = $('pf-dr-fields');
   if(!box || !fields) return;
   fields.style.display = box.checked ? '' : 'none';
-  if(box.checked) renderDRSymbolChips();
+  if(box.checked){ renderDRSymbolChips(); renderDRHistoryRows(); }
 }
 function renderDRSymbolChips(selectedSyms){
   const wrap = $('pf-dr-symbols');
@@ -1978,6 +2616,105 @@ function toggleDRSymbol(sym){
   selected = selected.includes(sym) ? selected.filter(s=>s!==sym) : [...selected, sym];
   renderDRSymbolChips(selected);
   calcPropPreview();
+}
+
+// ── DEBT RECYCLING — per-FY history form ───────────────────────────────
+// The FY performance view needs two figures the app never stored historically:
+// the average DR loan balance and the interest actually paid. Both are
+// optional — blank cells fall back to an estimate built from the property's
+// total loan history and the current investment-loan rate.
+function drFormInvStartDates(){
+  const out = [];
+  document.querySelectorAll('#pf-splits-wrap .split-row').forEach(row=>{
+    const purpose = (row.querySelector('.sp-purpose')||{value:'rental'}).value;
+    if(purpose!=='investment') return;
+    const v = row.querySelector('.sp-start')?.value || '';
+    if(v) out.push(String(v).slice(0,10));
+  });
+  return out.filter(Boolean).sort();
+}
+
+function renderDRHistoryRows(){
+  const wrap = $('pf-dr-history-wrap');
+  if(!wrap) return;
+  const _n = new Date();
+  const CUR_FY = _n.getMonth() >= 6 ? _n.getFullYear()+1 : _n.getFullYear();
+  const PREV_FY = CUR_FY - 1;
+  // The investment split's Start Date is the only anchor. Without it there is
+  // no honest FY to show, so ask for the date rather than guessing from the
+  // purchase date.
+  const starts = drFormInvStartDates();
+  if(!starts.length){
+    wrap.innerHTML = '<div style="font-size:11px;color:var(--text3)">Set a <b>Start Date</b> on an investment-purpose loan split above to enter per-FY history.</div>';
+    return;
+  }
+  const startVal = starts[0];
+  const startFY = (typeof dateToFY==='function') ? dateToFY(startVal) : +String(startVal).slice(0,4);
+  if(startFY > PREV_FY){
+    wrap.innerHTML = '<div style="font-size:11px;color:var(--text3)">No completed financial year yet.</div>';
+    return;
+  }
+  let existing = {};
+  try{ existing = JSON.parse(wrap.dataset.history||'{}') || {}; }catch(e){ existing = {}; }
+  let html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'+
+    '<span style="width:50px;flex-shrink:0"></span>'+
+    '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Avg DR debt</span>'+
+    '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Interest paid</span>'+
+    '<span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Tax rate %</span></div>';
+  const maxRows = 15;
+  const from = Math.max(startFY, PREV_FY - maxRows + 1);
+  for(let y = from; y <= PREV_FY; y++){
+    const h = existing[y] || existing[String(y)] || {};
+    // Mark the split's first FY when it began part-way through the year, so
+    // the statement figures are understood as a part-year amount.
+    let partTag = '';
+    if(y === startFY && startVal > (y-1)+'-07-01'){
+      const days = drDayCount((y-1)+'-07-01', y+'-06-30');
+      const active = drDayCount(startVal, y+'-06-30');
+      if(days>0 && active>0 && active<days) partTag = ' <span style="font-size:9px;color:var(--text3)">'+(active<45 ? active+'d' : Math.max(1, Math.round(active/30.44))+'mo')+'</span>';
+    }
+    html += '<div class="dr-hist-row" data-fy="'+y+'" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'+
+      '<label style="font-family:var(--mono);font-size:11px;color:var(--text3);width:50px;flex-shrink:0">FY'+y+partTag+'</label>'+
+      '<input class="fi dr-hist-balance" type="number" placeholder="auto" step="any" min="0" style="flex:1;min-width:0;padding:4px 8px" value="'+(h.balance!=null?h.balance:'')+'">'+
+      '<input class="fi dr-hist-interest" type="number" placeholder="auto" step="any" min="0" style="flex:1;min-width:0;padding:4px 8px" value="'+(h.interest!=null?h.interest:'')+'">'+
+      '<input class="fi dr-hist-rate" type="number" placeholder="auto" step="any" min="0" max="60" style="flex:1;min-width:0;padding:4px 8px" value="'+(h.taxRate!=null?h.taxRate:'')+'"></div>';
+  }
+  wrap.innerHTML = html;
+}
+
+// Merge the visible history rows over the stored map. A completely blank row
+// removes that FY's override (so it falls back to the estimate), while years
+// outside the visible range are kept untouched.
+function readPropFormDRHistory(existing){
+  const base = (existing && typeof existing==='object') ? {...existing} : {};
+  const wrap = $('pf-dr-history-wrap');
+  if(!wrap || !$('pf-dr')?.checked) return base;
+  wrap.querySelectorAll('.dr-hist-row').forEach(row=>{
+    const fy = String(row.dataset.fy);
+    const balEl = row.querySelector('.dr-hist-balance');
+    const intEl = row.querySelector('.dr-hist-interest');
+    const rateEl= row.querySelector('.dr-hist-rate');
+    const bal = balEl && balEl.value.trim()!=='' ? parseFloat(balEl.value) : null;
+    const int = intEl && intEl.value.trim()!=='' ? parseFloat(intEl.value) : null;
+    const rate= rateEl && rateEl.value.trim()!=='' ? parseFloat(rateEl.value) : null;
+    if(bal==null && int==null && rate==null){ delete base[fy]; return; }
+    const nbal = bal!=null && isFinite(bal) ? bal : null;
+    const nint = int!=null && isFinite(int) ? int : null;
+    const nrate= rate!=null && isFinite(rate) ? rate : null;
+    // Opening the edit form prefills auto-captured values. Saving without
+    // touching them must not relabel that year EXACT — only a real change
+    // makes it a manual override.
+    const prev = (existing && existing[fy]) || {};
+    const same = (prev.balance ?? null) === nbal && (prev.interest ?? null) === nint && (prev.taxRate ?? null) === nrate
+      && (prev.balance != null || prev.interest != null || prev.taxRate != null);
+    base[fy] = {
+      balance: nbal,
+      interest: nint,
+      taxRate: nrate,
+      source: same ? (prev.source || 'manual') : 'manual'
+    };
+  });
+  return base;
 }
 
 // ── DEBT RECYCLING — Total Investment breakdown popup ─────────────────
@@ -2078,6 +2815,313 @@ function showDRGainBreakdown(propId){
   openHudPopup('dr-gain-popup', html, { minWidth: '320px' });
 }
 
+// ── DEBT RECYCLING — FY performance UI ─────────────────────────────────
+function drCompact(n){
+  const v = +n || 0;
+  const sign = v < 0 ? '-' : '';
+  const a = Math.abs(v);
+  if(a >= 1e6) return '$'+sign+(a/1e6).toFixed(2)+'m';
+  if(a >= 1e3) return '$'+sign+(a/1e3).toFixed(1)+'k';
+  return '$'+sign+a.toFixed(0);
+}
+
+// Human span for a part-year row: days for a short first year (a split opened
+// on 17 June is a 14-day year, not "1 mo"), months otherwise.
+function drSpanLabel(r){
+  const d = +((r && r.daysActive)||0);
+  if(!d) return (r && r.months) ? r.months+' mo' : '';
+  if(d < 45) return d+' d';
+  return Math.max(1, Math.round(d/30.44))+' mo';
+}
+
+function drPerfChartSvg(rows){
+  if(!rows || !rows.length) return '';
+  const W=860, H=232, padL=14, padR=14, padT=26, padB=38;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const vals = rows.map(r=>+r.netAfterTax||0);
+  let max = Math.max(0,...vals), min = Math.min(0,...vals);
+  if(max===min){ max = 1; min = -1; }
+  const span = max-min;
+  max += span*0.12; min -= span*0.12;
+  const y = v => padT + (max-v)/(max-min)*plotH;
+  const zeroY = y(0);
+  const step = plotW/rows.length;
+  const bw = Math.max(10, Math.min(48, step*0.52));
+  const bars = rows.map((r,i)=>{
+    const cx = padL + step*(i+0.5);
+    const v = +r.netAfterTax||0;
+    const yv = y(v);
+    const top = Math.min(yv, zeroY);
+    const h = Math.max(1, Math.abs(yv-zeroY));
+    const fill = v>=0 ? 'var(--green)' : 'var(--red)';
+    const ret = r.returnPct==null ? '—' : r.returnPct.toFixed(1)+'%';
+    const above = v>=0;
+    const labelY = above ? Math.max(padT+9, top-6) : Math.min(H-padB-4, top+h+12);
+    return `<g>
+      <rect x="${(cx-bw/2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="2" style="fill:${fill};opacity:.82">
+        <title>FY${r.fy}: ${n2(v)} net after tax · ${ret} return · ${n2(r.interest)} interest</title>
+      </rect>
+      <text x="${cx.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle" font-size="9.5" style="font-family:var(--mono);fill:${v>=0?'var(--green)':'var(--red)'}">${drCompact(v)}</text>
+      <text x="${cx.toFixed(1)}" y="${(H-padB+16).toFixed(1)}" text-anchor="middle" font-size="10" style="font-family:var(--mono);fill:var(--text3)">FY${r.fy}${(r.partial||r.isCur)?'*':''}</text>
+      <text x="${cx.toFixed(1)}" y="${(H-padB+29).toFixed(1)}" text-anchor="middle" font-size="9" style="font-family:var(--mono);fill:var(--gold)">${ret}</text>
+    </g>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:540px;height:auto;display:block" role="img" aria-label="Debt recycling net after tax by financial year">
+    <line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${W-padR}" y2="${zeroY.toFixed(1)}" stroke-dasharray="3 3" style="stroke:var(--border2)"/>
+    ${bars}
+  </svg>
+  <div style="font-size:9px;color:var(--text3);margin-top:4px;text-align:center">Bars = net after tax · gold = return on DR debt · * part-year</div>`;
+}
+
+function drPerfBodyHtml(data){
+  const rows = (data && data.rows) || [];
+  if(!rows.length){
+    return `<div style="padding:24px 10px;text-align:center;color:var(--text3);font-size:12px;line-height:1.6">
+      No debt recycling history yet.<br>Link stocks/ETFs and set a <b>Start Date</b> on the investment-purpose loan split to begin.
+    </div>`;
+  }
+  const showUnreal = localStorage.getItem('pt_dr_show_unreal') !== '0';
+  const cur = rows[rows.length-1];
+  const totalNet = rows.reduce((s,r)=>s+(+r.netAfterTax||0),0);
+  // The TOTAL row is an aggregate of averages, not a sum of them. Both of its
+  // average-based cells are weighted by days open, so a 4-month year can't
+  // count the same as a 12-month one and the debt cell stays a real average
+  // rather than growing by a year's worth of debt every time one is added.
+  const rowDays = r=>{
+    const d = +r.daysActive||0;
+    if(d > 0) return d;
+    const f = +r.frac||0;
+    return Math.round(365 * (f > 0 && f <= 1 ? f : 1));  // manual-only year = full year
+  };
+  const totalDays = rows.reduce((s,r)=>s+rowDays(r),0);
+  const avgDebtTotal = totalDays>0
+    ? rows.reduce((s,r)=>s+(+r.avgDebt||0)*rowDays(r),0)/totalDays : null;
+  // Return is a rate, so its total is the day-weighted average of the yearly
+  // rates — the same weighting the debt cell uses, which is what keeps the two
+  // consistent however the mix of part-years and full years changes.
+  const rateRows = rows.filter(r=>r.returnPct!=null && isFinite(+r.returnPct) && rowDays(r)>0);
+  const rateDays = rateRows.reduce((s,r)=>s+rowDays(r),0);
+  const avgRet = rateDays>0
+    ? rateRows.reduce((s,r)=>s+(+r.returnPct)*rowDays(r),0)/rateDays : null;
+  const totalInterest = rows.reduce((s,r)=>s+(+r.interest||0),0);
+  const totalIncome = rows.reduce((s,r)=>s+(+r.incomeCash||0),0);
+  const totalGrowth = rows.reduce((s,r)=>s+(+r.growth||0),0);
+  const totalPre = rows.reduce((s,r)=>s+(+r.netPreTax||0),0);
+  const totalShield = rows.reduce((s,r)=>s+(+r.taxShield||0),0);
+  const totalDivTax = rows.reduce((s,r)=>s+(+r.divTax||0),0);
+  const totalFrank  = rows.reduce((s,r)=>s+(+r.frank||0),0);
+  const totalTaxEffect = totalShield - totalDivTax;
+  const best = rows.reduce((a,b)=>(+b.netAfterTax||0)>(+a.netAfterTax||0)?b:a, rows[0]);
+  const worst = rows.reduce((a,b)=>(+b.netAfterTax||0)<(+a.netAfterTax||0)?b:a, rows[0]);
+
+  const kpi = (label,value,cls,sub)=>`<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:11px 13px">
+    <div style="font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)">${label}</div>
+    <div class="${cls}" style="font-family:var(--mono);font-size:20px;font-weight:700;margin-top:3px">${value}</div>
+    <div style="font-size:10px;color:var(--text3);margin-top:3px;line-height:1.4">${sub}</div>
+  </div>`;
+
+  const th = (t,al='right',title='')=>`<th${title?` title="${title}"`:''} style="text-align:${al};padding:5px 7px;font-weight:500;white-space:nowrap;color:var(--text3)">${t}</th>`;
+  const td = (v,al='right',cls='',sub='',style='')=>`<td class="${cls}" style="text-align:${al};padding:5px 7px;white-space:nowrap;${style}">${v}${sub?`<div style="font-size:9px;color:var(--text3);margin-top:1px">${sub}</div>`:''}</td>`;
+  // Signed currency for the tax breakdown: n2 puts the minus inside the dollar
+  // sign ("$-1,167.08"), which reads badly on a 9px sub-line.
+  const signed = v => (v<0?'−':'') + n2(Math.abs(+v||0));
+
+  const body = rows.map((r,i)=>{
+    const bg = r.isCur ? 'background:rgba(96,165,250,.07)'
+      : (i%2 ? 'background:rgba(255,255,255,.015)' : '');
+    const ret = r.returnPct==null ? '—' : r.returnPct.toFixed(2)+'%';
+    const partMark = (r.partial || r.isCur) ? '<span style="color:var(--gold)">*</span>' : '';
+    const fySub = r.partial
+      ? (drSpanLabel(r)+(r.isCur?' YTD':''))
+      : (r.isCur ? Math.round((r.progress||0)*100)+'% YTD' : '');
+    // One tax line: the interest deduction less the tax on the dividends. The
+    // breakdown underneath stays invisible until the cell is hovered or
+    // focused (see .dr-tax-sub in app.css), so the table reads cleanly on a
+    // phone and the figures are still there when you ask for them.
+    const taxEffect = (+r.taxShield||0) - (+r.divTax||0);
+    const taxSub = 'shield ' + n2(r.taxShield||0)
+      + (Math.abs(+r.divTax||0) > 0.005 ? ' · div ' + signed(-r.divTax) : '');
+    const taxCell = `<td class="dr-tax-cell" tabindex="0" onclick="this.focus()" title="${taxSub}" style="text-align:right;padding:5px 7px;white-space:nowrap;${taxEffect<0?'color:var(--red)':'color:var(--gold)'}">${n2(taxEffect)}<div class="dr-tax-sub" style="font-size:9px;color:var(--text3);margin-top:1px">${taxSub}</div></td>`;
+    return `<tr style="${bg}">
+      ${td('FY'+r.fy+partMark,'left','',fySub,'white-space:nowrap')}
+      ${td(n2(r.avgDebt,0))}
+      ${td(n2(r.interest),'right','neg')}
+      ${td(n2(r.incomeCash),'right','pos')}
+      ${td(n2(r.growth)+(r.growthComplete?'':'<span style="color:var(--gold)">*</span>'),'right',clr(r.growth))}
+      ${td(n2(r.netPreTax),'right',clr(r.netPreTax))}
+      ${taxCell}
+      ${td(n2(r.netAfterTax),'right',clr(r.netAfterTax),'','font-weight:700')}
+      ${td(ret,'right',clr(r.returnPct))}
+    </tr>`;
+  }).join('');
+
+  const table = `<table style="width:100%;min-width:760px;border-collapse:collapse;font-family:var(--mono);font-size:11px">
+    <thead><tr style="border-bottom:1px solid var(--border)">
+      ${th('FY','left')}${th('Avg DR debt','right','Average debt for the year = (opening + closing balance) ÷ 2. The TOTAL row shows the day-weighted average across the years, not a sum.')}${th('Interest')}${th('Income (Cash)','right','Dividends actually paid into the broker cash account — the amount the DRP reinvests. Franking credits are a tax offset, not cash, so they are not included.')}${th('Capital Gain')}
+      ${th('Net pre-tax')}${th('Tax effect','right','Interest × your marginal rate, less the tax on the dividends. The dividend tax is (cash dividend + franking credit) × marginal rate − franking credit: negative above a 30% rate, zero at 30%, and a refund below it. The sub-line shows the two halves.')}${th('Net after tax','right','Net pre-tax + tax effect. CGT is not deducted: the capital gain shown is unrealised, so no tax falls due until you sell.')}${th('Return %','right','Net after tax as a percentage of average DR debt. Interest is already deducted, so this is the margin earned above the offset breakeven — anything above zero means recycling beat leaving the cash in the offset. Measured before CGT.')}
+    </tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr style="border-top:2px solid var(--border2);font-weight:700">
+      <td style="padding:6px 7px">TOTAL</td>
+      <td style="text-align:right;padding:6px 7px" title="Day-weighted average across every year shown — a real average, not a sum of the yearly averages">${avgDebtTotal==null?'—':n2(avgDebtTotal,0)}</td>
+      <td style="text-align:right;padding:6px 7px" class="neg">${n2(totalInterest)}</td>
+      <td style="text-align:right;padding:6px 7px" class="pos">${n2(totalIncome)}</td>
+      <td style="text-align:right;padding:6px 7px" class="${clr(totalGrowth)}">${n2(totalGrowth)}</td>
+      <td style="text-align:right;padding:6px 7px" class="${clr(totalPre)}">${n2(totalPre)}</td>
+      <td class="dr-tax-cell" tabindex="0" onclick="this.focus()" title="shield ${n2(totalShield)} · div ${signed(-totalDivTax)}" style="text-align:right;padding:6px 7px;${totalTaxEffect<0?'color:var(--red)':'color:var(--gold)'}">${n2(totalTaxEffect)}<div class="dr-tax-sub" style="font-size:9px;color:var(--text3);margin-top:1px">shield ${n2(totalShield)} · div ${signed(-totalDivTax)}</div></td>
+      <td style="text-align:right;padding:6px 7px" class="${clr(totalNet)}">${n2(totalNet)}</td>
+      <td style="text-align:right;padding:6px 7px" class="${clr(avgRet)}">${avgRet==null?'—':avgRet.toFixed(2)+'%'}</td>
+    </tr></tfoot>
+  </table>`;
+
+  const chartRows = rows.slice(-8);
+  const curSub = 'FY'+cur.fy+' · '+(cur.partial
+      ? (drSpanLabel(cur)+(cur.isCur?' YTD':''))
+      : (Math.round((cur.progress||0)*100)+'% through'))+' · after tax';
+  // Return % is already measured above the interest charge, so it *is* the
+  // margin over the breakeven — no separate comparison needed now that the
+  // hurdle comes from actual interest. Dividend tax is inside it; CGT is not,
+  // because the gain is unrealised.
+  const retSub = cur.returnPct==null ? 'No DR debt in the current FY'
+    : (cur.returnPct>=0 ? cur.returnPct.toFixed(2)+'% ahead of the '
+      : Math.abs(cur.returnPct).toFixed(2)+'% behind the ')
+      +(+cur.benchmarkPct||0).toFixed(2)+'% offset breakeven, before CGT';
+  const missingDates = +(data.meta && data.meta.missingSplitDates) || 0;
+
+  return `
+    ${missingDates ? `<div style="display:flex;gap:8px;align-items:flex-start;background:rgba(224,178,92,.08);border:1px solid var(--gold);border-radius:6px;padding:8px 10px;margin-bottom:12px;font-size:11px;color:var(--text2);line-height:1.5">
+      <span style="color:var(--gold);font-weight:700">!</span>
+      <span>${missingDates} investment split${missingDates>1?'s':''} ${missingDates>1?'have':'has'} no Start Date, so interest can't be pro-rated. Set it in the loan split editor to fix the affected years.</span>
+    </div>` : ''}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px">
+      ${kpi('This FY Net', n2(cur.netAfterTax), clr(cur.netAfterTax), curSub)}
+      ${kpi('Return on DR Debt', cur.returnPct==null?'—':cur.returnPct.toFixed(2)+'%', clr(cur.returnPct), retSub)}
+      ${kpi('Lifetime Net', n2(totalNet), clr(totalNet), 'since FY'+rows[0].fy+' · '+(avgRet==null?'—':avgRet.toFixed(2)+'% avg on debt'))}
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <label style="display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--text2);cursor:pointer">
+        <input type="checkbox" ${showUnreal?'checked':''} onchange="toggleDRPerfUnreal(this.checked)">
+        Include unrealised growth
+      </label>
+      <div style="font-size:10px;color:var(--text3)">
+        Best <b class="pos">FY${best.fy}</b> ${n2(best.netAfterTax)} &nbsp;·&nbsp;
+        Worst <b class="neg">FY${worst.fy}</b> ${n2(worst.netAfterTax)}
+        ${rows.some(r=>!r.growthComplete)?' &nbsp;·&nbsp; <span title="Price history incomplete — those years show realised gains only">* growth is realised only</span>':''}
+      </div>
+    </div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 8px;margin-bottom:12px;overflow-x:auto">${drPerfChartSvg(chartRows)}</div>
+    <div style="overflow-x:auto">${table}</div>
+    <div style="margin-top:12px;font-size:10px;color:var(--text3);line-height:1.6">
+      <div onclick="toggleDRPerfNotes()" style="display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none"
+           title="Show or hide how these figures are calculated">
+        <span id="dr-notes-toggle" style="font-family:var(--mono);font-weight:700;font-size:12px;line-height:1;width:9px;text-align:center;color:var(--text3)">+</span>
+        <b style="color:var(--text2)">How this is calculated</b>
+      </div>
+      <div id="dr-notes-body" style="display:none;margin-top:7px;padding-left:16px">
+      Income (Cash) = dividends actually credited to the broker cash account, including amounts the DRP
+      reinvested. Franking credits are a tax offset, not cash, so they stay out of this column and appear
+      in their own column instead. Capital Gain = the movement in unrealised gain over the year — the linked
+      holdings' value less their CGT cost base, which is the same basis your broker reports. (Selling takes
+      the realised gain out of that pool; it appears in the Tax tab instead.) Net pre-tax = income + capital gain
+      − interest. Net after tax = net pre-tax + tax effect, where the tax effect is the interest deduction
+      (interest × marginal rate) less the tax on the dividends.<br>
+      Dividend tax = (cash dividend + franking credit) × marginal rate − franking credit. The dividend and its
+      credit are taxed together and the credit then offsets the tax, so at a 30% rate a fully franked dividend
+      is exactly tax-neutral, above 30% it costs money and below 30% the excess credit comes back as a refund.
+      That is also why franking credits are not added to Income (Cash): they reduce the tax on the dividend
+      rather than arriving as cash. Hover (or tap, on a touch device) the tax effect cell to see the two halves,
+      so you can tell whether the debt's deduction or the dividend's tax is the larger. Capital gains are shown
+      before CGT — the gain here is unrealised, so no tax falls due until you sell, and the sale's CGT belongs
+      to the Tax tab.<br>
+      Return % = net after tax ÷ average DR debt. Because interest is already deducted, that figure is the
+      margin earned above the offset breakeven — above zero means recycling beat the offset.<br>
+      Income + Capital Gain therefore equals the <i>Total Gain (Capital + Dividends)</i> figure in the
+      Debt Recycling panel, which is a pre-personal-tax figure: the panel and your broker show the cash and
+      the gain, while this table also charges the tax on the dividends.<br>
+      Estimates pro-rate the investment split's interest over the days it was actually open, using
+      its Opening Balance and each 30 June balance. Enter actual FY figures in the property's
+      <i>DR History</i> to make a year exact.<br>
+      The breakeven is the after-tax cost of the debt actually booked (interest × (1 − marginal rate) ÷ average
+      DR debt), so a split that was only open for part of the period can't inflate it. In the combined view
+      each linked stock is counted once, even if more than one property links it.<br>
+      The TOTAL row is an aggregate, not another year: its <i>Avg DR debt</i> is the day-weighted average across
+      the years shown (a real average, not a sum of the yearly averages) and its <i>Return %</i> is the
+      day-weighted average of the yearly returns, so a part-year carries only its share of the weight.<br>
+      Each FY only covers the days its investment split was actually open, so interest is pro-rated
+      from the split's Start Date (through its Closed date, if set) and no year earlier than the
+      first split is shown. Dividends are counted on the same window, so a stock you held before the
+      loan can make this column sit slightly below the Dividends tab. A part-year is reported as-is,
+      not annualised.
+      </div>
+    </div>`;
+}
+
+function renderDRPerfContent(scope){
+  const el = $('dr-perf-content');
+  if(!el) return;
+  const data = getDRDataForScope(scope || null);
+  el.innerHTML = drPerfBodyHtml(data);
+}
+
+function toggleDRPerfUnreal(checked){
+  localStorage.setItem('pt_dr_show_unreal', checked ? '1' : '0');
+  invalidateDRPerfCache();
+  renderDRPerfContent(window.__drPerfScope || null);
+}
+
+// Subtitle line for the DR popup: names the current scope and, when there is
+// more than one DR property, offers the one-click switch to the other scope.
+// Kept as a plain link rather than a dashboard block so the combined view is
+// still reachable without adding clutter back to the Property tab.
+function drScopeProps(){
+  return (typeof properties!=='undefined' ? properties : []).filter(p=>p.propType==='ppor' && p.debtRecycling);
+}
+
+function drScopeLabel(scope){
+  const all = drScopeProps();
+  const link = (label, onclick) => `<a href="#" onclick="event.preventDefault();${onclick}" style="color:var(--teal);text-decoration:none">${label} ›</a>`;
+  if(scope){
+    const p = (typeof properties!=='undefined' ? properties : []).find(x=>x.id===scope);
+    const name = p ? p.name : 'Property';
+    return escHtml(name) + ' · per property'
+      + (all.length > 1 ? ' &nbsp;·&nbsp; ' + link('All ' + all.length + ' DR properties', 'switchDRScope(null)') : '');
+  }
+  if(all.length <= 1){
+    return all[0] ? escHtml(all[0].name) + ' · per property' : 'No debt recycling properties yet';
+  }
+  return all.length + ' properties · combined &nbsp;·&nbsp; ' + link('Single property', 'switchDRScopeIdx(0)');
+}
+
+function switchDRScope(scope){
+  window.__drPerfScope = scope || null;
+  const sub = $('dr-perf-sub');
+  if(sub) sub.innerHTML = drScopeLabel(scope || null);
+  renderDRPerfContent(scope || null);
+}
+
+function switchDRScopeIdx(i){
+  const p = drScopeProps()[+i];
+  if(p) switchDRScope(p.id);
+}
+
+function showDRPerformance(propId){
+  const id = 'dr-perf-popup';
+  if(document.getElementById(id)){ closeHudPopup(id); return; }
+  const scope = propId || null;
+  window.__drPerfScope = scope;
+  const html = `
+    <div data-hud-header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:12px">
+      <div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)">Debt Recycling — FY Performance</div>
+        <div id="dr-perf-sub" style="font-size:10px;color:var(--text3);margin-top:2px">${drScopeLabel(scope)}</div>
+      </div>
+      <button onclick="closeHudPopup('${id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
+    </div>
+    <div id="dr-perf-content"></div>`;
+  openHudPopup(id, html, { width:'900px', maxWidth:'96vw', minWidth:'320px' });
+  renderDRPerfContent(scope);
+}
+
 function togglePropSoldFields(){
   const box = $('pf-sold');
   const wrap = $('pf-sold-fields');
@@ -2095,6 +3139,7 @@ function clearPropForm(){
   togglePropSoldFields();
   if($('pf-dr')) $('pf-dr').checked=false;
   if($('pf-dr-symbols')) $('pf-dr-symbols').dataset.selected='[]';
+  if($('pf-dr-history-wrap')){ $('pf-dr-history-wrap').dataset.history='{}'; $('pf-dr-history-wrap').innerHTML=''; }
   togglePropDRVisibility();
   togglePropDRFields();
   $('pf-edit-id').textContent=''; $('pf-edit-id').dataset.id='';
@@ -2138,11 +3183,13 @@ function editProperty(btn){
   togglePropDRVisibility();
   if($('pf-dr')){
     $('pf-dr').checked = !!p.debtRecycling;
+    if($('pf-dr-history-wrap')) $('pf-dr-history-wrap').dataset.history = JSON.stringify(p.drHistory||{});
     renderDRSymbolChips(p.drSymbols||[]);
     togglePropDRFields();
   }
   $('pf-edit-id').dataset.id = p.id;
   renderSplitRows(normaliseSplits(p));
+  if($('pf-dr')?.checked) renderDRHistoryRows();
   updatePropFormFYFields();
   document.querySelectorAll('#pf-fy-fields .pf-fy-input').forEach(inp=>{
     const yr = +inp.dataset.fy;
@@ -2168,6 +3215,7 @@ function deleteProperty(btn){
   if(!confirm('Delete '+p?.name+'?')) return;
   properties = properties.filter(x=>x.id!==id);
   saveProps();
+  invalidateDRPerfCache();
   renderProperties();
   renderPropCards();
   if(typeof renderTax==='function') renderTax();
@@ -2226,9 +3274,39 @@ function checkPropertyFYRollover(){
           p.fyOffsetData[PREV_FY] = normaliseSplits(p).reduce((s,sp)=>s+(+sp.offset||0),0);
           changed = true;
         }
+        // Debt recycling: snapshot each split's 30 June balance, then capture
+        // the part-year (or full-year) DR figures that snapshot implies. A
+        // manual entry for that FY always wins, so this only fills a gap the
+        // first time the new FY rolls over.
+        if(p.debtRecycling){
+          if(!p.drHistory) p.drHistory = {};
+          if(p.drHistory[PREV_FY] == null){
+            let snapChanged = false;
+            normaliseSplits(p).forEach(sp=>{
+              if(!sp.balances || typeof sp.balances!=='object') sp.balances = {};
+              if(sp.balances[PREV_FY] == null){
+                sp.balances[PREV_FY] = { balance:+sp.balance||0, offset:+sp.offset||0 };
+                snapChanged = true;
+              }
+            });
+            const dr = buildDRFYData(p, { onlyFY: PREV_FY });
+            const row = dr.rows[0];
+            if(row && (row.avgDebt > 0 || row.interest > 0)){
+              p.drHistory[PREV_FY] = {
+                balance: +row.avgDebt.toFixed(2),
+                interest: +row.interest.toFixed(2),
+                source: 'auto'
+              };
+              changed = true;
+            } else if(snapChanged){
+              changed = true;
+            }
+          }
+        }
       });
       if(changed){
         saveProps();
+        invalidateDRPerfCache();
         if(typeof notify === 'function') notify('Property values captured for FY'+PREV_FY+' ✓','ok');
       }
     }
@@ -2486,6 +3564,9 @@ function renderProperties(){
             })()}
             ${stat('ROI %', (drCap.costBasis>0 ? ((drCap.lifetimeUnrealised+drDivs.lifetimeIncome)/drCap.costBasis*100) : 0).toFixed(2)+'%', clr(drCap.lifetimeUnrealised + drDivs.lifetimeIncome))}
             ${stat('Linked Symbols', (p.drSymbols&&p.drSymbols.length) ? p.drSymbols.map(s=>escHtml(plainSymbol(s))).join(', ') : '—')}
+            <div style="grid-column:1/-1;margin-top:2px">
+              <button class="btn" style="width:100%;padding:5px 10px;font-size:11px" onclick="showDRPerformance('${p.id}')">FY PERFORMANCE ›</button>
+            </div>
           </div>
         </div>`:`<div style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:14px;display:flex;align-items:center;justify-content:center">
           <div style="text-align:center;color:var(--text3);font-family:var(--mono);font-size:12px">Primary Residence<br>No rental income</div>

@@ -698,7 +698,7 @@
           <option value="land">Vacant Land</option>
         </select>
       </div>
-      <div class="fgi"><label class="fl">Purchase Date</label><input class="fi" type="date" id="pf-pdate" onchange="updatePropFormFYFields()"></div>
+      <div class="fgi"><label class="fl">Purchase Date</label><input class="fi" type="date" id="pf-pdate" onchange="updatePropFormFYFields();renderDRHistoryRows()"></div>
       <div class="fgi"><label class="fl">Purchase Price (AUD)</label><input class="fi" type="number" id="pf-pprice" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Purchase Costs (stamp duty, legal…)</label><input class="fi" type="number" id="pf-pcosts" placeholder="0" step="any" min="0" oninput="calcPropPreview()"></div>
       <div class="fgi"><label class="fl">Capital Improvements (cumulative, AUD)
@@ -730,6 +730,15 @@
           <label class="fl" style="margin-bottom:8px;display:block">Linked Stocks / ETFs (currently held)</label>
           <div id="pf-dr-symbols" style="display:flex;flex-wrap:wrap;gap:6px"></div>
           <div style="font-size:10px;color:var(--text3);margin-top:8px">Tap to toggle. Only symbols you currently hold are shown.</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:6px">FY performance starts from the <b>Start Date</b> on the investment-purpose loan split above — set it there, not here.</div>
+          <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+              <label class="fl" style="margin-bottom:0">DR History (per FY, optional)</label>
+              <span style="font-size:10px;color:var(--text3)">Leave blank to estimate</span>
+            </div>
+            <div id="pf-dr-history-wrap" data-history="{}"></div>
+            <div style="font-size:10px;color:var(--text3);margin-top:6px">Enter the average DR loan balance and interest paid from your statements to make that FY exact. Tax rate blank = auto from the Tax tab.</div>
+          </div>
         </div>
       </div>
       <div class="fgi"><label class="fl">Weekly Rent Income (AUD)</label><input class="fi" type="number" id="pf-rent" placeholder="0 if PPOR" step="any" min="0" oninput="calcPropPreview()"></div>

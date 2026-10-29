@@ -677,6 +677,9 @@ input[type="color"]::-webkit-color-swatch{border:none;border-radius:3px;}
 
 .split-row{transition:border-color .15s;}
 .split-row:hover{border-color:var(--border2);}
+/* Split fields live in an auto-fill grid, so they must shrink to their
+   column instead of keeping the browser's ~188px intrinsic input width. */
+.split-row .fi{width:100%;box-sizing:border-box;}
 .su-section-body{animation:panelIn .2s ease-out;}
 
 .sp-cat-row{cursor:pointer;transition:background .12s;}
@@ -772,3 +775,13 @@ input[type="color"]::-webkit-color-swatch{border:none;border-radius:3px;}
   .main{max-width:none;padding:0;}
   .tw,.fs,.card{border-color:#ddd;background:#fff;box-shadow:none;}
 }
+
+/* -- Debt Recycling: FY Performance tax breakdown ------------------------- */
+/* The split behind "Tax effect" (interest shield vs dividend tax) is not shown
+   by default. On a desktop the cell's title tooltip appears on hover; on a
+   touch device tapping the cell focuses it and reveals the line. display:none
+   rather than visibility so no blank strip is left in the row. */
+.dr-tax-sub{display:none}
+.dr-tax-cell{cursor:help}
+.dr-tax-cell:focus .dr-tax-sub,
+.dr-tax-cell:focus-within .dr-tax-sub{display:block}
