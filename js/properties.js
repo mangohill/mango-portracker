@@ -2836,7 +2836,7 @@ function drSpanLabel(r){
 
 function drPerfChartSvg(rows){
   if(!rows || !rows.length) return '';
-  const W=860, H=232, padL=14, padR=14, padT=26, padB=38;
+  const W=860, H=170, padL=14, padR=14, padT=22, padB=30;
   const plotW=W-padL-padR, plotH=H-padT-padB;
   const vals = rows.map(r=>+r.netAfterTax||0);
   let max = Math.max(0,...vals), min = Math.min(0,...vals);
@@ -2916,11 +2916,20 @@ function drPerfBodyHtml(data){
   const best = rows.reduce((a,b)=>(+b.netAfterTax||0)>(+a.netAfterTax||0)?b:a, rows[0]);
   const worst = rows.reduce((a,b)=>(+b.netAfterTax||0)<(+a.netAfterTax||0)?b:a, rows[0]);
 
-  const kpi = (label,value,cls,sub)=>`<div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:11px 13px">
-    <div style="font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3)">${label}</div>
-    <div class="${cls}" style="font-family:var(--mono);font-size:20px;font-weight:700;margin-top:3px">${value}</div>
-    <div style="font-size:10px;color:var(--text3);margin-top:3px;line-height:1.4">${sub}</div>
+  // A value's own colour is a hint, but a badge needs a background to read as
+  // one. The tint follows the same tokens the rest of the app uses — soft
+  // green for a gain, soft red for a loss, neutral otherwise — so the three
+  // cards sit in the same family as every other chip on the dashboard.
+  const kpi = (label,value,cls,sub,raw,id)=>{
+    const c = cls==='pos' ? 'var(--green)'
+      : cls==='neg' ? 'var(--red)'
+      : 'var(--cat-portfolio)';
+    return `<div class="card" style="--c:${c};padding:12px 14px">
+    <div class="card-label">${label}</div>
+    <div class="card-value ${cls}" id="${id}">${value}</div>
+    <div class="card-sub">${sub}</div>
   </div>`;
+  };
 
   const th = (t,al='right',title='')=>`<th${title?` title="${title}"`:''} style="text-align:${al};padding:5px 7px;font-weight:500;white-space:nowrap;color:var(--text3)">${t}</th>`;
   const td = (v,al='right',cls='',sub='',style='')=>`<td class="${cls}" style="text-align:${al};padding:5px 7px;white-space:nowrap;${style}">${v}${sub?`<div style="font-size:9px;color:var(--text3);margin-top:1px">${sub}</div>`:''}</td>`;
@@ -2998,10 +3007,10 @@ function drPerfBodyHtml(data){
       <span style="color:var(--gold);font-weight:700">!</span>
       <span>${missingDates} investment split${missingDates>1?'s':''} ${missingDates>1?'have':'has'} no Start Date, so interest can't be pro-rated. Set it in the loan split editor to fix the affected years.</span>
     </div>` : ''}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px">
-      ${kpi('This FY Net', n2(cur.netAfterTax), clr(cur.netAfterTax), curSub)}
-      ${kpi('Return on DR Debt', cur.returnPct==null?'—':cur.returnPct.toFixed(2)+'%', clr(cur.returnPct), retSub)}
-      ${kpi('Lifetime Net', n2(totalNet), clr(totalNet), 'since FY'+rows[0].fy+' · '+(avgRet==null?'—':avgRet.toFixed(2)+'% avg on debt'))}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:6px">
+      ${kpi('This FY Net', n2(cur.netAfterTax), clr(cur.netAfterTax), curSub, cur.netAfterTax, 'dr-kpi-net')}
+      ${kpi('Return on DR Debt', cur.returnPct==null?'—':cur.returnPct.toFixed(2)+'%', clr(cur.returnPct), retSub, cur.returnPct, 'dr-kpi-ret')}
+      ${kpi('Lifetime Net', n2(totalNet), clr(totalNet), 'since FY'+rows[0].fy+' · '+(avgRet==null?'—':avgRet.toFixed(2)+'% avg on debt'), totalNet, 'dr-kpi-life')}
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
       <label style="display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--text2);cursor:pointer">
@@ -3014,7 +3023,7 @@ function drPerfBodyHtml(data){
         ${rows.some(r=>!r.growthComplete)?' &nbsp;·&nbsp; <span title="Price history incomplete — those years show realised gains only">* growth is realised only</span>':''}
       </div>
     </div>
-    <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 8px;margin-bottom:12px;overflow-x:auto">${drPerfChartSvg(chartRows)}</div>
+    <div style="background:var(--bg);border:1px solid var(--green-dim);border-radius:6px;padding:6px 6px;margin-bottom:4px;overflow-x:auto">${drPerfChartSvg(chartRows)}</div>
     <div style="overflow-x:auto">${table}</div>
     <div style="margin-top:12px;font-size:10px;color:var(--text3);line-height:1.6">
       <div onclick="toggleDRPerfNotes()" style="display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none"
@@ -3068,6 +3077,34 @@ function renderDRPerfContent(scope){
   if(!el) return;
   const data = getDRDataForScope(scope || null);
   el.innerHTML = drPerfBodyHtml(data);
+
+  // Animate KPI badges when data changes (e.g. Include unrealised growth toggle)
+  const rows = (data && data.rows) || [];
+  if(rows.length){
+    const cur = rows[rows.length-1];
+    const prev = window.__drKpiPrev || (window.__drKpiPrev = {});
+    const anim = (id, target, fmt, cmp) => {
+      const node = $(id); if(!node) return;
+      if(prev[id] !== undefined && target != null && prev[id] != null && Math.abs(+target - +prev[id]) > 0.005){
+        node.dataset.rawVal = String(prev[id]);
+        animateValue(node, target, {format: fmt, flash: true});
+        prev[id] = target;
+      } else {
+        // First paint or negligible change — let HTML carry it, just record prev
+        prev[id] = target;
+        if(node.dataset.rawVal == null || node.textContent !== fmt(target)){
+          node.dataset.rawVal = String(target);
+          node.textContent = fmt(target);
+        }
+      }
+    };
+    const fmtCur = v => v==null ? '—' : n2(v,0);
+    const fmtPct = v => v==null ? '—' : v.toFixed(2)+'%';
+    const totalNet = rows.reduce((s,r)=>s+(+r.netAfterTax||0),0);
+    anim('dr-kpi-net', cur.netAfterTax, fmtCur);
+    anim('dr-kpi-ret', cur.returnPct, fmtPct);
+    anim('dr-kpi-life', totalNet, fmtCur);
+  }
 }
 
 function toggleDRPerfUnreal(checked){
@@ -3125,7 +3162,7 @@ function showDRPerformance(propId){
       <button onclick="closeHudPopup('${id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1">✕</button>
     </div>
     <div id="dr-perf-content"></div>`;
-  openHudPopup(id, html, { width:'900px', maxWidth:'96vw', minWidth:'320px' });
+  openHudPopup(id, html, { width:'1100px', maxWidth:'96vw', minWidth:'320px' });
   renderDRPerfContent(scope);
 }
 
