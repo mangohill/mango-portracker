@@ -2920,11 +2920,13 @@ function drPerfBodyHtml(data){
   // one. The tint follows the same tokens the rest of the app uses — soft
   // green for a gain, soft red for a loss, neutral otherwise — so the three
   // cards sit in the same family as every other chip on the dashboard.
-  const kpi = (label,value,cls,sub,raw,id)=>{
+  const kpi = (label,value,cls,sub,raw,id,onclick)=>{
     const c = cls==='pos' ? 'var(--green)'
       : cls==='neg' ? 'var(--red)'
       : 'var(--cat-portfolio)';
-    return `<div class="card" style="--c:${c};padding:12px 14px">
+    const clickAttr = onclick ? ` onclick="${onclick}" style="--c:${c};padding:12px 14px;cursor:pointer"` : ` style="--c:${c};padding:12px 14px"`;
+    const roleAttr = onclick ? ' role="button" tabindex="0"' : '';
+    return `<div class="card"${clickAttr}${roleAttr}>
     <div class="card-label">${label}</div>
     <div class="card-value ${cls}" id="${id}">${value}</div>
     <div class="card-sub">${sub}</div>
@@ -2972,7 +2974,7 @@ function drPerfBodyHtml(data){
   const table = `<table style="width:100%;min-width:760px;border-collapse:collapse;font-family:var(--mono);font-size:11px">
     <thead><tr style="border-bottom:1px solid var(--border)">
       ${th('FY','left')}${th('Avg DR debt','right','Average debt for the year = (opening + closing balance) ÷ 2. The TOTAL row shows the day-weighted average across the years, not a sum.')}${th('Interest')}${th('Income (Cash)','right','Dividends actually paid into the broker cash account — the amount the DRP reinvests. Franking credits are a tax offset, not cash, so they are not included.')}${th('Capital Gain')}
-      ${th('Net pre-tax')}${th('Tax benefit','right','Interest × your marginal rate, less the tax on the dividends — what the structure saves you in tax. The dividend tax is (cash dividend + franking credit) × marginal rate − franking credit: it costs money above a 30% rate, is zero at 30%, and comes back as a refund below it. Turns negative only if dividend tax exceeds the interest deduction. The breakdown shows Loan Interest $… −/+ Dividends $…, with − when the dividend tax is a cost and + when it is a refund. Hover or tap the figure to see the two halves.')}${th('Net after tax','right','Net pre-tax + tax benefit. CGT is not deducted: the capital gain shown is unrealised, so no tax falls due until you sell.')}${th('Return %','right','Net after tax as a percentage of average DR debt. Interest is already deducted, so this is the margin earned above the offset breakeven — anything above zero means recycling beat leaving the cash in the offset. Measured before CGT.')}
+      ${th('Net pre-tax')}${th('Tax benefit','right','Interest × your marginal rate, less the tax on the dividends — what the structure saves you in tax. The dividend tax is (cash dividend + franking credit) × marginal rate − franking credit: it costs money above a 30% rate, is zero at 30%, and comes back as a refund below it. Turns negative only if dividend tax exceeds the interest deduction. The breakdown shows Loan Interest $… −/+ Dividends $…, with − when the dividend tax is a cost and + when it is a refund. Hover or tap the figure to see the two halves.')}${th('Net after tax','right','Net pre-tax + tax benefit. CGT is not deducted: the capital gain shown is unrealised, so no tax falls due until you sell.')}${th('Return %','right','Net after tax as a percentage of average DR debt. Interest is already deducted, so this is the margin earned above the after-tax interest cost — anything above zero means recycling beat leaving the cash in the offset. Measured before CGT.')}
     </tr></thead>
     <tbody>${body}</tbody>
     <tfoot><tr style="border-top:2px solid var(--border2);font-weight:700">
@@ -2999,7 +3001,9 @@ function drPerfBodyHtml(data){
   const retSub = cur.returnPct==null ? 'No DR debt in the current FY'
     : (cur.returnPct>=0 ? cur.returnPct.toFixed(2)+'% ahead of the '
       : Math.abs(cur.returnPct).toFixed(2)+'% behind the ')
-      +(+cur.benchmarkPct||0).toFixed(2)+'% offset breakeven, before CGT';
+      +(+cur.benchmarkPct||0).toFixed(2)+'% after-tax interest cost, yield = '
+      +(cur.returnPct+(+cur.benchmarkPct||0)).toFixed(2)+'%';
+  const retSubPrev = rows.length>1 ? (()=>{ const p = rows[rows.length-2]; return p.returnPct==null ? 'No DR debt in previous FY' : (p.returnPct>=0 ? p.returnPct.toFixed(2)+'% ahead of the ' : Math.abs(p.returnPct).toFixed(2)+'% behind the ') + (+p.benchmarkPct||0).toFixed(2)+'% after-tax interest cost, yield = ' + (p.returnPct+(+p.benchmarkPct||0)).toFixed(2)+'%'; })() : retSub;
   const missingDates = +(data.meta && data.meta.missingSplitDates) || 0;
 
   return `
@@ -3007,9 +3011,9 @@ function drPerfBodyHtml(data){
       <span style="color:var(--gold);font-weight:700">!</span>
       <span>${missingDates} investment split${missingDates>1?'s':''} ${missingDates>1?'have':'has'} no Start Date, so interest can't be pro-rated. Set it in the loan split editor to fix the affected years.</span>
     </div>` : ''}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:6px">
-      ${kpi('This FY Net', n2(cur.netAfterTax), clr(cur.netAfterTax), curSub, cur.netAfterTax, 'dr-kpi-net')}
-      ${kpi('Return on DR Debt', cur.returnPct==null?'—':cur.returnPct.toFixed(2)+'%', clr(cur.returnPct), retSub, cur.returnPct, 'dr-kpi-ret')}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:4px;margin-bottom:6px">
+      ${(() => { const showPrev = window.__drShowPrev && rows.length>1; const r = showPrev ? rows[rows.length-2] : cur; const lbl = showPrev ? 'Previous FY Net' : 'This FY Net'; const sub = showPrev ? 'FY'+r.fy : curSub; return kpi(lbl, n2(r.netAfterTax), clr(r.netAfterTax), sub, r.netAfterTax, 'dr-kpi-net', "window.__drShowPrev=!window.__drShowPrev;renderDRPerfContent(window.__drPerfScope||null);"); })()}
+      ${(() => { const showPrev = window.__drShowPrev && rows.length>1; const r = showPrev ? rows[rows.length-2] : cur; return kpi('Return on DR Debt', r.returnPct==null?'—':r.returnPct.toFixed(2)+'%', clr(r.returnPct), showPrev ? retSubPrev : retSub, r.returnPct, 'dr-kpi-ret'); })()}
       ${kpi('Lifetime Net', n2(totalNet), clr(totalNet), 'since FY'+rows[0].fy+' · '+(avgRet==null?'—':avgRet.toFixed(2)+'% avg on debt'), totalNet, 'dr-kpi-life')}
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
@@ -3050,14 +3054,14 @@ function drPerfBodyHtml(data){
       refund (below 30%). Capital gains are shown before CGT — the gain here is unrealised, so no tax falls
       due until you sell, and the sale's CGT belongs to the Tax tab.<br>
       Return % = net after tax ÷ average DR debt. Because interest is already deducted, that figure is the
-      margin earned above the offset breakeven — above zero means recycling beat the offset.<br>
+      margin earned above the after-tax interest cost — above zero means recycling beat the offset.<br>
       Income + Capital Gain therefore equals the <i>Total Gain (Capital + Dividends)</i> figure in the
       Debt Recycling panel, which is a pre-personal-tax figure: the panel and your broker show the cash and
       the gain, while this table also charges the tax on the dividends.<br>
       Estimates pro-rate the investment split's interest over the days it was actually open, using
       its Opening Balance and each 30 June balance. Enter actual FY figures in the property's
       <i>DR History</i> to make a year exact.<br>
-      The breakeven is the after-tax cost of the debt actually booked (interest × (1 − marginal rate) ÷ average
+      The after-tax interest cost is the interest actually booked on the debt, after tax (interest × (1 − marginal rate) ÷ average
       DR debt), so a split that was only open for part of the period can't inflate it. In the combined view
       each linked stock is counted once, even if more than one property links it.<br>
       The TOTAL row is an aggregate, not another year: its <i>Avg DR debt</i> is the day-weighted average across
@@ -3081,17 +3085,17 @@ function renderDRPerfContent(scope){
   // Animate KPI badges when data changes (e.g. Include unrealised growth toggle)
   const rows = (data && data.rows) || [];
   if(rows.length){
-    const cur = rows[rows.length-1];
-    const prev = window.__drKpiPrev || (window.__drKpiPrev = {});
-    const anim = (id, target, fmt, cmp) => {
+    const showPrev = window.__drShowPrev && rows.length>1;
+    const curRow = showPrev ? rows[rows.length-2] : rows[rows.length-1];
+    const prevVals = window.__drKpiPrev || (window.__drKpiPrev = {});
+    const anim = (id, target, fmt) => {
       const node = $(id); if(!node) return;
-      if(prev[id] !== undefined && target != null && prev[id] != null && Math.abs(+target - +prev[id]) > 0.005){
-        node.dataset.rawVal = String(prev[id]);
+      if(prevVals[id] !== undefined && target != null && prevVals[id] != null && Math.abs(+target - +prevVals[id]) > 0.005){
+        node.dataset.rawVal = String(prevVals[id]);
         animateValue(node, target, {format: fmt, flash: true});
-        prev[id] = target;
+        prevVals[id] = target;
       } else {
-        // First paint or negligible change — let HTML carry it, just record prev
-        prev[id] = target;
+        prevVals[id] = target;
         if(node.dataset.rawVal == null || node.textContent !== fmt(target)){
           node.dataset.rawVal = String(target);
           node.textContent = fmt(target);
@@ -3100,9 +3104,10 @@ function renderDRPerfContent(scope){
     };
     const fmtCur = v => v==null ? '—' : n2(v,0);
     const fmtPct = v => v==null ? '—' : v.toFixed(2)+'%';
+    // Lifetime Net is always the TOTAL row's Net After Tax (every FY), regardless of the This/Previous FY toggle.
     const totalNet = rows.reduce((s,r)=>s+(+r.netAfterTax||0),0);
-    anim('dr-kpi-net', cur.netAfterTax, fmtCur);
-    anim('dr-kpi-ret', cur.returnPct, fmtPct);
+    anim('dr-kpi-net', curRow.netAfterTax, fmtCur);
+    anim('dr-kpi-ret', curRow.returnPct, fmtPct);
     anim('dr-kpi-life', totalNet, fmtCur);
   }
 }

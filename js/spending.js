@@ -42,14 +42,14 @@ const SP_CAT_ICON = {
 
 function initSpending(){
   loadSpending();
-  const fys = [...new Set(spendingData.map(d=>d.fy))].sort();
-  if(!spFY || !fys.includes(spFY)) spFY = fys[fys.length-1];
+  const fys = [...new Set(spendingData.map(d=>d.fy))].filter(f=>f!=null).sort((a,b)=>b-a);
+  if(!spFY || !fys.includes(spFY)) spFY = fys[0];
   renderSpFYBar();
   renderSpending();
 }
 
 function renderSpFYBar(){
-  const fys = [...new Set(spendingData.map(d=>d.fy))].sort();
+  const fys = [...new Set(spendingData.map(d=>d.fy))].filter(f=>f!=null).sort((a,b)=>b-a);
   const bar = $('sp-fy-bar');
   if(!bar) return;
   bar.innerHTML = fys.map(fy=>
@@ -88,11 +88,28 @@ function renderSpending(){
     {l:'Total Categorised Spend',  v:'$'+totalOut.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0}), s:'neg', sub:'All money out', tint:'var(--debt-coral)'},
     {l:'Money In (Refunds etc.)',   v:'$'+totalIn.toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0}),  s:'pos', sub:'Refunds + credits', tint:'var(--cat-income)'},
     {l:'Net Spend',                 v:'$'+(Math.abs(net)).toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0}), s:net>=0?'pos':'neg', sub:net>=0?'Net ahead':'Net out', tint:(net>=0?'var(--asset-teal)':'var(--debt-brick)')},
-  ].map(c=>`<div class="card" style="${cardTint(c.tint)}">
+  ].map((c,i)=>`<div class="card" style="${cardTint(c.tint)}" id="sp-card-${i}">
     <div class="card-label">${c.l}</div>
-    <div class="card-value ${c.s}" style="${c.big?'font-size:22px':''}">${c.v}</div>
+    <div class="card-value ${c.s}" id="sp-kpi-${i}" style="${c.big?'font-size:22px':''}">${c.v}</div>
     <div class="card-sub">${c.sub}</div>
   </div>`).join('');
+
+  // Animate badges when FY changes (like portfolio dashboard)
+  const prev = window.__spKpiPrev || (window.__spKpiPrev = {});
+  const vals = [totalSpent||0, totalOut||0, totalIn||0, net||0];
+  const keys = ['sp-kpi-0','sp-kpi-1','sp-kpi-2','sp-kpi-3'];
+  keys.forEach((id,i)=>{
+    const el = $(id); if(!el) return;
+    const target = vals[i];
+    const fmt = v => '$'+Math.abs(v||0).toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0});
+    if(prev[id] !== undefined && Math.abs((prev[id]||0)-(target||0)) > 0.005){
+      el.dataset.rawVal = String(prev[id]);
+      animateValue(el, target, {format: fmt, flash: true});
+      prev[id] = target;
+    } else {
+      prev[id] = target; el.dataset.rawVal = String(target); el.textContent = fmt(target);
+    }
+  });
 
   // ── Money Out ───────────────────────────────────────────────────
   $('sp-out-total').textContent = '$'+totalOut.toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -527,7 +544,7 @@ function importSpendingCSV(input){
     }
     saveSpending();
     // Update FY to show the imported data's FY
-    const fys = [...new Set(spendingData.map(d=>d.fy))].sort();
+    const fys = [...new Set(spendingData.map(d=>d.fy))].filter(f=>f!=null).sort((a,b)=>b-a);
     spFY = fys[fys.length-1];
     spCatFilter=null; spInCatFilter=null;
     renderSpFYBar();
