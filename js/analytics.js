@@ -351,6 +351,9 @@ function resetAnalyticsPriceCache(){ _anPriceDatesCache = null; }
 function historicalPriceOnOrBefore(sym, dateStr){
   if(typeof pfSnapshots === 'undefined') return null;
   if(!_anPriceDatesCache) _anPriceDatesCache = Object.keys(pfSnapshots).sort().reverse();
+  // Fast path: the chart axis is now made of snapshot dates, so most lookups hit exactly
+  const exact = pfSnapshots[dateStr] && pfSnapshots[dateStr].prices && pfSnapshots[dateStr].prices[sym];
+  if(exact!=null) return exact;
   for(const d of _anPriceDatesCache){
     if(d > dateStr) continue;
     const p = pfSnapshots[d] && pfSnapshots[d].prices && pfSnapshots[d].prices[sym];
@@ -363,6 +366,55 @@ function monthEndOrToday(monthStr){
   const end = localDateStr(new Date(y, m, 0)); // day 0 of next month = last day of this month
   const today = localDateStr();
   return end < today ? end : today;
+}
+
+// Builds the x-axis for the cost/value/P&L line charts from the price
+// snapshots the Worker recorded in KV (daily since WORKER_DAILY_SINCE,
+// fortnightly anchor dates before that), instead of one point per month.
+// - Months that pre-date the first snapshot keep a month-end point.
+// - Very long ranges are thinned (last snapshot per week, then per month)
+//   so the chart stays readable and fast.
+// Returns { dates:[YYYY-MM-DD…], unit:'month'|'week'|'period' }.
+function buildAnalyticsAxis(fromStr, toStr){
+  const MAX_POINTS = 400;
+  const snaps = (typeof pfSnapshots === 'undefined') ? [] : Object.keys(pfSnapshots)
+    .filter(d => { const x = pfSnapshots[d]; return x && x.prices && Object.keys(x.prices).length; })
+    .sort();
+  let pts = snaps.filter(d => d >= fromStr && d <= toStr);
+  let unit = 'period';
+
+  const thin = keyFn => {
+    const last = new Map();
+    pts.forEach(d => last.set(keyFn(d), d));   // later date in the bucket wins
+    return [...last.values()];
+  };
+  const weekKey = d => {
+    const dt = new Date(d+'T00:00:00');
+    const dow = (dt.getDay()+6)%7;             // Monday = 0
+    dt.setDate(dt.getDate()-dow);
+    return localDateStr(dt);
+  };
+  if(pts.length > MAX_POINTS){ pts = thin(weekKey); unit = 'week'; }
+  if(pts.length > MAX_POINTS){ pts = thin(d => d.slice(0,7)); unit = 'month'; }
+
+  // Month-end points for the stretch before any snapshot exists (or all of it, if none do)
+  const firstSnap = pts.length ? pts[0] : '9999-12-31';
+  const pre = [];
+  let cur = new Date(+fromStr.slice(0,4), +fromStr.slice(5,7)-1, 1);
+  const end = new Date(+toStr.slice(0,4), +toStr.slice(5,7)-1, 1);
+  while(cur <= end){
+    const m = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+    const me = monthEndOrToday(m);
+    if(me < firstSnap && me >= fromStr) pre.push(me);
+    cur.setMonth(cur.getMonth()+1);
+  }
+  if(!pts.length) unit = 'month';
+  const dates = [...new Set([...pre, ...pts])].sort();
+  if(dates.length && dates[dates.length-1] < toStr && toStr >= localDateStr()) {
+    // keep the live "today" point if no snapshot has been written for it yet
+    const t = localDateStr(); if(t <= toStr && t > dates[dates.length-1]) dates.push(t);
+  }
+  return { dates, unit };
 }
 
 function renderAnalytics(){
@@ -521,14 +573,10 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
   const earliestTradeDate = trades.length ? trades.map(t=>t.date).sort()[0] : null;
   const axisFromRaw = periodFrom && earliestTradeDate ? (periodFrom > earliestTradeDate ? periodFrom : earliestTradeDate)
                      : (periodFrom || earliestTradeDate);
-  let allDates = [];
+  let allDates = [], axisUnit = 'month';
   if(axisFromRaw){
-    let cur = new Date(+axisFromRaw.slice(0,4), +axisFromRaw.slice(5,7)-1, 1);
-    const end = new Date(+periodTo.slice(0,4), +periodTo.slice(5,7)-1, 1);
-    while(cur <= end){
-      allDates.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`);
-      cur.setMonth(cur.getMonth()+1);
-    }
+    const ax = buildAnalyticsAxis(axisFromRaw, periodTo);
+    allDates = ax.dates; axisUnit = ax.unit;
   }
   if(!allDates.length){ mkChart('an-main-chart',{type:'line',data:{labels:[],datasets:[]}}); return; }
 
@@ -554,8 +602,13 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
                         groupBy==='bytype'   ? tradesChrono.filter(t=>AN_KIND(t.assetType)===g) :
                                                tradesChrono.filter(t=>t.symbol===g);
 
-    const data = allDates.map(month=>{
-      const monthTrades = groupTrades.filter(t=>t.date.slice(0,7)<=month);
+    // Walk the (date-sorted) trades once, carrying cost/units/realised forward from
+    // point to point, rather than re-scanning from scratch at every axis point —
+    // essential now that the axis can be hundreds of daily points.
+    const costMap = {};
+    let realised = 0;
+    let ti = 0;
+    const data = allDates.map(pointDate=>{
       // Calculate cost basis up to this month. Corporate actions go through
       // the same applyCorporateAction() as Holdings (calcH) and the Trades ROI
       // — this loop carried its own fourth copy, and it was wrong: split_to
@@ -563,9 +616,9 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
       // spinoff_to never restored the parent's units (parent value vanished),
       // and in by-symbol view a merger's to-side got $0 cost because the
       // from-symbol wasn't in that group's map.
-      const costMap = {};
-      let realised = 0; // running realised P&L (proceeds - cost removed) from sells up to this month
-      for(const t of monthTrades){
+      // (costMap / realised are carried across points — see above)
+      while(ti < groupTrades.length && groupTrades[ti].date <= pointDate){
+        const t = groupTrades[ti++];
         const s=t.symbol;
         if(!costMap[s]) costMap[s]={units:0,costBasis:0};
         if(t.type==='buy'||t.type==='drp'){
@@ -593,7 +646,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
       // live price projected backwards onto every past month. Falls back
       // to today's live price, then cost, only when no historical point
       // exists yet for that date.
-      const lookupDate = monthEndOrToday(month);
+      const lookupDate = pointDate;
       let val=0;
       for(const [sym,h] of Object.entries(costMap)){
         const psym = priceSymbol(sym);
@@ -682,7 +735,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
     }
   });
 
-  renderAnInsights(chartType, groups, datasets, allDates);
+  renderAnInsights(chartType, groups, datasets, allDates, axisUnit);
 }
 
 // ── Insights strip ────────────────────────────────────────────────────
@@ -690,7 +743,7 @@ function renderMainChart(filtered, groupBy, chartType, holdings, period){
 // English takeaways, so the chart isn't the only way to extract meaning
 // from it — reuses the "All"/combined series when present, otherwise
 // the first visible group.
-function renderAnInsights(chartType, groups, datasets, allDates){
+function renderAnInsights(chartType, groups, datasets, allDates, unit){
   const el = $('an-insights');
   if(!el) return;
   if(chartType==='alloc' || chartType==='trades' || !datasets.length || allDates.length<2){
@@ -711,7 +764,7 @@ function renderAnInsights(chartType, groups, datasets, allDates){
   const totalChange = last - first;
   const totalPct = first!==0 ? (totalChange/Math.abs(first)*100) : null;
 
-  // Best/worst single-month MOVE (delta between consecutive points), not
+  // Best/worst single-step MOVE (delta between consecutive points), not
   // the raw level — that's what's actually interesting month to month.
   let bestIdx=-1, worstIdx=-1, bestDelta=-Infinity, worstDelta=Infinity;
   for(let i=1;i<series.length;i++){
@@ -721,14 +774,15 @@ function renderAnInsights(chartType, groups, datasets, allDates){
     if(d<worstDelta){ worstDelta=d; worstIdx=i; }
   }
 
+  const unitWord = unit==='month' ? 'month' : unit==='week' ? 'week' : 'period';
   const fmtMoney = v => (v>=0?'+':'−')+'$'+Math.abs(v).toLocaleString('en-AU',{maximumFractionDigits:0});
   const label = (chartType==='pnl' ? 'Total P&L change' : chartType==='cost' ? 'Total cost change' : 'Total change') + seriesName;
 
   const chips = [
     `<div><div style="font-size:10px;color:var(--text3)">${label}</div><div style="font-family:var(--mono);font-weight:700;font-size:14px" class="${totalChange>=0?'pos':'neg'}">${fmtMoney(totalChange)}${totalPct!=null?` (${totalPct>=0?'+':''}${totalPct.toFixed(1)}%)`:''}</div></div>`,
   ];
-  if(bestIdx>0) chips.push(`<div><div style="font-size:10px;color:var(--text3)">Best month</div><div style="font-family:var(--mono);font-weight:700;font-size:14px" class="pos">${allDates[bestIdx]} · ${fmtMoney(bestDelta)}</div></div>`);
-  if(worstIdx>0) chips.push(`<div><div style="font-size:10px;color:var(--text3)">Worst month</div><div style="font-family:var(--mono);font-weight:700;font-size:14px" class="neg">${allDates[worstIdx]} · ${fmtMoney(worstDelta)}</div></div>`);
+  if(bestIdx>0) chips.push(`<div><div style="font-size:10px;color:var(--text3)">Best ${unitWord}</div><div style="font-family:var(--mono);font-weight:700;font-size:14px" class="pos">${allDates[bestIdx]} · ${fmtMoney(bestDelta)}</div></div>`);
+  if(worstIdx>0) chips.push(`<div><div style="font-size:10px;color:var(--text3)">Worst ${unitWord}</div><div style="font-family:var(--mono);font-weight:700;font-size:14px" class="neg">${allDates[worstIdx]} · ${fmtMoney(worstDelta)}</div></div>`);
 
   el.style.display = 'flex';
   el.innerHTML = chips.join('');
