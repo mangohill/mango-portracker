@@ -2896,13 +2896,11 @@ function drPerfBodyHtml(data){
   const totalDays = rows.reduce((s,r)=>s+rowDays(r),0);
   const avgDebtTotal = totalDays>0
     ? rows.reduce((s,r)=>s+(+r.avgDebt||0)*rowDays(r),0)/totalDays : null;
-  // Return is a rate, so its total is the day-weighted average of the yearly
-  // rates — the same weighting the debt cell uses, which is what keeps the two
-  // consistent however the mix of part-years and full years changes.
-  const rateRows = rows.filter(r=>r.returnPct!=null && isFinite(+r.returnPct) && rowDays(r)>0);
-  const rateDays = rateRows.reduce((s,r)=>s+rowDays(r),0);
-  const avgRet = rateDays>0
-    ? rateRows.reduce((s,r)=>s+(+r.returnPct)*rowDays(r),0)/rateDays : null;
+  // The TOTAL return is annualised: total net after tax over the day-weighted
+  // average debt, scaled to a 365-day year. Each row's % covers only the days
+  // it was open, so averaging those would not give a yearly rate.
+  const avgRet = (avgDebtTotal>0 && totalDays>0)
+    ? (totalNet/avgDebtTotal)*(365/totalDays)*100 : null;
   const totalInterest = rows.reduce((s,r)=>s+(+r.interest||0),0);
   const totalIncome = rows.reduce((s,r)=>s+(+r.incomeCash||0),0);
   const totalGrowth = rows.reduce((s,r)=>s+(+r.growth||0),0);
@@ -2986,7 +2984,7 @@ function drPerfBodyHtml(data){
       <td style="text-align:right;padding:6px 7px" class="${clr(totalPre)}">${n2(totalPre)}</td>
       <td class="dr-tax-cell" tabindex="0" onclick="this.focus()" title="Loan Interest ${n2(totalShield)} ${totalDivOp} Dividends ${n2(totalDivAbs)}" style="text-align:right;padding:6px 7px;${totalTaxEffect<0?'color:var(--red)':'color:var(--gold)'}">${n2(totalTaxEffect)}<div class="dr-tax-sub" style="font-size:9px;color:var(--text3);margin-top:1px">Loan Interest ${n2(totalShield)} ${totalDivOp} Dividends ${n2(totalDivAbs)}</div></td>
       <td style="text-align:right;padding:6px 7px" class="${clr(totalNet)}">${n2(totalNet)}</td>
-      <td style="text-align:right;padding:6px 7px" class="${clr(avgRet)}">${avgRet==null?'—':avgRet.toFixed(2)+'%'}</td>
+      <td style="text-align:right;padding:6px 7px" class="${clr(avgRet)}" title="Annualised: total net after tax ÷ average DR debt, scaled to a 365-day year">${avgRet==null?'—':avgRet.toFixed(2)+'% p.a.'}</td>
     </tr></tfoot>
   </table>`;
 
@@ -2998,12 +2996,15 @@ function drPerfBodyHtml(data){
   // margin over the breakeven — no separate comparison needed now that the
   // hurdle comes from actual interest. Dividend tax is inside it; CGT is not,
   // because the gain is unrealised.
-  const retSub = cur.returnPct==null ? 'No DR debt in the current FY'
-    : (cur.returnPct>=0 ? cur.returnPct.toFixed(2)+'% ahead of the '
-      : Math.abs(cur.returnPct).toFixed(2)+'% behind the ')
-      +(+cur.benchmarkPct||0).toFixed(2)+'% after-tax interest cost, yield = '
-      +(cur.returnPct+(+cur.benchmarkPct||0)).toFixed(2)+'%';
-  const retSubPrev = rows.length>1 ? (()=>{ const p = rows[rows.length-2]; return p.returnPct==null ? 'No DR debt in previous FY' : (p.returnPct>=0 ? p.returnPct.toFixed(2)+'% ahead of the ' : Math.abs(p.returnPct).toFixed(2)+'% behind the ') + (+p.benchmarkPct||0).toFixed(2)+'% after-tax interest cost, yield = ' + (p.returnPct+(+p.benchmarkPct||0)).toFixed(2)+'%'; })() : retSub;
+  // Subtitle = the two parts of the headline: what the investments earned after
+  // tax, less the after-tax interest on the debt. Built from the rounded parts so
+  // the sum on screen always adds up.
+  const retParts = r=>{
+    const ret = (+r.returnPct).toFixed(2), cost = (+r.benchmarkPct||0).toFixed(2);
+    return 'Earned '+(+ret + +cost).toFixed(2)+'% after tax − '+cost+'% interest after tax';
+  };
+  const retSub = cur.returnPct==null ? 'No DR debt in the current FY' : retParts(cur);
+  const retSubPrev = rows.length>1 ? (()=>{ const p = rows[rows.length-2]; return p.returnPct==null ? 'No DR debt in previous FY' : retParts(p); })() : retSub;
   const missingDates = +(data.meta && data.meta.missingSplitDates) || 0;
 
   return `
@@ -3014,7 +3015,7 @@ function drPerfBodyHtml(data){
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:4px;margin-bottom:6px">
       ${(() => { const showPrev = window.__drShowPrev && rows.length>1; const r = showPrev ? rows[rows.length-2] : cur; const lbl = showPrev ? 'Previous FY Net' : 'This FY Net'; const sub = showPrev ? 'FY'+r.fy : curSub; return kpi(lbl, n2(r.netAfterTax), clr(r.netAfterTax), sub, r.netAfterTax, 'dr-kpi-net', "window.__drShowPrev=!window.__drShowPrev;renderDRPerfContent(window.__drPerfScope||null);"); })()}
       ${(() => { const showPrev = window.__drShowPrev && rows.length>1; const r = showPrev ? rows[rows.length-2] : cur; return kpi('Return on DR Debt', r.returnPct==null?'—':r.returnPct.toFixed(2)+'%', clr(r.returnPct), showPrev ? retSubPrev : retSub, r.returnPct, 'dr-kpi-ret'); })()}
-      ${kpi('Lifetime Net', n2(totalNet), clr(totalNet), 'since FY'+rows[0].fy+' · '+(avgRet==null?'—':avgRet.toFixed(2)+'% avg on debt'), totalNet, 'dr-kpi-life')}
+      ${kpi('Lifetime Net', n2(totalNet), clr(totalNet), 'since FY'+rows[0].fy+' · '+(avgRet==null?'—':avgRet.toFixed(2)+'% p.a. on debt'), totalNet, 'dr-kpi-life')}
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px">
       <label style="display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--text2);cursor:pointer">
