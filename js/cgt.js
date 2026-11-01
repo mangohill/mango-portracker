@@ -1094,19 +1094,36 @@ let amitPdfPending = [];
 function parseAmitStatementText(text, filename){
   const symMatch   = text.match(/ASX\s*[Cc]ode\s*:\s*([A-Z0-9]{2,6})/i);
   const yearMatch  = text.match(/year\s+ended\s+30\s+June\s+(\d{4})/i);
-  const excessMatch    = text.match(/excess[^$]{0,40}\$\s*([\d,]+\.\d{2})/i)
+  // Monash-style AMMA statements print the figures with NO "$" sign, as a
+  // labelled table row: "AMIT cost base net amount - excess (decrease)  615.91".
+  // Anchor on that exact label first (the guide text further down repeats the
+  // label followed by "." not a number, so it can't false-match), then fall
+  // back to the older "$"-based wording used by Link/MUFG/Computershare/VanEck.
+  const excessMatch    = text.match(/AMIT\s+cost\s+base\s+net\s+amount\s*[-\u2013\u2014]\s*excess\s*\(decrease\)\s*\$?\s*([\d,]+\.\d{2})/i)
+                       || text.match(/excess[^$]{0,40}\$\s*([\d,]+\.\d{2})/i)
                        || text.match(/decrease\s+amount[^$]{0,20}\$\s*([\d,]+\.\d{2})/i);
-  const shortfallMatch = text.match(/shortfall[^$]{0,40}\$\s*([\d,]+\.\d{2})/i)
+  const shortfallMatch = text.match(/AMIT\s+cost\s+base\s+net\s+amount\s*[-\u2013\u2014]\s*shortfall\s*\(increase\)\s*\$?\s*([\d,]+\.\d{2})/i)
+                       || text.match(/shortfall[^$]{0,40}\$\s*([\d,]+\.\d{2})/i)
                        || text.match(/increase\s+amount[^$]{0,20}\$\s*([\d,]+\.\d{2})/i);
+  // Fund name = the line after "For the year ended 30 June YYYY" (kept for notes)
+  const nameMatch  = text.match(/year\s+ended\s+30\s+June\s+\d{4}[ \t]*\r?\n[ \t]*([^\r\n]{3,80})/i);
+  const fundName   = nameMatch ? nameMatch[1].trim() : '';
 
   let symbol = symMatch ? symMatch[1].toUpperCase() : '';
   let warning = '';
   if(!symbol){
-    // Fallback: derive from filename, e.g. "VAE_2025.pdf" -> "VAE"
+    // Unlisted funds (e.g. Monash Small Companies Fund) have no ASX code.
+    // Only trust a filename guess if it looks like a real ticker — generic
+    // names like "Tax_Statement_..." / "Listed_Tax_..." must NOT become symbols.
     const base = (filename||'').replace(/\.pdf$/i,'');
-    const guess = base.split(/[_\-\s]/)[0];
-    symbol = guess ? guess.toUpperCase() : '';
-    warning = 'Symbol not found in PDF text — guessed from filename, please verify.';
+    const guess = (base.split(/[_\-\s]/)[0]||'').toUpperCase();
+    const junk = ['TAX','LISTED','UNLISTED','STATEMENT','AMMA','AMIT','ANNUAL','DISTRIBUTION','FY'];
+    if(/^[A-Z0-9]{2,6}$/.test(guess) && !/^\d+$/.test(guess) && !junk.includes(guess)){
+      symbol = guess;
+      warning = 'Symbol not found in PDF text — guessed from filename, please verify.';
+    } else {
+      warning = 'No ASX code on this statement (unlisted fund?) — enter the symbol you hold it under.';
+    }
   }
 
   const year = yearMatch ? yearMatch[1] : '';
@@ -1115,18 +1132,19 @@ function parseAmitStatementText(text, filename){
 
   const excess    = excessMatch    ? parseFloat(excessMatch[1].replace(/,/g,''))    : 0;
   const shortfall = shortfallMatch ? parseFloat(shortfallMatch[1].replace(/,/g,'')) : 0;
-  // This is the one that actually matters — if the local extractor's text has
+  // This is the one that actually matters — if the extractor's text has
   // no trace of the adjustment labels at all, it's likely a font-encoding
-  // issue (some registries embed the label text with non-standard character
-  // codes the lightweight local extractor can't decode), not genuinely a
-  // zero-adjustment statement. Worth a proper re-read via the fallback.
+  // issue (Identity-H / ToUnicode fonts the lightweight local extractor can't
+  // decode), not genuinely a zero-adjustment statement. Worth a proper re-read
+  // via the fallback.
   const needsFallback = !excessMatch && !shortfallMatch;
   if(needsFallback){
     warning = (warning ? warning+' ' : '') + 'No AMIT cost-base adjustment figures found in the quick read — retrying with the fuller PDF reader…';
   }
   const amount = +(shortfall - excess).toFixed(2);
 
-  return { symbol, date, amount, notes: filename ? ('Auto-parsed from ' + filename) : '', filename, warning, needsFallback };
+  const notes = filename ? ('Auto-parsed from ' + filename + (fundName ? ' — ' + fundName : '')) : fundName;
+  return { symbol, date, amount, notes, filename, warning, needsFallback };
 }
 
 // ── FALLBACK: pdf.js via CDN ─────────────────────────────────────────────
@@ -1197,12 +1215,15 @@ async function handleAmitPdfFiles(fileList){
   for(const file of files){
     if(statusEl) statusEl.textContent = `Reading ${file.name}…`;
     try{
-      const text = await extractPDFText(file); // local extractor from tax.js — no CDN, no network
-      if(!text || text.length < 20){
-        notify(`Could not read text from ${file.name} — it may be an image-scanned PDF.`, 'err');
-        continue;
-      }
-      let parsed = parseAmitStatementText(text, file.name);
+      // Local extractor from tax.js — no CDN, no network. It only understands
+      // plain "(text) Tj" strings, so PDFs using Identity-H/ToUnicode fonts
+      // (e.g. Monash AMMA statements) come back EMPTY. Empty text is therefore
+      // a reason to try the pdf.js fallback, not to give up.
+      let text = '';
+      try{ text = await extractPDFText(file); }catch(e){ text = ''; }
+      let parsed = (text && text.length >= 20)
+        ? parseAmitStatementText(text, file.name)
+        : { symbol:'', date:'', amount:0, notes:'Auto-parsed from '+file.name, filename:file.name, warning:'', needsFallback:true };
 
       if(parsed.needsFallback){
         if(statusEl) statusEl.textContent = `${file.name}: quick read incomplete, trying fuller PDF reader (needs internet)…`;
