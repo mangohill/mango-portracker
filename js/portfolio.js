@@ -1766,6 +1766,7 @@ function renderT(){
             : 'Cost basis in ← ' + (t.fromSymbol||'?')) + '</td>'
         + '<td style="color:var(--text3);font-size:10px">' + (t.source||'') + '</td>'
         + '<td style="white-space:nowrap;padding:4px 8px">'
+        + (t.overrideCostBasis ? '<button class="edit-trade-btn" title="Override cost basis: $' + n2(+t.overrideCostBasis) + ' — click to clear it so cost base and AMIT adjustments carry over from the original holding" onclick="clearCaOverride(' + idxMap[t.id] + ')">Clear override</button>' : '')
         + '<button class="del-btn" onclick="delT(' + idxMap[t.id] + ')">&#10005;</button>'
         + '</td>'
         + '</tr>';
@@ -1995,6 +1996,19 @@ function addTrade(){
   notify(`Added: ${side.toUpperCase()} ${nN(units,4)} ${sym} @ ${n2(price,dec(price))}`);
 }
 function clearForm(){['fsy','fun','fpr','fno'].forEach(id=>$(id).value='');$('ffe').value='0';$('fpv').textContent='';}
+// Corporate-action rows have no full edit form. An override cost basis replaces
+// the carried-over parcel cost AND resets its AMIT adjustments to zero in the
+// CGT engine, so this lets you remove just that override (units/date untouched).
+function clearCaOverride(idx){
+  const t = trades[idx];
+  if(!t || t.type !== 'corporate_action' || !t.overrideCostBasis){ notify('No override to clear.','err'); return; }
+  if(!confirm('Clear the $' + n2(+t.overrideCostBasis) + ' override cost basis on ' + t.symbol + '? Cost base (and any AMIT adjustments) will carry over from ' + (t.fromSymbol||'the original holding') + ' instead.')) return;
+  delete t.overrideCostBasis;
+  save(); renderT(); renderH(); renderR();
+  if(typeof renderCGT === 'function'){ try{ renderCGT(); }catch(e){} }
+  notify('Override cleared.','ok');
+}
+
 function delT(idx){
   if(idx < 0 || idx >= trades.length){ notify('Trade not found.','err'); return; }
   if(!confirm('Delete this trade?')) return;
