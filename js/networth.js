@@ -887,7 +887,7 @@ function nwShowAfterTax(){
   };
 
   const panel = openHudPopup('nw-after-tax', header + controls + '<div id="nw-at-results"></div>' + disclaimer,
-    { minWidth: '560px', width: '1000px', fontSize: '12px' });
+    { width: '1100px', maxWidth: '96vw', minWidth: '320px', fontSize: '12px' });
   if(!panel) return; // clicking again just closes it
   nwAtActive = { model, sel, render };
   render();
