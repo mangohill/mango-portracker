@@ -318,10 +318,11 @@ a:hover{text-decoration:underline;text-underline-offset:2px;}
 .debt-red{color:var(--debt-red);}
 .debt-brick{color:var(--debt-brick);}
 .debt-coral{color:var(--debt-coral);}
-/* Super balances: current → prior FY → older FY */
-.su-current{color:var(--cat-super);}
-.su-prev{color:var(--cat-portfolio);}
-.su-older{color:var(--neutral-slate);}
+/* Super balances: current → prior FY → older FY. Ink recedes with age so the
+   live figure leads and history steps back — no decorative hue. */
+.su-current{color:var(--text);}
+.su-prev{color:var(--text2);}
+.su-older{color:var(--text3);}
 /* Super contributions by treatment — one accent (gold = subtotal), neutral ink
    for the components, muted for derived/reference figures. */
 .su-personal{color:var(--text);}
