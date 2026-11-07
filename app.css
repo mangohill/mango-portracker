@@ -322,11 +322,13 @@ a:hover{text-decoration:underline;text-underline-offset:2px;}
 .su-current{color:var(--cat-super);}
 .su-prev{color:var(--cat-portfolio);}
 .su-older{color:var(--neutral-slate);}
-/* Super contributions by treatment */
-.su-personal{color:var(--asset-mint);}
-.su-total{color:var(--gold);}
-.su-aftertax{color:var(--asset-lime);}
-.su-noncc{color:var(--cyan);}
+/* Super contributions by treatment — one accent (gold = subtotal), neutral ink
+   for the components, muted for derived/reference figures. */
+.su-personal{color:var(--text);}
+.su-total{color:var(--gold);font-weight:700!important;}
+.su-aftertax{color:var(--text2);}
+.su-noncc{color:var(--text);}
+.su-ref{color:var(--text3);}
 .su-muted{color:var(--text2);}
 
 /* ── Panels / tables ─────────────────────────────────────────────────── */

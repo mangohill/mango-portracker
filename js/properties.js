@@ -655,7 +655,7 @@ function renderSuperAccounts(){
                 ${stat('Total CC',        contribCur ? n2(contribCur)         : '—', contribCur ? 'su-total'   : 'neu')}
                 ${stat('After-tax (85%)', contribCur ? n2(contribCur*0.85)    : '—', contribCur ? 'su-aftertax': 'neu')}
                 ${ncc_cur  ? stat('Non-Concessional', n2(ncc_cur), 'su-noncc')            : ''}
-                ${sgc_cur  ? stat('SGC (excl. from cap)', n2(sgc_cur), 'neu', 'Not a concessional contribution') : ''}
+                ${sgc_cur  ? stat('SGC (excl. from cap)', n2(sgc_cur), 'su-ref', 'Not a concessional contribution') : ''}
               </div>
             </div>
             <div>
@@ -666,7 +666,7 @@ function renderSuperAccounts(){
                 ${stat('Total CC',        contribPrev ? n2(contribPrev)        : '—', contribPrev ? 'su-total'   : 'neu')}
                 ${stat('After-tax (85%)', contribPrev ? n2(contribPrev*0.85)   : '—', contribPrev ? 'su-aftertax': 'neu')}
                 ${ncc_prev ? stat('Non-Concessional', n2(ncc_prev), 'su-noncc')           : ''}
-                ${sgc_prev ? stat('SGC (excl. from cap)', n2(sgc_prev), 'neu', 'Not a concessional contribution') : ''}
+                ${sgc_prev ? stat('SGC (excl. from cap)', n2(sgc_prev), 'su-ref', 'Not a concessional contribution') : ''}
               </div>
             </div>
           </div>` :
@@ -815,7 +815,7 @@ function renderSuperAccounts(){
             <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${CUR_FY} — Current vs FY${PREV_FY} end</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
               ${stat('Start (FY'+PREV_FY+')',  n2(prevBal))}
-              ${stat('End (Current)',           n2(curBal), 'su-current')}
+              ${stat('End (Current)',           n2(curBal))}
               ${stat('After-tax CC',            roi_cur ? n2(roi_cur.afterTaxCC)       : '$0.00')}
               ${stat('Inv. Gain',               roi_cur ? fmtGain(roi_cur)                  : n2(curBal-prevBal))}
               ${stat('Avg Balance',             n2((prevBal+curBal)/2), 'su-muted')}
@@ -826,7 +826,7 @@ function renderSuperAccounts(){
             <div style="font-size:10px;color:var(--text3);margin-bottom:8px;font-family:var(--mono)">FY${PREV_FY} — FY${PREV_FY} vs FY${PREV2_FY} end</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
               ${prev2Bal !== null ? stat('Start (FY'+PREV2_FY+')', n2(prev2Bal)) : stat('Start (FY'+PREV2_FY+')', '—')}
-              ${stat('End (FY'+PREV_FY+')',      n2(prevBal), 'su-prev')}
+              ${stat('End (FY'+PREV_FY+')',      n2(prevBal))}
               ${stat('After-tax CC',            roi_prev ? n2(roi_prev.afterTaxCC)      : '$0.00')}
               ${stat('Inv. Gain',               roi_prev ? fmtGain(roi_prev)                : '—')}
               ${stat('Avg Balance',             prev2Bal !== null ? n2((prev2Bal+prevBal)/2) : '—', 'su-muted')}
