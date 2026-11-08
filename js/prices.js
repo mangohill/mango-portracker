@@ -30,6 +30,19 @@ function switchTab(name,el){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   $('panel-'+name).classList.add('active'); el.classList.add('active');
+  // Keep the active tab visible when the strip is wider than the window
+  // (phones, narrow desktop). Scrolls the tab bar horizontally only — the
+  // page itself never moves, so it can't fight the sticky header. The inner
+  // wrapper's padding is treated as a gutter at both ends, so scrolling back
+  // to Portfolio restores its 24px inset instead of pinning it to the glass.
+  const strip = el.closest('.tabs');
+  if(strip && strip.scrollWidth > strip.clientWidth){
+    const inner = strip.querySelector('.tabs-inner') || strip;
+    const pad = parseFloat(getComputedStyle(inner).paddingLeft) || 0;
+    const tr = el.getBoundingClientRect(), sr = strip.getBoundingClientRect();
+    if(tr.left < sr.left + pad) strip.scrollLeft -= (sr.left + pad - tr.left);
+    else if(tr.right > sr.right - pad) strip.scrollLeft += (tr.right - (sr.right - pad));
+  }
   updatePageHeader(name);
   // Reset all sort states on tab switch
   for(const k in SORT_STATE) delete SORT_STATE[k];

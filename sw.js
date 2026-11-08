@@ -1,11 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Portfolio Tracker — Service Worker
 // Strategy: Cache-first, background update
-// Scope: https://mangohill.github.io/mango-portracker/
+// Scope: the directory this file is served from (see BASE below)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'portfolio-tracker-1';
-const BASE       = '/mango-portracker/';
+const CACHE_NAME = 'portfolio-tracker-2';
+// Taken from where this file is served, so the precache list is correct on
+// GitHub Pages (/mango-portracker/) and on any other host (/, /preview/, …).
+const BASE       = new URL('./', self.location).pathname;
 
 const PRECACHE_URLS = [
   BASE,

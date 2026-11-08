@@ -204,7 +204,7 @@ a:hover{text-decoration:underline;text-underline-offset:2px;}
 .tabs{
   position:sticky;top:var(--header-h);z-index:90;
   display:flex;align-items:stretch;gap:0;
-  padding:0 18px;
+  padding:0;
   height:var(--tabs-h);
   background:rgba(10,11,14,.86);
   -webkit-backdrop-filter:blur(16px) saturate(140%);
@@ -214,6 +214,17 @@ a:hover{text-decoration:underline;text-underline-offset:2px;}
   -webkit-overflow-scrolling:touch;
 }
 .tabs::-webkit-scrollbar{display:none;}
+/* The row shares the content column's box, so the first tab lines up with the
+   page heading. It also drops its own left padding — otherwise the tab *box*
+   would align and the word itself would sit 13px inside. Auto margins collapse
+   to 0 below 1360px, so a narrow window still starts at the left edge and can
+   scroll through every tab (justify-content:center would clip that overflow). */
+.tabs-inner{
+  display:flex;align-items:stretch;
+  flex:0 0 auto;
+  width:100%;max-width:1360px;margin:0 auto;padding:0 24px;
+}
+.tabs-inner>.tab:first-child{padding-left:0;}
 .tab{
   position:relative;display:flex;align-items:center;
   font-family:var(--sans);font-size:10.5px;font-weight:600;
@@ -716,7 +727,8 @@ input[type="color"]::-webkit-color-swatch{border:none;border-radius:3px;}
   .logo-mark{width:17px;height:17px;}
   .hdr-r{gap:0;}
   .header .btn{padding:7px 8px;font-size:9.5px;}
-  .tabs{padding:0 10px;}
+  .tabs{padding:0;}
+  .tabs-inner{padding:0 13px;}
   .tab{padding:0 10px;font-size:9.5px;letter-spacing:.08em;}
   .main{padding:18px 13px 60px;}
   .page-head{margin-bottom:16px;}

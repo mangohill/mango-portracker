@@ -1,7 +1,12 @@
 // ── Service Worker Registration ───────────────────────────────────────────────
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/mango-portracker/sw.js', { scope: '/mango-portracker/' })
+    // Resolved from the app's own directory, not the site root: on GitHub Pages
+    // it lives under /mango-portracker/, and a root-absolute path fails on any
+    // other host (local static server, preview deploy, custom domain). Both
+    // sides resolve to the same URLs either way.
+    const swBase = location.href.replace(/[^/]*$/, '');
+    navigator.serviceWorker.register(new URL('sw.js', swBase).href, { scope: swBase })
       .then(reg => {
         console.log('[SW] Registered, scope:', reg.scope);
 
@@ -62,7 +67,10 @@ if('serviceWorker' in navigator){
 // a stale app can detect a new deploy even when the SW update event never
 // fires, and prompts the same reload banner.
 (function(){
-  const VERSION_URL = '/mango-portracker/version.json';
+  // Resolved next to this app rather than from the site root: on GitHub Pages
+  // it lives under /mango-portracker/, and a root-absolute path 404s on any
+  // other host (a local static server, a preview deploy, a custom domain).
+  const VERSION_URL = new URL('version.json', location.href.replace(/[^/]*$/, '')).href;
   let knownVersion = null;
 
   function showReloadBanner(){
