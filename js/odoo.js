@@ -11,6 +11,16 @@ const ODOO_LAST_KEY  = 'pt_odoo_last_sync';
 // First match wins; anything unmatched becomes "Other Shopping" and can be
 // recategorised by adding a rule here. Edit freely.
 const ODOO_CAT_RULES = [
+  [/annual fee|card fee|interest charge|international transaction fee/i, 'Fees'],
+  [/trip\.?com|expedia|agoda/i,                  'Travel Expenses & Holidays'],
+  [/telecom billing|mva\*/i,                     'Phone & Internet'],
+  [/sukanlaya|kusuka|siam smash|momo house|crepe shop|subway|beaumont|dessertland/i, 'Restaurants & Takeaway'],
+  [/majestea|charleys|jocelyns provisions/i,      'Cafe & Coffee'],
+  [/lavender/i,                                   'Attractions & Events'],
+  [/\baje\b/i,                                    'Clothing & Accessories'],
+  [/nordvpn|\bvpn\b/i,                            'Electronics & Technology'],
+  [/pillow talk/i,                                'Homeware & Home Improvements'],
+  [/\bunion\b|association|membership/i,           'Services'],
   [/woolworths|coles|aldi|iga\b/i,                'Groceries'],
   [/ampol|bp\b|shell|caltex|7-eleven|united petrol/i, 'Fuel'],
   [/qantas|jetstar|virgin australia|rex airlines/i,   'Flights'],
