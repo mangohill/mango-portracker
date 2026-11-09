@@ -11,6 +11,10 @@ const ODOO_LAST_KEY  = 'pt_odoo_last_sync';
 // First match wins; anything unmatched becomes "Other Shopping" and can be
 // recategorised by adding a rule here. Edit freely.
 const ODOO_CAT_RULES = [
+  [/\bgrab\b/i,                                  'Public Transport'],
+  [/fanatec/i,                                    'Electronics & Technology'],
+  [/\bunited\s*x{3,}|united airlines/i,           'Flights'],
+  [/handling fee/i,                               'Fees'],
   [/annual fee|card fee|interest charge|international transaction fee/i, 'Fees'],
   [/trip\.?com|expedia|agoda/i,                  'Travel Expenses & Holidays'],
   [/telecom billing|mva\*/i,                     'Phone & Internet'],
@@ -27,13 +31,13 @@ const ODOO_CAT_RULES = [
   [/uber eats|menulog|doordash|mcdonald|kfc|domino/i, 'Restaurants & Takeaway'],
   [/cafe|coffee|starbucks|gloria jean/i,          'Cafe & Coffee'],
   [/telstra|optus|vodafone|aussie broadband|belong/i, 'Phone & Internet'],
-  [/bunnings|ikea|kmart|spotlight/i,              'Homeware & Home Improvements'],
+  [/bunnings|ikea|spotlight/i,              'Homeware & Home Improvements'],
   [/translink|go card|uber(?! eats)|didi/i,       'Public Transport'],
   [/linkt|transurban|parking|secure parking/i,    'Parking & Tolls'],
   [/chemist|pharmacy|priceline|medical|dental/i,  'Medical'],
   [/airbnb|booking\.com|hotel|resort|motel/i,     'Accommodation'],
   [/anytime fitness|f45|gym|fitness/i,            'Gym & Fitness'],
-  [/jb hi-?fi|apple\.com|officeworks|harvey norman/i, 'Electronics & Technology'],
+  [/jb hi-?fi|apple\.com|harvey norman/i, 'Electronics & Technology'],
   [/ato\b|service nsw|qld gov|transport and main roads|council/i, 'Government'],
   [/insurance|nrma|racq|allianz|aami/i,           'Insurance'],
   [/netflix|spotify|disney|stan\b|binge|steam/i,  'Attractions & Events'],
@@ -54,7 +58,7 @@ function odooTokens(s){
 function odooBuildIndex(){
   const idx = new Map();                       // key -> { category: count }
   for(const d of spendingData){
-    if(d.odooId != null || d.amount >= 0 || !d.category || d.category.startsWith('__')) continue;
+    if(d.odooId != null || d.amount >= 0 || !d.category || d.category.startsWith('__') || d.category === 'Other Shopping') continue;
     for(const text of [d.merchant, d.details]){
       const toks = odooTokens(text);
       for(let L = 1; L <= 3 && L <= toks.length; L++){
@@ -100,13 +104,13 @@ function odooCategorise(merchant, amount, ref, idx){
   return (idx && odooLearned(idx, [merchant, ref])) || odooRuleCat(merchant) || 'Other Shopping';
 }
 
-// Re-run categorisation on Odoo rows still sitting in "Other Shopping" — picks up
+// Re-run categorisation on rows (Odoo or CSV) still sitting in "Other Shopping" — picks up
 // newly learned history and new rules without re-importing anything.
 function odooRecategorise(){
   const idx = odooBuildIndex();
   let n = 0;
   for(const d of spendingData){
-    if(d.odooId == null || d.amount >= 0 || d.category !== 'Other Shopping') continue;
+    if(d.amount >= 0 || d.category !== 'Other Shopping') continue;
     const c = odooLearned(idx, [d.merchant, d.details]) || odooRuleCat(d.merchant);
     if(c && c !== 'Other Shopping'){ d.category = c; n++; }
   }
