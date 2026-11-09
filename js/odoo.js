@@ -29,12 +29,78 @@ const ODOO_CAT_RULES = [
   [/netflix|spotify|disney|stan\b|binge|steam/i,  'Attractions & Events'],
 ];
 
-function odooCategorise(merchant, amount){
+// ── Learn categories from your existing (CSV-imported) history ──────────
+// Your bank's CSV carried a category per merchant; Odoo only has raw text. So we
+// index every past expense by the leading words of its merchant/details text and
+// reuse the category you already have for the same merchant.
+const ODOO_NOISE = new Set(['AU','AUS','AUD','QLD','NSW','VIC','WA','SA','TAS','NT','ACT','PTY','LTD',
+  'CARD','PURCHASE','EFTPOS','VISA','DEBIT','CREDIT','MASTERCARD','PAYWAVE','VALUE','DATE','AUSTRALIA']);
+
+function odooTokens(s){
+  return String(s || '').toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ').split(/\s+/)
+    .filter(t => t.length >= 2 && !/\d/.test(t) && !ODOO_NOISE.has(t));
+}
+
+function odooBuildIndex(){
+  const idx = new Map();                       // key -> { category: count }
+  for(const d of spendingData){
+    if(d.odooId != null || d.amount >= 0 || !d.category || d.category.startsWith('__')) continue;
+    for(const text of [d.merchant, d.details]){
+      const toks = odooTokens(text);
+      for(let L = 1; L <= 3 && L <= toks.length; L++){
+        const key = toks.slice(0, L).join(' ');
+        if(key.length < 4) continue;
+        const e = idx.get(key) || {};
+        e[d.category] = (e[d.category] || 0) + 1;
+        idx.set(key, e);
+      }
+    }
+  }
+  return idx;
+}
+
+function odooLearned(idx, texts){
+  for(const L of [3, 2, 1]){
+    for(const text of texts){
+      const toks = odooTokens(text);
+      // sliding start tolerates prefixes like "VISA PURCHASE 12MAR" before the merchant
+      for(let st = 0; st <= Math.min(3, toks.length - L); st++){
+        const e = idx.get(toks.slice(st, st + L).join(' '));
+        if(!e) continue;
+        const ents = Object.entries(e).sort((a, b) => b[1] - a[1]);
+        const total = ents.reduce((n, [, c]) => n + c, 0);
+        const [cat, cnt] = ents[0];
+        // a single common word (e.g. "UBER") must be a clear, repeated majority
+        if(L >= 2 || (cnt >= 2 && cnt / total >= 0.8)) return cat;
+      }
+    }
+  }
+  return null;
+}
+
+function odooRuleCat(merchant){
+  for(const [re, cat] of ODOO_CAT_RULES) if(re.test(merchant)) return cat;
+  return null;
+}
+
+function odooCategorise(merchant, amount, ref, idx){
   // Card payments into the card (positive, "payment"/"transfer"-like) are internal transfers.
   if(amount > 0 && /payment|transfer|bpay|thank you/i.test(merchant)) return '__TRANSFERS__';
   if(amount > 0) return '__REFUND__';
-  for(const [re, cat] of ODOO_CAT_RULES) if(re.test(merchant)) return cat;
-  return 'Other Shopping';
+  return (idx && odooLearned(idx, [merchant, ref])) || odooRuleCat(merchant) || 'Other Shopping';
+}
+
+// Re-run categorisation on Odoo rows still sitting in "Other Shopping" — picks up
+// newly learned history and new rules without re-importing anything.
+function odooRecategorise(){
+  const idx = odooBuildIndex();
+  let n = 0;
+  for(const d of spendingData){
+    if(d.odooId == null || d.amount >= 0 || d.category !== 'Other Shopping') continue;
+    const c = odooLearned(idx, [d.merchant, d.details]) || odooRuleCat(d.merchant);
+    if(c && c !== 'Other Shopping'){ d.category = c; n++; }
+  }
+  return n;
 }
 
 function odooWorkerURL(){
@@ -77,6 +143,7 @@ async function syncOdoo(opts = {}){
 
     if(typeof loadSpending === 'function' && !spendingData.length) loadSpending();
     const fysBefore = new Set(spendingData.map(d => d.fy));
+    const catIdx = odooBuildIndex();
     const haveIds = new Set(spendingData.filter(d => d.odooId != null).map(d => d.odooId));
     let added = 0, skipped = 0;
     for(const t of data.rows){
@@ -84,13 +151,14 @@ async function syncOdoo(opts = {}){
       const date = t.date;                       // already YYYY-MM-DD from Odoo
       const fy = spDateToFY(date);
       if(!fy) continue;
-      const rec = { date, fy, amount: t.amount, category: odooCategorise(merchant, t.amount),
+      const rec = { date, fy, amount: t.amount, category: odooCategorise(merchant, t.amount, t.ref, catIdx),
                     merchant, details: t.ref || merchant, odooId: t.id };
       // Odoo id is authoritative; fall back to the CSV-style heuristic so rows
       // already imported from a CSV aren't doubled up.
       if(haveIds.has(rec.odooId) || isDupSpend(rec, spendingData.filter(d => d.odooId == null))){ skipped++; continue; }
       spendingData.push(rec); haveIds.add(rec.odooId); added++;
     }
+    const recat = odooRecategorise();
     saveSpending();
     localStorage.setItem(ODOO_LAST_KEY, localDateStr());
     const fys = [...new Set(spendingData.map(d => d.fy))].filter(f => f != null).sort((a,b) => b-a);
@@ -98,7 +166,7 @@ async function syncOdoo(opts = {}){
     // otherwise keep whatever FY is being looked at.
     if(!fys.includes(spFY) || fys.some(f => !fysBefore.has(f) && f > spFY)) spFY = fys[0];
     renderSpFYBar(); renderSpending();
-    say(`✓ Odoo: ${added} new transaction${added===1?'':'s'}${skipped ? ' (' + skipped + ' already present)' : ''}`, 'var(--green)');
+    say(`✓ Odoo: ${added} new transaction${added===1?'':'s'}${skipped ? ' (' + skipped + ' already present)' : ''}${recat ? ', ' + recat + ' recategorised' : ''}`, 'var(--green)');
   }catch(e){
     say('✗ Odoo sync error: ' + e.message, 'var(--red)');
   }
