@@ -940,6 +940,7 @@
     <div style="font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.08em">FINANCIAL YEAR</div>
     <div id="sp-fy-bar" style="display:flex;gap:6px;flex-wrap:wrap"></div>
     <div style="flex:1"></div>
+    <select class="fi" id="sp-card" onchange="setSpCard(this.value)" title="Filter by card" style="display:none;font-size:12px;padding:5px 10px"></select>
     <input class="fi" type="text" id="sp-search" placeholder="Search merchant..." oninput="renderSpending()"
       style="width:180px;font-size:12px;padding:5px 10px">
     <button class="btn btn-g" onclick="syncOdoo({full:event.shiftKey})" oncontextmenu="event.preventDefault();odooSetToken()" title="Sync credit card transactions from Odoo (right-click / long-press to change token, Shift-click for a full re-sync)">SYNC ODOO</button>

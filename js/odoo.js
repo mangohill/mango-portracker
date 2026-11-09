@@ -156,17 +156,21 @@ async function syncOdoo(opts = {}){
 
     const fysBefore = new Set(spendingData.map(d => d.fy));
     const catIdx = odooBuildIndex();
-    const haveIds = new Set(spendingData.filter(d => d.odooId != null).map(d => d.odooId));
+    const byId = new Map(spendingData.filter(d => d.odooId != null).map(d => [d.odooId, d]));
+    const haveIds = new Set(byId.keys());
     let added = 0, skipped = 0;
     for(const t of data.rows){
       const merchant = (t.merchant || t.ref || 'Unknown').slice(0, 60);
       const date = t.date;                       // already YYYY-MM-DD from Odoo
       const fy = spDateToFY(date);
       if(!fy) continue;
+      const card = (t.journal || (t.journalId != null ? 'Card ' + t.journalId : '')).slice(0, 40);
       const rec = { date, fy, amount: t.amount, category: odooCategorise(merchant, t.amount, t.ref, catIdx),
-                    merchant, details: t.ref || merchant, odooId: t.id };
+                    merchant, details: t.ref || merchant, odooId: t.id, card };
       // Odoo id is authoritative; fall back to the CSV-style heuristic so rows
       // already imported from a CSV aren't doubled up.
+      // Rows synced before the card filter existed get their card label filled in here.
+      if(byId.has(rec.odooId) && card && byId.get(rec.odooId).card !== card) byId.get(rec.odooId).card = card;
       if(haveIds.has(rec.odooId) || isDupSpend(rec, spendingData.filter(d => d.odooId == null))){ skipped++; continue; }
       spendingData.push(rec); haveIds.add(rec.odooId); added++;
     }

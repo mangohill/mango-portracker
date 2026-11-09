@@ -16,6 +16,7 @@ let spendingData = [];
 
 // State
 let spFY = null;           // selected FY (null = latest)
+let spCard = '';            // selected card ('' = all, '__none__' = rows with no card, e.g. CSV imports)
 let spCatFilter = null;    // selected category (money out)
 let spInCatFilter = null;  // selected category (money in)
 let spSortOut = {col:'amount', dir:-1};  // money out category sort
@@ -48,8 +49,32 @@ function initSpending(){
   renderSpending();
 }
 
+// ── Card filter (cards come from Odoo journals; CSV rows have no card) ──
+function spCardMatch(d){
+  if(!spCard) return true;
+  return spCard === '__none__' ? !d.card : d.card === spCard;
+}
+function setSpCard(v){
+  spCard = v; spCatFilter = null; spInCatFilter = null;
+  renderSpCardFilter(); renderSpending();
+}
+function renderSpCardFilter(){
+  const sel = $('sp-card');
+  if(!sel) return;
+  const cards = [...new Set(spendingData.map(d => d.card).filter(Boolean))].sort();
+  const hasNone = spendingData.some(d => !d.card);
+  if(spCard && spCard !== '__none__' && !cards.includes(spCard)) spCard = '';
+  if(spCard === '__none__' && !hasNone) spCard = '';
+  // Only worth showing once there is something to choose between.
+  sel.style.display = (cards.length + (hasNone && cards.length ? 1 : 0)) >= 2 ? '' : 'none';
+  sel.innerHTML = '<option value="">All cards</option>'
+    + cards.map(c => `<option value="${escHtml(c)}"${spCard===c?' selected':''}>${escHtml(c)}</option>`).join('')
+    + (hasNone && cards.length ? `<option value="__none__"${spCard==='__none__'?' selected':''}>Other / CSV imports</option>` : '');
+}
+
 function renderSpFYBar(){
   const fys = [...new Set(spendingData.map(d=>d.fy))].filter(f=>f!=null).sort((a,b)=>b-a);
+  renderSpCardFilter();
   const bar = $('sp-fy-bar');
   if(!bar) return;
   bar.innerHTML = fys.map(fy=>
@@ -66,6 +91,7 @@ function getSpData(){
   const search = ($('sp-search')?.value||'').toLowerCase();
   return spendingData.filter(d => {
     if(d.fy !== spFY) return false;
+    if(!spCardMatch(d)) return false;
     if(search && !d.merchant.toLowerCase().includes(search) && !d.details.toLowerCase().includes(search)) return false;
     return true;
   });
@@ -75,7 +101,7 @@ function renderSpending(){
   const data = getSpData();
 
   // ── Summary cards ───────────────────────────────────────────────
-  const transfers = spendingData.filter(d=>d.fy===spFY&&d.category==='__TRANSFERS__');
+  const transfers = spendingData.filter(d=>d.fy===spFY&&d.category==='__TRANSFERS__'&&spCardMatch(d));
   const totalSpent   = transfers.reduce((s,d)=>s+d.amount,0); // positive = payment into CC
   const totalOut = data.filter(d=>d.amount<0&&!SP_MONEY_IN.has(d.category)&&!SP_EXCLUDE.has(d.category))
                        .reduce((s,d)=>s+(-d.amount),0);

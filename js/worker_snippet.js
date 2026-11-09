@@ -15,7 +15,7 @@ if (url.searchParams.get("odooTxns") === "1") {
     const domain = [];
     if (since && /^\d{4}-\d{2}-\d{2}$/.test(since)) domain.push(["date", ">=", since]);
     if (env.ODOO_JOURNAL_ID) domain.push(["journal_id", "in", env.ODOO_JOURNAL_ID.split(",").map(Number)]);
-    const fields = ["id", "date", "payment_ref", "amount", "partner_id"];
+    const fields = ["id", "date", "payment_ref", "amount", "partner_id", "journal_id"];
     const base = env.ODOO_URL.replace(/\/+$/, "");
     const PAGE = 500;
     const rows = [];
@@ -53,9 +53,10 @@ if (url.searchParams.get("odooTxns") === "1") {
       rows: rows.map(x => ({
         id: x.id, date: x.date, amount: x.amount,
         merchant: Array.isArray(x.partner_id) ? x.partner_id[1] : (x.payment_ref || ""),
-        ref: x.payment_ref || ""
+        ref: x.payment_ref || "",
+        journalId: Array.isArray(x.journal_id) ? x.journal_id[0] : (x.journal_id && typeof x.journal_id === "object" ? x.journal_id.id : x.journal_id),
+        journal: Array.isArray(x.journal_id) ? x.journal_id[1] : ((x.journal_id && x.journal_id.display_name) || "")
       }))
     }), { headers: CORS });
   } catch (e) { return bad(e.message, 502); }
 }
-
