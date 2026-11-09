@@ -11,6 +11,9 @@ const ODOO_LAST_KEY  = 'pt_odoo_last_sync';
 // First match wins; anything unmatched becomes "Other Shopping" and can be
 // recategorised by adding a rule here. Edit freely.
 const ODOO_CAT_RULES = [
+  [/veneta blinds|\bblinds\b/i,                  'Homeware & Home Improvements'],
+  [/philips hue|\bhue webstore/i,                'Electronics & Technology'],
+  [/instant gaming|gamesplanet/i,                 'Attractions & Events'],
   [/\bgrab\b/i,                                  'Public Transport'],
   [/fanatec/i,                                    'Electronics & Technology'],
   [/\bunited\s*x{3,}|united airlines/i,           'Flights'],
