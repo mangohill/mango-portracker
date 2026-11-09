@@ -125,12 +125,15 @@ async function syncOdoo(opts = {}){
   let token = localStorage.getItem(ODOO_TOKEN_KEY) || '';
   if(!token){ if(!odooSetToken()) return; token = localStorage.getItem(ODOO_TOKEN_KEY); }
 
-  // Incremental: last successful sync date minus a 7-day overlap (late-posting
-  // transactions); full history on first run or when opts.full is set.
-  const last = localStorage.getItem(ODOO_LAST_KEY);
+  // Incremental start point comes from the DATA, not a stored date: the newest Odoo row
+  // already in Spending, minus a 7-day overlap for late-posting transactions. If there are
+  // no Odoo rows at all (first run, or after restoring an older backup) it pulls everything.
+  // This self-heals after any restore, which a separately stored "last sync" date can't.
+  if(typeof loadSpending === 'function' && !spendingData.length) loadSpending();
+  const odooDates = spendingData.filter(d => d.odooId != null).map(d => d.date).sort();
   let since = '';
-  if(last && !opts.full){
-    const d = new Date(last + 'T00:00:00'); d.setDate(d.getDate() - 7);
+  if(odooDates.length && !opts.full){
+    const d = new Date(odooDates[odooDates.length - 1] + 'T00:00:00'); d.setDate(d.getDate() - 7);
     since = localDateStr(d);
   }
 
@@ -141,7 +144,6 @@ async function syncOdoo(opts = {}){
     const data = await r.json();
     if(!r.ok || data.error){ say('✗ Odoo sync failed: ' + (data.error || r.status), 'var(--red)'); return; }
 
-    if(typeof loadSpending === 'function' && !spendingData.length) loadSpending();
     const fysBefore = new Set(spendingData.map(d => d.fy));
     const catIdx = odooBuildIndex();
     const haveIds = new Set(spendingData.filter(d => d.odooId != null).map(d => d.odooId));
