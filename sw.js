@@ -4,7 +4,7 @@
 // Scope: the directory this file is served from (see BASE below)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CACHE_NAME = 'portfolio-tracker-2';
+const CACHE_NAME = 'portfolio-tracker-3';
 // Taken from where this file is served, so the precache list is correct on
 // GitHub Pages (/mango-portracker/) and on any other host (/, /preview/, …).
 const BASE       = new URL('./', self.location).pathname;
@@ -26,6 +26,7 @@ const PRECACHE_URLS = [
   BASE + 'js/properties.js',
   BASE + 'js/settings.js',
   BASE + 'js/spending.js',
+  BASE + 'js/odoo.js',
   BASE + 'js/backup.js',
   BASE + 'js/cgt.js',
   BASE + 'js/tax.js',

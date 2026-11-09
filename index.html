@@ -64,20 +64,22 @@
   </div>
 </div>
 
-<div class="tabs">
-  <div class="tabs-inner">
-    <div class="tab active" onclick="switchTab('portfolio',this)">Portfolio</div>
-    <div class="tab" onclick="switchTab('holdings2',this)">Holdings</div>
-    <div class="tab" onclick="switchTab('trades',this)">Trades</div>
-    <div class="tab" onclick="switchTab('dividends',this)">Dividends</div>
-    <div class="tab" onclick="switchTab('analytics',this)">Analytics</div>
-    <div class="tab" onclick="switchTab('networth',this)">Net Worth</div>
-    <div class="tab" onclick="switchTab('property',this)">Property</div>
-    <div class="tab" onclick="switchTab('super',this)">Super</div>
-    <div class="tab" onclick="switchTab('spending',this)">Spending</div>
-    <div class="tab" onclick="switchTab('tax',this)">Tax</div>
-    <div class="tab" id="tab-cgt" onclick="switchTab('cgt',this)">Capital Gains</div>
-    <div class="tab" onclick="switchTab('settings',this)">Settings</div>
+<div class="tabs-shell">
+  <div class="tabs">
+    <div class="tabs-inner" role="tablist" aria-label="Sections">
+      <div class="tab active" role="tab" id="tab-portfolio" aria-controls="panel-portfolio" aria-selected="true" tabindex="0" onclick="switchTab('portfolio',this)">Portfolio</div>
+      <div class="tab" role="tab" id="tab-holdings2" aria-controls="panel-holdings2" aria-selected="false" tabindex="-1" onclick="switchTab('holdings2',this)">Holdings</div>
+      <div class="tab" role="tab" id="tab-trades" aria-controls="panel-trades" aria-selected="false" tabindex="-1" onclick="switchTab('trades',this)">Trades</div>
+      <div class="tab" role="tab" id="tab-dividends" aria-controls="panel-dividends" aria-selected="false" tabindex="-1" onclick="switchTab('dividends',this)">Dividends</div>
+      <div class="tab" role="tab" id="tab-analytics" aria-controls="panel-analytics" aria-selected="false" tabindex="-1" onclick="switchTab('analytics',this)">Analytics</div>
+      <div class="tab" role="tab" id="tab-networth" aria-controls="panel-networth" aria-selected="false" tabindex="-1" onclick="switchTab('networth',this)">Net Worth</div>
+      <div class="tab" role="tab" id="tab-property" aria-controls="panel-property" aria-selected="false" tabindex="-1" onclick="switchTab('property',this)">Property</div>
+      <div class="tab" role="tab" id="tab-super" aria-controls="panel-super" aria-selected="false" tabindex="-1" onclick="switchTab('super',this)">Super</div>
+      <div class="tab" role="tab" id="tab-spending" aria-controls="panel-spending" aria-selected="false" tabindex="-1" onclick="switchTab('spending',this)">Spending</div>
+      <div class="tab" role="tab" id="tab-tax" aria-controls="panel-tax" aria-selected="false" tabindex="-1" onclick="switchTab('tax',this)">Tax</div>
+      <div class="tab" role="tab" id="tab-cgt" aria-controls="panel-cgt" aria-selected="false" tabindex="-1" onclick="switchTab('cgt',this)">Capital Gains</div>
+      <div class="tab" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1" onclick="switchTab('settings',this)">Settings</div>
+    </div>
   </div>
 </div>
 
@@ -92,7 +94,7 @@
 </div>
 
 <!-- PORTFOLIO -->
-<div class="panel active" id="panel-portfolio">
+<div class="panel active" id="panel-portfolio" role="tabpanel" aria-labelledby="tab-portfolio" tabindex="0">
   <div class="cards" id="portfolio-cards" onclick="cyclePortfolioView()" style="cursor:pointer" title="Click to cycle: All → Stocks → Crypto">
     <div class="card"><div class="card-label" id="cl-mv">Market Value</div><div class="card-value neu" id="cv">$0.00</div><div class="card-sub" id="cs-mv">AUD · all assets</div><div class="mv-spark-wrap"><canvas id="mv-spark"></canvas></div></div>
     <div class="card"><div class="card-label" id="cl-cb">Cost Basis</div><div class="card-value neu" id="cc">$0.00</div><div class="card-sub" id="cs-cb">Total invested</div></div>
@@ -133,7 +135,7 @@
 </div>
 
 <!-- TRADES -->
-<div class="panel" id="panel-trades">
+<div class="panel" id="panel-trades" role="tabpanel" aria-labelledby="tab-trades" tabindex="0">
 
   <div class="fs" style="margin-bottom:12px">
     <div class="fst" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0" onclick="toggleSection('import')">
@@ -382,7 +384,7 @@
 
 
 <!-- ANALYTICS -->
-<div class="panel" id="panel-analytics">
+<div class="panel" id="panel-analytics" role="tabpanel" aria-labelledby="tab-analytics" tabindex="0">
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px">
     <select class="fsm" id="an-period" onchange="renderAnalytics()">
       <option value="all">All Time</option>
@@ -469,7 +471,7 @@
 </div>
 
 <!-- HOLDINGS DETAIL -->
-<div class="panel" id="panel-holdings2">
+<div class="panel" id="panel-holdings2" role="tabpanel" aria-labelledby="tab-holdings2" tabindex="0">
   <div class="tw">
     <div class="th">
       <span class="tt">HOLDINGS DETAIL</span>
@@ -531,7 +533,7 @@
 </div>
 
 <!-- DIVIDENDS -->
-<div class="panel" id="panel-dividends">
+<div class="panel" id="panel-dividends" role="tabpanel" aria-labelledby="tab-dividends" tabindex="0">
   <!-- Summary cards -->
   <div class="cards" id="div-cards" style="margin-bottom:18px"></div>
 
@@ -678,7 +680,7 @@
 </div>
 
 <!-- PROPERTY -->
-<div class="panel" id="panel-property">
+<div class="panel" id="panel-property" role="tabpanel" aria-labelledby="tab-property" tabindex="0">
 
   <!-- Net Worth Summary bar -->
   <div class="cards" id="pw-cards" style="margin-bottom:18px"></div>
@@ -790,7 +792,7 @@
 
 </div>
 <!-- SUPER -->
-<div class="panel" id="panel-super">
+<div class="panel" id="panel-super" role="tabpanel" aria-labelledby="tab-super" tabindex="0">
 
   <!-- Summary cards -->
   <div class="cards" id="su-cards" style="margin-bottom:18px"></div>
@@ -928,7 +930,7 @@
 </div>
 </div>
 <!-- SPENDING -->
-<div class="panel" id="panel-spending">
+<div class="panel" id="panel-spending" role="tabpanel" aria-labelledby="tab-spending" tabindex="0">
 
   <!-- Summary cards -->
   <div class="cards" id="sp-cards" style="margin-bottom:20px"></div>
@@ -940,6 +942,7 @@
     <div style="flex:1"></div>
     <input class="fi" type="text" id="sp-search" placeholder="Search merchant..." oninput="renderSpending()"
       style="width:180px;font-size:12px;padding:5px 10px">
+    <button class="btn btn-g" onclick="syncOdoo()" oncontextmenu="event.preventDefault();odooSetToken()" title="Sync credit card transactions from Odoo (right-click / long-press to change token)">SYNC ODOO</button>
     <label class="btn btn-g" style="cursor:pointer" title="Import credit card CSV">
        IMPORT CSV
       <input type="file" accept=".csv" style="display:none" onchange="importSpendingCSV(this)">
@@ -994,12 +997,12 @@
 
 
 <!-- SETTINGS -->
-<div class="panel" id="panel-tax"></div>
-<div class="panel" id="panel-cgt"></div>
+<div class="panel" id="panel-tax" role="tabpanel" aria-labelledby="tab-tax" tabindex="0"></div>
+<div class="panel" id="panel-cgt" role="tabpanel" aria-labelledby="tab-cgt" tabindex="0"></div>
 
-<div class="panel" id="panel-networth"></div>
+<div class="panel" id="panel-networth" role="tabpanel" aria-labelledby="tab-networth" tabindex="0"></div>
 
-<div class="panel" id="panel-settings">
+<div class="panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0">
 
   <!-- Cloudflare Worker setup -->
   <div class="fs" style="margin-bottom:16px">
@@ -1320,6 +1323,7 @@
   <script src="js/properties.js"></script>
   <script src="js/settings.js"></script>
   <script src="js/spending.js"></script>
+  <script src="js/odoo.js"></script>
   <script src="js/backup.js"></script>
   <script src="js/cgt.js"></script>
   <script src="js/tax.js"></script>
