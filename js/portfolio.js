@@ -1735,7 +1735,12 @@ function renderT(){
       html += '<td><select class="fi" id="et-source" style="padding:3px 5px;font-size:11px">';
       getAllBrokers().forEach(b=>{ html += '<option value="' + b.value + '"' + (t.source===b.value?' selected':'') + '>' + b.label + '</option>'; });
       html += '</select></td>';
-      html += '<td><input class="fi" type="text" id="et-notes" value="' + escHtml(t.notes||'') + '" placeholder="Notes…" style="width:120px;padding:3px 5px"></td>';
+      html += '<td><input class="fi" type="text" id="et-notes" value="' + escHtml(t.notes||'') + '" placeholder="Notes…" style="width:120px;padding:3px 5px">';
+      if(t.type==='buy' && typeof drSplitOptionsHtml==='function'){
+        const _opts = drSplitOptionsHtml(t.symbol, t.loanSplit||'');
+        if(_opts) html += '<br><select class="fi" id="et-split" title="Debt recycling loan split that funded this buy" style="margin-top:4px;padding:3px 5px;font-size:11px;max-width:180px">' + _opts + '</select>';
+      }
+      html += '</td>';
       html += '<td colspan="3" style="white-space:nowrap;padding:6px 8px">';
       html += '<button class="btn btn-g" style="padding:4px 12px;font-size:11px" onclick="saveEditTrade()">&#10003; SAVE</button> ';
       html += '<button class="btn" style="padding:4px 8px;font-size:11px" onclick="cancelEditTrade()">&#10005;</button>';
@@ -1786,7 +1791,7 @@ function renderT(){
       + '<td style="text-align:right;color:var(--text3)">' + n2(+t.fees||0) + '</td>'
       + '<td style="text-align:right">' + n2(net) + '</td>'
       + '<td style="text-align:right" class="' + roiC + '">' + roiCell + '</td>'
-      + '<td style="color:var(--text3);font-size:10px">' + (t.source||'') + '</td>'
+      + '<td style="color:var(--text3);font-size:10px">' + (t.source||'') + (typeof drTradeChip==='function' ? drTradeChip(t) : '') + '</td>'
       + '<td style="white-space:nowrap;padding:4px 8px">'
       + '<button class="edit-trade-btn" data-ri="' + ri + '">Edit</button>'
       + '<button class="del-btn" onclick="delT(' + idxMap[t.id] + ')">&#10005;</button>'
@@ -1950,7 +1955,8 @@ function saveEditTrade(){
   if(units<=0){ notify('Units must be greater than zero.','err'); return; }
   if(price<0){ notify('Price cannot be negative.','err'); return; }
   const prevAsset = trades[idx].assetType;
-  trades[idx] = {...trades[idx], date, symbol:sym, type, assetType:asset, units, price, fees, source, notes};
+  const loanSplit = type==='buy' ? ($('et-split') ? $('et-split').value : (trades[idx].loanSplit||'')) : '';
+  trades[idx] = {...trades[idx], date, symbol:sym, type, assetType:asset, units, price, fees, source, notes, loanSplit: loanSplit||undefined};
   // Offer bulk retype if assetType changed and other trades exist for this symbol
   if(asset !== prevAsset){
     const others = trades.filter((t,i)=> i!==idx && t.symbol===sym && t.assetType!==asset);
@@ -1988,6 +1994,9 @@ function addTrade(){
   if(units<=0){notify('Units must be greater than zero.','err');return;}
   if((side==='buy'||side==='sell')&&price<0){notify('Price cannot be negative.','err');return;}
   const newTrade = {date,type:side,symbol:sym,assetType:at,units,price,fees,source,notes,id:uid()};
+  // Debt recycling: which investment loan split funded this buy (field only shown for DR-linked symbols)
+  const _ls = ($('fls-wrap') && $('fls-wrap').style.display!=='none' && side==='buy') ? $('fls').value : '';
+  if(_ls) newTrade.loanSplit = _ls;
   if(isTradeDuplicate(newTrade)){
     if(!confirm('A trade with the same date, symbol, type, units and price already exists. Add anyway?')) return;
   }
@@ -1995,7 +2004,9 @@ function addTrade(){
   save(); clearForm(); renderR(); renderH(); renderT(); if(typeof renderAnalytics==='function') renderAnalytics();
   notify(`Added: ${side.toUpperCase()} ${nN(units,4)} ${sym} @ ${n2(price,dec(price))}`);
 }
-function clearForm(){['fsy','fun','fpr','fno'].forEach(id=>$(id).value='');$('ffe').value='0';$('fpv').textContent='';}
+function clearForm(){['fsy','fun','fpr','fno'].forEach(id=>$(id).value='');$('ffe').value='0';$('fpv').textContent='';
+  if($('fls')) $('fls').value='';
+  if(typeof drRefreshTradeSplitSelect==='function') drRefreshTradeSplitSelect();}
 // Corporate-action rows have no full edit form. An override cost basis replaces
 // the carried-over parcel cost AND resets its AMIT adjustments to zero in the
 // CGT engine, so this lets you remove just that override (units/date untouched).

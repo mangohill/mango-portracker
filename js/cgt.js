@@ -189,7 +189,9 @@ function buildDisposals(asOf){
 
     if(t.type === 'buy' || t.type === 'drp'){
       const buyCost = (+t.units * +t.price) + (+t.fees||0);
-      ensure(sym).push({ id:'p'+(seq++), units:+t.units, cost:buyCost, originalCost:buyCost, amitTotal:0, date:t.date, source:t.type });
+      ensure(sym).push({ id:'p'+(seq++), units:+t.units, cost:buyCost, originalCost:buyCost, amitTotal:0, date:t.date, source:t.type,
+                         // Debt-recycling loan split that funded this parcel ('' = none / unassigned). Informational only; no CGT maths reads it.
+                         split: (typeof drEffectiveSplit==='function' ? drEffectiveSplit(t) : (t.loanSplit&&t.loanSplit!=='none'?t.loanSplit:'')) });
 
     } else if(t.type === 'sell'){
       let unitsToSell = +t.units;
@@ -249,21 +251,21 @@ function buildDisposals(asOf){
             stash.forEach(p=>{
               const share = ovStashCost > 0 ? p.cost / ovStashCost : p.units / ovStashUnits;
               const c = +t.overrideCostBasis * share;
-              destList.push({ id:'p'+(seq++), units:p.units*ovRatio, cost:c, originalCost:c, amitTotal:0, date:p.date, source:'buy' });
+              destList.push({ id:'p'+(seq++), units:p.units*ovRatio, cost:c, originalCost:c, amitTotal:0, date:p.date, source:'buy', split:p.split||'' });
             });
           }
         } else if(sub === 'spinoff_to'){
           const stashUnits = stash.reduce((s,p)=>s+p.units,0) || 1;
           stash.forEach(p=>{
             destList.push({ id:'p'+(seq++), units: p.units*(+t.units/stashUnits), cost: p.cost*allocPct,
-                            originalCost:(p.originalCost||p.cost)*allocPct, amitTotal:(p.amitTotal||0)*allocPct, date:p.date, source:p.source });
+                            originalCost:(p.originalCost||p.cost)*allocPct, amitTotal:(p.amitTotal||0)*allocPct, date:p.date, source:p.source, split:p.split||'' });
           });
         } else {
           const stashUnits = stash.reduce((s,p)=>s+p.units,0) || 1;
           const ratioUnits = +t.units / stashUnits;
           stash.forEach(p=>{
             destList.push({ id:'p'+(seq++), units: p.units*ratioUnits, cost: p.cost,
-                            originalCost:(p.originalCost!=null?p.originalCost:p.cost), amitTotal:(p.amitTotal||0), date:p.date, source:p.source });
+                            originalCost:(p.originalCost!=null?p.originalCost:p.cost), amitTotal:(p.amitTotal||0), date:p.date, source:p.source, split:p.split||'' });
           });
         }
         if(sub === 'spinoff_to'){

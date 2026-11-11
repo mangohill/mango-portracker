@@ -3692,3 +3692,167 @@ function togglePropRepay(){
 
 
 // ── SETTINGS ─────────────────────────────────────────────────────────
+
+// ═══ DEBT RECYCLING — per-loan-split income apportionment ═══════════════
+// A buy can be tagged with the investment loan split that funded it:
+//   trade.loanSplit = "<propertyId>:<splitId>"  → that split
+//   trade.loanSplit = "none"                    → personal funds (not DR)
+//   (blank)                                     → auto: if exactly one investment
+//        split of a property that links the symbol is active on the trade date
+//        (Start Date ≤ date ≤ End Date), that split is used; otherwise unassigned.
+// Dividend / distribution / DRP cash is then apportioned by the units each split
+// funded on the entitlement date, using the same FIFO parcel engine as the CGT tab.
+
+function drSplitKey(p, sp){ return p.id + ':' + sp.id; }
+
+function drPropsForSymbol(sym){
+  const s = String(sym||'').toUpperCase();
+  return (typeof properties!=='undefined' ? properties : [])
+    .filter(p => p && p.debtRecycling && drSymbolsSet(p).has(s));
+}
+
+function drSplitActiveOn(sp, date){
+  const d  = String(date||'').slice(0,10);
+  const ss = drSplitStart(sp);
+  if(!ss || !d || d < ss) return false;
+  const se = sp.endDate ? String(sp.endDate).slice(0,10) : '';
+  return !(se && d > se);
+}
+
+// The loan-split key a trade belongs to ('' = none / unassigned).
+function drEffectiveSplit(t){
+  if(!t || t.loanSplit === 'none') return '';
+  if(t.loanSplit) return t.loanSplit;
+  if(t.type !== 'buy') return '';        // DRP units are spread pro-rata (see drSplitIncomeForFY)
+  const hits = [];
+  drPropsForSymbol(t.symbol).forEach(p => drInvSplits(p).forEach(sp => {
+    if(sp.id && drSplitActiveOn(sp, t.date)) hits.push(drSplitKey(p, sp));
+  }));
+  return hits.length === 1 ? hits[0] : '';
+}
+
+function drSplitLabel(key){
+  const k = String(key||''), i = k.indexOf(':');
+  if(i < 0) return '';
+  const p = (typeof properties!=='undefined' ? properties : []).find(x => x.id === k.slice(0,i));
+  if(!p) return 'Removed property';
+  const sp = normaliseSplits(p).find(s => s.id === k.slice(i+1));
+  return (p.name||p.address||'Property') + ' — ' + (sp ? (sp.label||'Split') : 'removed split');
+}
+
+function drSplitOptionsHtml(sym, selected){
+  const props = drPropsForSymbol(sym);
+  if(!props.length) return '';
+  let h = '<option value="">Auto (by split dates)</option>'
+        + '<option value="none"' + (selected==='none' ? ' selected' : '') + '>Not DR — personal funds</option>';
+  props.forEach(p => drInvSplits(p).forEach(sp => {
+    if(!sp.id) return;
+    const k = drSplitKey(p, sp);
+    h += '<option value="' + escHtml(k) + '"' + (selected===k ? ' selected' : '') + '>'
+       + escHtml((p.name||p.address||'Property') + ' — ' + (sp.label||'Split')) + '</option>';
+  }));
+  return h;
+}
+
+// Show/hide + repopulate the Add Trade form's split picker (DR-linked symbols, buys only).
+function drRefreshTradeSplitSelect(){
+  const wrap = document.getElementById('fls-wrap'), sel = document.getElementById('fls');
+  if(!wrap || !sel) return;
+  const sym  = (document.getElementById('fsy')||{}).value;
+  const side = (document.getElementById('fsi')||{}).value;
+  if(side !== 'buy' || !drSplitOptionsHtml(sym, '')){ wrap.style.display = 'none'; sel.innerHTML = ''; return; }
+  const cur = sel.value;
+  sel.innerHTML = drSplitOptionsHtml(sym, cur);
+  wrap.style.display = '';
+}
+
+// Small tag in the trades table: explicit tag, auto-assigned, or personal funds.
+function drTradeChip(t){
+  if(!t || t.type !== 'buy' || !drPropsForSymbol(t.symbol).length) return '';
+  const st = 'display:block;font-size:9px;color:var(--text3);white-space:nowrap';
+  if(t.loanSplit === 'none') return '<span style="'+st+'">personal funds</span>';
+  const eff = drEffectiveSplit(t);
+  if(!eff) return '<span style="'+st+';color:var(--neg)" title="No single investment split was active on this date — pick one via Edit.">split: unassigned</span>';
+  return '<span style="'+st+'" title="'+escHtml(drSplitLabel(eff))+'">' + (t.loanSplit ? '' : 'auto · ') + escHtml(drSplitLabel(eff).split(' — ').pop()) + '</span>';
+}
+
+// Buys of DR-linked symbols, made on/after the earliest investment split start, that
+// resolve to no split (and weren't marked personal). Their income lands in "Unallocated".
+function drUnassignedBuys(){
+  let earliest = '';
+  (typeof properties!=='undefined' ? properties : []).forEach(p => {
+    if(!p.debtRecycling) return;
+    drInvSplits(p).forEach(sp => { const s = drSplitStart(sp); if(s && (!earliest || s < earliest)) earliest = s; });
+  });
+  if(!earliest) return [];
+  return trades.filter(t => t.type==='buy' && t.date >= earliest && t.loanSplit!=='none'
+                            && drPropsForSymbol(t.symbol).length && !drEffectiveSplit(t));
+}
+
+function drDayBefore(dateStr){
+  const d = new Date(String(dateStr).slice(0,10) + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0,10);
+}
+
+// Income for FY, apportioned by loan split.
+// Entitlement = units held the day BEFORE the dividend's ex-date (d.exDate if present),
+// otherwise the day before the recorded (payment) date, so same-day DRP issues don't count.
+// Untagged DRP units are spread pro-rata across the tagged splits; if nothing is tagged
+// they fall to Unallocated.
+function drSplitIncomeForFY(fy){
+  const types = ['dividend','distribution','drp'];
+  const cache = {};
+  const buckets = {};                          // key ('' = unallocated) -> bucket
+  const bucket = key => (buckets[key] = buckets[key] || { key, label: key ? drSplitLabel(key) : 'Unallocated', cash:0, franking:0, rows:{} });
+  const put = (key, sym, cash, fr, isDrp) => {
+    const b = bucket(key);
+    const r = (b.rows[sym] = b.rows[sym] || { symbol:sym, cash:0, franking:0, drpCash:0 });
+    r.cash += cash; r.franking += fr; if(isDrp) r.drpCash += cash;
+    b.cash += cash; b.franking += fr;
+  };
+
+  (typeof dividends!=='undefined' ? dividends : [])
+    .filter(d => dateToFY(d.date) === fy && types.includes(d.type))
+    .forEach(d => {
+      const sym = (d.symbol||'').toUpperCase();
+      if(!drPropsForSymbol(sym).length) return;
+      const amt = +d.amount || 0;
+      if(!amt) return;
+      const isDrp = d.type === 'drp';
+      const pct = d.frankingPct || 0;
+      const cut = drDayBefore(d.exDate || d.date);
+      const open = cache[cut] || (cache[cut] = buildDisposals(cut).openParcels);
+      const parcels = (open[sym]||[]).filter(p => p.units > 0.000001);
+
+      const by = {}; let drpUnits = 0, total = 0;
+      parcels.forEach(p => {
+        total += p.units;
+        if(p.split) by[p.split] = (by[p.split]||0) + p.units;
+        else if(p.source === 'drp') drpUnits += p.units;
+        else by[''] = (by['']||0) + p.units;
+      });
+      if(total <= 0){ put('', sym, amt, frankingCredit(amt, pct), isDrp); return; }
+
+      const base = { ...by };
+      const taggedKeys = Object.keys(base).filter(k => k);
+      const taggedUnits = taggedKeys.reduce((s,k) => s + base[k], 0);
+      if(drpUnits > 0){
+        if(taggedUnits > 0) taggedKeys.forEach(k => { by[k] = base[k] + drpUnits * (base[k] / taggedUnits); });
+        else by[''] = (by['']||0) + drpUnits;
+      }
+      Object.keys(by).forEach(k => {
+        const cash = amt * (by[k] / total);
+        put(k, sym, cash, frankingCredit(cash, pct), isDrp);
+      });
+    });
+
+  const list = Object.values(buckets)
+    .sort((a,b) => (a.key===''?1:0)-(b.key===''?1:0) || a.label.localeCompare(b.label))
+    .map(b => ({ ...b, rows: Object.values(b.rows).sort((x,y) => x.symbol.localeCompare(y.symbol)) }));
+  return {
+    buckets: list,
+    totalCash:    list.reduce((s,b) => s + b.cash, 0),
+    totalFranking:list.reduce((s,b) => s + b.franking, 0),
+  };
+}

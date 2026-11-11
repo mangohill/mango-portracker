@@ -156,6 +156,36 @@ function eofyPropertySummary(fy){
   return { rows, byPerson };
 }
 
+// Debt recycling: dividend / distribution / DRP income for DR-linked symbols,
+// apportioned by the loan split that funded the units (see drSplitIncomeForFY).
+function eofyDRSplitSection(fy, money, esc, label){
+  if(typeof drSplitIncomeForFY !== 'function') return '';
+  let res;
+  try { res = drSplitIncomeForFY(fy); } catch(e){ return ''; }
+  if(!res || !res.buckets.length) return '';
+  const unassignedBuys = (typeof drUnassignedBuys === 'function') ? drUnassignedBuys().length : 0;
+  const owners = {};
+  (typeof properties !== 'undefined' ? properties : []).forEach(p => { owners[p.id] = p.owner || 'joint'; });
+
+  const body = res.buckets.map(b => {
+    const pid = b.key ? b.key.split(':')[0] : '';
+    const own = pid ? owners[pid] : '';
+    const ownTxt = own ? ' <span class="note">(' + label(own) + (own==='joint' ? ', 50% each' : '') + ')</span>' : '';
+    return b.rows.map((r,i) => `<tr>
+      <td>${i===0 ? '<b>'+esc(b.label)+'</b>'+ownTxt : ''}</td>
+      <td>${esc(typeof plainSymbol==='function' ? plainSymbol(r.symbol) : r.symbol)}${r.drpCash>0.005 ? ' <span class="note">(incl. DRP '+money(r.drpCash)+')</span>' : ''}</td>
+      <td style="text-align:right">${money(r.cash)}</td>
+      <td style="text-align:right">${money(r.franking)}</td>
+      <td style="text-align:right">${money(r.cash + r.franking)}</td></tr>`).join('')
+    + (b.rows.length > 1 ? `<tr style="font-weight:600"><td></td><td>Subtotal</td><td style="text-align:right">${money(b.cash)}</td><td style="text-align:right">${money(b.franking)}</td><td style="text-align:right">${money(b.cash + b.franking)}</td></tr>` : '');
+  }).join('');
+
+  return `<h2>Debt Recycling — Income by Loan Split</h2>
+  <table><thead><tr><th>Loan split</th><th>Symbol</th><th style="text-align:right">Dividends received</th><th style="text-align:right">Franking credits</th><th style="text-align:right">Grossed-up income</th></tr></thead><tbody>${body}
+    <tr style="font-weight:700"><td>Total (DR-linked symbols)</td><td></td><td style="text-align:right">${money(res.totalCash)}</td><td style="text-align:right">${money(res.totalFranking)}</td><td style="text-align:right">${money(res.totalCash + res.totalFranking)}</td></tr></tbody></table>
+  <div class="note">Each payment is apportioned by the units each loan split funded on the entitlement date (the day before the ex-date if recorded, otherwise the day before the payment date), using FIFO parcels. Reinvested (DRP) units are spread pro-rata across the tagged splits. "Unallocated" is income from units not assigned to a split, including cash-funded holdings of the same ETF. These are a subset of the Dividends &amp; Franking Credits table above, which covers all holdings.${unassignedBuys ? ' <b>'+unassignedBuys+' buy trade'+(unassignedBuys>1?'s':'')+' of DR-linked symbols could not be assigned to a split</b> — tag them in the Trades tab (Edit).' : ''}</div>`;
+}
+
 function generateEofyPack(fy){
   const persons = typeof getAllPersons === 'function' ? getAllPersons() : ['lumia','chilli'];
   const cgtAll = typeof computeCGTSummary === 'function' ? computeCGTSummary().result : {};
@@ -184,6 +214,7 @@ function generateEofyPack(fy){
     return `<tr><td>${label(p)}</td><td style="text-align:right">${money(d.amount)}</td><td style="text-align:right">${money(d.franking)}</td><td style="text-align:right;font-weight:700">${money(d.amount+d.franking)}</td></tr>`;
   }).filter(Boolean);
   const divTotal = eofyDivFranking(fy, null);
+  const drSplitHtml = eofyDRSplitSection(fy, money, esc, label);
 
   const spend = eofySpendingSummary(fy);
   const prop  = eofyPropertySummary(fy);
@@ -222,6 +253,8 @@ function generateEofyPack(fy){
   <h2>Dividends &amp; Franking Credits</h2>
   ${divRows.length ? `<table><thead><tr><th>Person</th><th style="text-align:right">Dividends received</th><th style="text-align:right">Franking credits</th><th style="text-align:right">Grossed-up income</th></tr></thead><tbody>${divRows.join('')}<tr style="font-weight:700"><td>Total</td><td style="text-align:right">${money(divTotal.amount)}</td><td style="text-align:right">${money(divTotal.franking)}</td><td style="text-align:right">${money(divTotal.amount+divTotal.franking)}</td></tr></tbody></table>`
     : `<div class="empty">No dividends, distributions, DRP, or interest recorded for FY${fy}.</div>`}
+
+  ${drSplitHtml}
 
   <h2>Property — Rental Income &amp; Expenses</h2>
   ${prop ? `

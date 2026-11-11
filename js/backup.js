@@ -528,6 +528,7 @@ function buildExportSheets(){
       subtype: t.subtype||'', from_symbol: t.fromSymbol||'',
       ca_label: t.caLabel||'', split_ratio: t.splitRatio||'',
       alloc_pct: t.allocPct||'', override_cost_basis: t.overrideCostBasis||'',
+      loan_split: t.loanSplit||'',
     };
   });
 
@@ -789,9 +790,10 @@ function csvImportTrades(rows, filename){
       splitRatio:        r.split_ratio || r.splitratio || undefined,
       allocPct:          r.alloc_pct || r.allocpct || undefined,
       overrideCostBasis: parseFloat(r.override_cost_basis || r.overridecostbasis) || undefined,
+      loanSplit:         r.loan_split || r.loansplit || undefined,
     };
     // Clean up undefined extras
-    ['subtype','fromSymbol','caLabel','splitRatio','allocPct','overrideCostBasis']
+    ['subtype','fromSymbol','caLabel','splitRatio','allocPct','overrideCostBasis','loanSplit']
       .forEach(k => { if(!t[k]) delete t[k]; });
     if(!t.date || !t.type || !t.symbol || !t.units || t.units <= 0){ errors++; continue; }
     if(isTradeDuplicate(t)){ skipped++; continue; }

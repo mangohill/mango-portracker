@@ -183,8 +183,8 @@
 
     <div class="fg">
       <div class="fgi"><label class="fl">Date</label><input class="fi" type="date" id="fd"></div>
-      <div class="fgi"><label class="fl">Side</label><select class="fi" id="fsi"><option value="buy">BUY</option><option value="sell">SELL</option></select></div>
-      <div class="fgi"><label class="fl">Symbol</label><input class="fi" type="text" id="fsy" placeholder="e.g. BTC, DHHF, CBA" oninput="this.value=this.value.toUpperCase()"></div>
+      <div class="fgi"><label class="fl">Side</label><select class="fi" id="fsi" onchange="if(typeof drRefreshTradeSplitSelect==='function')drRefreshTradeSplitSelect()"><option value="buy">BUY</option><option value="sell">SELL</option></select></div>
+      <div class="fgi"><label class="fl">Symbol</label><input class="fi" type="text" id="fsy" placeholder="e.g. BTC, DHHF, CBA" oninput="this.value=this.value.toUpperCase();if(typeof drRefreshTradeSplitSelect==='function')drRefreshTradeSplitSelect()"></div>
       <div class="fgi"><label class="fl">Asset Type</label><select class="fi" id="fat"><option value="crypto">Crypto</option><option value="stock">Stock</option><option value="etf">ETF</option><option value="lic">LIC</option><option value="reit">REIT</option><option value="bond">Bond / Fixed Income</option><option value="commodity">Commodity</option><option value="managed">Managed Fund</option><option value="super">Super / Pension</option></select></div>
       <div class="fgi"><label class="fl">Units</label><input class="fi" type="number" id="fun" placeholder="0" step="any" min="0" oninput="prevw()"></div>
       <div class="fgi"><label class="fl">Price per Unit (AUD)</label><input class="fi" type="number" id="fpr" placeholder="0.00" step="any" min="0" oninput="prevw()"></div>
@@ -194,6 +194,7 @@
           <select class="fi" id="fso" style="flex:1"></select>
           <button class="btn" onclick="promptAddBroker('fso')" title="Add custom broker" style="padding:4px 10px;flex-shrink:0">+</button>
         </div></div>
+      <div class="fgi" id="fls-wrap" style="display:none"><label class="fl" title="Debt recycling: which investment loan split funded this purchase. Auto picks it from the split start/end dates when only one is active.">Loan Split (debt recycling)</label><select class="fi" id="fls"></select></div>
       <div class="fgi" style="grid-column:1/-1"><label class="fl">Notes</label><input class="fi" type="text" id="fno" placeholder="Optional"></div>
     </div>
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
